@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Lock as LockIcon, User } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 
@@ -48,9 +49,14 @@ export function PersonalVault({ onNavigate }: Props) {
     }
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Personal Vault', icon: <User size={14} /> },
+  ];
+
   if (loading) {
     return (
-      <Page title="Personal Vault" description="Loading...">
+      <Page title="Personal Vault" description="Loading..." breadcrumbs={breadcrumbs} onNavigate={navigate}>
         <div className="text-center py-8 text-muted-foreground">Loading...</div>
       </Page>
     );
@@ -60,6 +66,8 @@ export function PersonalVault({ onNavigate }: Props) {
     <Page
       title="Personal Vault"
       description={vault ? `${items.length} items in ${folders.length} folders` : 'Your private password vault'}
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
     >
       {error && (
         <Alert variant="error" title="Error loading vault">

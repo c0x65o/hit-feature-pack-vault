@@ -29,6 +29,7 @@ export declare class VaultApiClient {
     deleteItem(id: string): Promise<void>;
     revealItem(id: string): Promise<{
         password?: string;
+        secret?: string;
         notes?: string;
         totpSecret?: string;
     }>;

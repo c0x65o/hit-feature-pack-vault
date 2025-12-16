@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Lock as LockIcon, Folder } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultFolder, VaultItem } from '../schema/vault';
 
@@ -52,10 +53,17 @@ export function FolderView({ folderId, onNavigate }: Props) {
     );
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    ...(folder ? [{ label: folder.name, icon: <Folder size={14} /> }] : []),
+  ];
+
   return (
     <Page
       title={folder?.name || 'Folder not found'}
       description={folder ? `${folder.path} • ${items.length} items` : ''}
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
     >
       {error && (
         <Alert variant="error" title="Error loading folder">

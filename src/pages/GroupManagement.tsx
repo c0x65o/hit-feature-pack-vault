@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Plus } from 'lucide-react';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Plus, Lock as LockIcon, Users } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultStaticGroup } from '../schema/vault';
 
@@ -32,9 +32,14 @@ export function GroupManagement({ onNavigate }: Props) {
     }
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Group Management', icon: <Users size={14} /> },
+  ];
+
   if (loading) {
     return (
-      <Page title="Group Management" description="Loading...">
+      <Page title="Group Management" description="Loading..." breadcrumbs={breadcrumbs} onNavigate={onNavigate}>
         <div className="text-center py-8 text-muted-foreground">Loading...</div>
       </Page>
     );
@@ -44,6 +49,8 @@ export function GroupManagement({ onNavigate }: Props) {
     <Page
       title="Group Management"
       description="Manage static groups for vault sharing"
+      breadcrumbs={breadcrumbs}
+      onNavigate={onNavigate}
       actions={
         <Button variant="primary">
           <Plus size={16} className="mr-2" />

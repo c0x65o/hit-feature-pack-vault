@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Users, Plus } from 'lucide-react';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Users, Plus, Lock as LockIcon } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault } from '../schema/vault';
 
@@ -65,9 +65,14 @@ export function SharedVaults({ onNavigate }: Props) {
     }
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Shared Vaults', icon: <Users size={14} /> },
+  ];
+
   if (loading) {
     return (
-      <Page title="Shared Vaults" description="Loading...">
+      <Page title="Shared Vaults" description="Loading..." breadcrumbs={breadcrumbs} onNavigate={navigate}>
         <div className="text-center py-8 text-muted-foreground">Loading...</div>
       </Page>
     );
@@ -78,6 +83,8 @@ export function SharedVaults({ onNavigate }: Props) {
       <Page
         title="Shared Vaults"
         description="Team and organization password vaults"
+        breadcrumbs={breadcrumbs}
+        onNavigate={navigate}
         actions={
           <Button variant="primary" onClick={() => setShowCreateModal(true)}>
             <Plus size={16} className="mr-2" />

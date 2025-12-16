@@ -165,7 +165,7 @@ export class VaultApiClient {
     });
   }
 
-  async revealItem(id: string): Promise<{ password?: string; notes?: string; totpSecret?: string }> {
+  async revealItem(id: string): Promise<{ password?: string; secret?: string; notes?: string; totpSecret?: string }> {
     return this.request(`/items/${id}/reveal`, {
       method: 'POST',
     });

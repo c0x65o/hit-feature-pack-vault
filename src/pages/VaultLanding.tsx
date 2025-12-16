@@ -1,12 +1,25 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check } from 'lucide-react';
+import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 
 type VaultFilter = 'all' | 'personal' | 'shared';
 
@@ -17,7 +30,8 @@ interface Props {
 type VaultItemRow = VaultItem & { hasTotp?: boolean };
 
 export function VaultLanding({ onNavigate }: Props) {
-  const { Page, Card, Button, Select, Alert } = useUi();
+  const { Page, Card, Button, Select, Alert, AlertDialog } = useUi();
+  const alertDialog = useAlertDialog();
   const [vaultFilter, setVaultFilter] = useState<VaultFilter>('all');
   const [vaults, setVaults] = useState<VaultVault[]>([]);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
@@ -30,6 +44,9 @@ export function VaultLanding({ onNavigate }: Props) {
   const [folderToDelete, setFolderToDelete] = useState<VaultFolder | null>(null);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [totpCopiedFor, setTotpCopiedFor] = useState<string | null>(null);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [showMoveFolderModal, setShowMoveFolderModal] = useState<string | null>(null);
+  const [showMoveItemModal, setShowMoveItemModal] = useState<string | null>(null);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -142,9 +159,25 @@ export function VaultLanding({ onNavigate }: Props) {
     totalSubfolderItems = countSubfolderItems(folder.id);
     
     const totalItems = folderItems.length + totalSubfolderItems;
-    const confirmMessage = `Delete folder "${folder.name}"?\n\nThis will delete:\n- ${totalItems} item(s)\n- ${subfolders.length} subfolder(s)\n\nThis action cannot be undone.`;
+    const message = (
+      <>
+        This will delete:
+        <ul style={{ marginTop: '8px', marginBottom: '8px', paddingLeft: '20px' }}>
+          <li>{totalItems} item(s)</li>
+          <li>{subfolders.length} subfolder(s)</li>
+        </ul>
+        This action cannot be undone.
+      </>
+    );
     
-    if (!confirm(confirmMessage)) {
+    const confirmed = await alertDialog.showConfirm(message, {
+      title: `Delete folder "${folder.name}"?`,
+      variant: 'error',
+      confirmText: 'OK',
+      cancelText: 'Cancel',
+    });
+    
+    if (!confirmed) {
       return;
     }
 
@@ -169,11 +202,12 @@ export function VaultLanding({ onNavigate }: Props) {
         if (!fallbackVault) {
           throw new Error('Personal vault not available');
         }
-        // Use fallback vault
+        // Use folderId from itemData if provided, otherwise use selectedFolderId
+        const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
         const createdItem = await vaultApi.createItem({
           ...itemData,
           vaultId: fallbackVault.id,
-          folderId: selectedFolderId || null,
+          folderId: folderId || null,
         });
         
         if (itemData.totpSecret && createdItem.id) {
@@ -186,10 +220,12 @@ export function VaultLanding({ onNavigate }: Props) {
       }
 
       // Backend will set createdBy from authenticated user
+      // Use folderId from itemData if provided, otherwise use selectedFolderId
+      const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
       const createdItem = await vaultApi.createItem({
         ...itemData,
         vaultId: personalVault.id,
-        folderId: selectedFolderId || null,
+        folderId: folderId || null,
       });
       
       // If TOTP secret was provided, import it after creating the item
@@ -232,8 +268,32 @@ export function VaultLanding({ onNavigate }: Props) {
     try {
       await vaultApi.moveItem(itemId, newFolderId);
       await loadData();
+      setShowMoveItemModal(null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to move item'));
+    }
+  }
+
+  async function handleDeleteItem(item: VaultItemRow) {
+    const confirmed = await alertDialog.showConfirm(
+      `Are you sure you want to delete "${item.title}"? This action cannot be undone.`,
+      {
+        title: 'Delete Item',
+        variant: 'error',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+      }
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await vaultApi.deleteItem(item.id);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to delete item'));
     }
   }
 
@@ -248,6 +308,61 @@ export function VaultLanding({ onNavigate }: Props) {
     }
   }
 
+  async function handleMoveFolder(folderId: string, newParentId: string | null) {
+    try {
+      await vaultApi.moveFolder(folderId, newParentId);
+      await loadData();
+      setShowMoveFolderModal(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to move folder'));
+    }
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor)
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    if (typeof active.id === 'string' && active.id.startsWith('folder:')) {
+      setActiveFolderId(active.id.replace('folder:', ''));
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveFolderId(null);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const activeId = typeof active.id === 'string' ? active.id.replace('folder:', '') : null;
+    const overId = typeof over.id === 'string' ? over.id.replace('folder:', '') : null;
+
+    if (!activeId) return;
+
+    // Prevent moving folder into itself or its descendants
+    const isDescendant = (folderId: string, potentialParentId: string): boolean => {
+      const folder = folders.find(f => f.id === folderId);
+      if (!folder || !folder.parentId) return false;
+      if (folder.parentId === potentialParentId) return true;
+      return isDescendant(folder.parentId, potentialParentId);
+    };
+
+    if (overId && isDescendant(overId, activeId)) {
+      setError(new Error('Cannot move folder into its own subfolder'));
+      return;
+    }
+
+    // If dropping on root (no overId), move to root
+    // If dropping on another folder, move into that folder
+    const newParentId = overId || null;
+    
+    await handleMoveFolder(activeId, newParentId);
+  };
+
   if (loading) {
     return (
       <Page title="Vault" description="Loading...">
@@ -256,10 +371,16 @@ export function VaultLanding({ onNavigate }: Props) {
     );
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', icon: <Lock size={14} /> },
+  ];
+
   return (
     <Page
       title="Vault"
       description="Manage your passwords and 2FA secrets"
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
       actions={
         <div className="flex items-center gap-2">
           <div className="[&>div]:!mb-0">
@@ -290,73 +411,99 @@ export function VaultLanding({ onNavigate }: Props) {
         </Alert>
       )}
 
-      <div className="space-y-6">
-        {/* Root Items (no folder) */}
-        {rootItems.length > 0 && (
-          <div>
-            <h2 className="text-lg font-semibold mb-3">Items</h2>
-            <div className="border rounded-lg overflow-hidden">
-              {rootItems.map((item, index) => (
-                <ItemRow
-                  key={item.id}
-                  item={item}
-                  folders={folders.filter(f => f.vaultId === item.vaultId)}
-                  onNavigate={navigate}
-                  onMoveItem={handleMoveItem}
-                  onQuickTotp={handleQuickTotp}
-                  totpCopied={totpCopiedFor === item.id}
-                  index={index}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Folders */}
-        {rootFolders.map(folder => (
-          <FolderSection
-            key={folder.id}
-            folder={folder}
-            allFolders={folders}
-            allItems={items}
-            vaultTypeById={vaultTypeById}
-            onNavigate={navigate}
-            onDelete={handleDeleteFolder}
-            onSelectFolder={setSelectedFolderId}
-            onAddItem={() => {
-              setSelectedFolderId(folder.id);
-              setShowAddItemModal(true);
-            }}
-            expandedFolderIds={expandedFolderIds}
-            onToggleExpanded={toggleFolderExpanded}
-            onMoveItem={handleMoveItem}
-            onQuickTotp={handleQuickTotp}
-            totpCopiedFor={totpCopiedFor}
-          />
-        ))}
-
-        {rootFolders.length === 0 && rootItems.length === 0 && (
-          <Card>
-            <div className="p-12 text-center">
-              <Lock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">Your vault is empty</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Get started by adding your first password, SSH key, or secure note
-              </p>
-              <div className="flex justify-center gap-2">
-                <Button variant="secondary" onClick={() => setShowAddFolderModal(true)}>
-                  <FolderPlus size={16} className="mr-2" />
-                  Create Folder
-                </Button>
-                <Button variant="primary" onClick={() => setShowAddItemModal(true)}>
-                  <Plus size={16} className="mr-2" />
-                  Add Item
-                </Button>
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="space-y-6">
+          {/* Root Items (no folder) */}
+          {rootItems.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Items</h2>
+              <div className="border rounded-lg overflow-hidden">
+                {rootItems.map((item, index) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    folders={folders.filter(f => f.vaultId === item.vaultId)}
+                    onNavigate={navigate}
+                    onMoveItem={handleMoveItem}
+                    onQuickTotp={handleQuickTotp}
+                    totpCopied={totpCopiedFor === item.id}
+                    index={index}
+                    onDeleteItem={handleDeleteItem}
+                    showMoveItemModal={showMoveItemModal}
+                    onShowMoveItemModal={setShowMoveItemModal}
+                  />
+                ))}
               </div>
             </div>
-          </Card>
-        )}
-      </div>
+          )}
+
+          {/* Root Drop Zone */}
+          <RootDropZone />
+
+          {/* Folders */}
+          {rootFolders.map(folder => (
+            <FolderSection
+              key={folder.id}
+              folder={folder}
+              allFolders={folders}
+              allItems={items}
+              vaultTypeById={vaultTypeById}
+              onNavigate={navigate}
+              onDelete={handleDeleteFolder}
+              onSelectFolder={setSelectedFolderId}
+              onAddItem={(folderId: string) => {
+                setSelectedFolderId(folderId);
+                setShowAddItemModal(true);
+              }}
+              expandedFolderIds={expandedFolderIds}
+              onToggleExpanded={toggleFolderExpanded}
+              onMoveItem={handleMoveItem}
+              onQuickTotp={handleQuickTotp}
+              totpCopiedFor={totpCopiedFor}
+              onMoveFolder={handleMoveFolder}
+              showMoveModal={showMoveFolderModal}
+              onShowMoveModal={setShowMoveFolderModal}
+              onDeleteItem={handleDeleteItem}
+              showMoveItemModal={showMoveItemModal}
+              onShowMoveItemModal={setShowMoveItemModal}
+            />
+          ))}
+
+          {rootFolders.length === 0 && rootItems.length === 0 && (
+            <Card>
+              <div className="p-12 text-center">
+                <Lock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2">Your vault is empty</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Get started by adding your first password, SSH key, or secure note
+                </p>
+                <div className="flex justify-center gap-2">
+                  <Button variant="secondary" onClick={() => setShowAddFolderModal(true)}>
+                    <FolderPlus size={16} className="mr-2" />
+                    Create Folder
+                  </Button>
+                  <Button variant="primary" onClick={() => setShowAddItemModal(true)}>
+                    <Plus size={16} className="mr-2" />
+                    Add Item
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+        <DragOverlay>
+          {activeFolderId ? (
+            <div className="border rounded-lg px-3 py-2 bg-secondary/40 opacity-50">
+              <div className="flex items-center gap-2">
+                <Folder className="h-4 w-4" />
+                <span className="font-medium text-sm">
+                  {folders.find(f => f.id === activeFolderId)?.name || ''}
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {showAddItemModal && (
         <AddItemModal
@@ -377,7 +524,23 @@ export function VaultLanding({ onNavigate }: Props) {
           folders={folders}
         />
       )}
+
+      <AlertDialog {...alertDialog.props} />
     </Page>
+  );
+}
+
+function RootDropZone() {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'root',
+    data: { type: 'folder-drop-zone' },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={isOver ? 'min-h-[20px] border-2 border-dashed border-primary rounded mb-2' : 'min-h-[4px] mb-2'}
+    />
   );
 }
 
@@ -395,6 +558,13 @@ function FolderSection({
   onMoveItem,
   onQuickTotp,
   totpCopiedFor,
+  onMoveFolder,
+  showMoveModal,
+  onShowMoveModal,
+  onDeleteItem,
+  showMoveItemModal,
+  onShowMoveItemModal,
+  level = 0,
 }: {
   folder: VaultFolder;
   allFolders: VaultFolder[];
@@ -403,18 +573,80 @@ function FolderSection({
   onNavigate: (path: string) => void;
   onDelete: (folder: VaultFolder) => void;
   onSelectFolder: (id: string | null) => void;
-  onAddItem: () => void;
+  onAddItem: (folderId: string) => void;
   expandedFolderIds: Set<string>;
   onToggleExpanded: (folderId: string) => void;
   onMoveItem: (itemId: string, newFolderId: string | null) => Promise<void> | void;
   onQuickTotp: (item: VaultItemRow) => Promise<void> | void;
   totpCopiedFor: string | null;
+  onMoveFolder: (folderId: string, newParentId: string | null) => Promise<void> | void;
+  showMoveModal: string | null;
+  onShowMoveModal: (folderId: string | null) => void;
+  onDeleteItem: (item: VaultItemRow) => Promise<void> | void;
+  showMoveItemModal: string | null;
+  onShowMoveItemModal: (itemId: string | null) => void;
+  level?: number;
 }) {
-  const { Button } = useUi();
+  const { Button, Select } = useUi();
   const expanded = expandedFolderIds.has(folder.id);
   const subfolders = allFolders.filter(f => f.parentId === folder.id);
   const directItems = allItems.filter(item => item.folderId === folder.id);
   const folderScope = vaultTypeById[folder.vaultId];
+  
+  // Calculate indentation based on level
+  const indentLevel = level;
+
+  // Drag and drop setup
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `folder:${folder.id}`,
+    data: { type: 'folder', folderId: folder.id },
+  });
+
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: `folder:${folder.id}`,
+    data: { type: 'folder', folderId: folder.id },
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  // Get available folders for move dropdown (exclude current folder and its descendants)
+  const availableFolders = useMemo(() => {
+    // Check if potentialParent is a descendant of folder (to prevent moving folder into its own subfolder)
+    const isDescendant = (potentialParentId: string, ancestorId: string): boolean => {
+      const potentialParent = allFolders.find(f => f.id === potentialParentId);
+      if (!potentialParent || !potentialParent.parentId) return false;
+      if (potentialParent.parentId === ancestorId) return true;
+      return isDescendant(potentialParent.parentId, ancestorId);
+    };
+
+    return allFolders.filter(f => 
+      f.id !== folder.id && 
+      f.vaultId === folder.vaultId &&
+      !isDescendant(f.id, folder.id) // Don't allow moving into own descendants
+    );
+  }, [allFolders, folder.id, folder.vaultId]);
+
+  // Always include current parent in options so Select can show correct current value
+  // even if it's not in availableFolders (shouldn't happen, but safety check)
+  const currentParent = folder.parentId ? allFolders.find(f => f.id === folder.parentId) : null;
+  const foldersForOptions = currentParent && !availableFolders.find(f => f.id === currentParent.id)
+    ? [currentParent, ...availableFolders]
+    : availableFolders;
+
+  const folderOptions = [
+    { value: '', label: 'Root (no folder)' },
+    ...foldersForOptions
+      .slice()
+      .sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name))
+      .map(f => ({
+        value: f.id,
+        label: `${'  '.repeat((f.path?.split('/').filter(Boolean).length || 1) - 1)}${f.name}`,
+        disabled: f.id === folder.parentId, // Disable current parent so user can't "move" to same location
+      })),
+  ];
   
   // Count items in this folder and all subfolders (with cycle detection)
   const totalItems = useMemo(() => {
@@ -444,34 +676,68 @@ function FolderSection({
   }, [folder.id, allItems, allFolders]);
 
   return (
-    <div className="border rounded-lg">
-      <div className="px-3 py-2 bg-secondary/40 flex items-center justify-between">
-        <button
-          onClick={() => onToggleExpanded(folder.id)}
-          className="flex items-center gap-2 flex-1 text-left"
-        >
-          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          <Folder className="h-4 w-4" />
-          <span className="font-medium text-sm">{folder.name}</span>
-          {folderScope && (
-            <span
-              className={[
-                'text-[11px] px-2 py-0.5 rounded border',
-                folderScope === 'personal'
-                  ? 'bg-blue-50 border-blue-200 text-blue-800'
-                  : 'bg-violet-50 border-violet-200 text-violet-800',
-              ].join(' ')}
-              title={folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault'}
-            >
-              {folderScope === 'personal' ? 'Personal' : 'Shared'}
+    <div 
+      ref={setDroppableRef}
+      className={`border rounded-lg ${isOver ? 'border-primary border-2' : ''}`}
+      style={style}
+    >
+      <div 
+        className="px-3 py-2 bg-secondary/40 flex items-center justify-between"
+        style={{ paddingLeft: `${12 + indentLevel * 24}px` }}
+      >
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          {/* Drag Handle */}
+          <div
+            ref={setNodeRef}
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing p-1 -ml-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={14} className="text-muted-foreground" />
+          </div>
+          
+          {/* Move Icon */}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowMoveModal(folder.id);
+            }}
+            title="Move folder"
+            className="p-1 h-auto"
+          >
+            <Move size={14} />
+          </Button>
+          
+          <button
+            onClick={() => onToggleExpanded(folder.id)}
+            className="flex items-center gap-2 flex-1 text-left min-w-0"
+          >
+            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <Folder className="h-4 w-4" />
+            <span className="font-medium text-sm truncate">{folder.name}</span>
+            {folderScope && (
+              <span
+                className={[
+                  'text-[11px] px-2 py-0.5 rounded border flex-shrink-0',
+                  folderScope === 'personal'
+                    ? 'bg-blue-50 border-blue-200 text-blue-800'
+                    : 'bg-violet-50 border-violet-200 text-violet-800',
+                ].join(' ')}
+                title={folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault'}
+              >
+                {folderScope === 'personal' ? 'Personal' : 'Shared'}
+              </span>
+            )}
+            <span className="text-sm text-muted-foreground flex-shrink-0">
+              ({totalItems} item{totalItems !== 1 ? 's' : ''})
             </span>
-          )}
-          <span className="text-sm text-muted-foreground">
-            ({totalItems} item{totalItems !== 1 ? 's' : ''})
-          </span>
-        </button>
+          </button>
+        </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={onAddItem}>
+          <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
             <Plus size={14} />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onDelete(folder)}>
@@ -479,6 +745,35 @@ function FolderSection({
           </Button>
         </div>
       </div>
+      
+      {/* Move Folder Modal */}
+      {showMoveModal === folder.id && (
+        <div className="px-3 py-2 border-t bg-muted/30 flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Move to:</span>
+          <div className="flex-1 min-w-[200px]">
+            <Select
+              value={folder.parentId || ''}
+              onChange={(value) => {
+                // Explicitly handle empty string as root (null parentId)
+                const newParentId = value === '' ? null : value;
+                // Only move if the value actually changed
+                const currentParentId = folder.parentId || null;
+                if (newParentId !== currentParentId) {
+                  onMoveFolder(folder.id, newParentId);
+                }
+              }}
+              options={folderOptions}
+            />
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => onShowMoveModal(null)}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
       {expanded && (
         <div className="border-t bg-background">
           {subfolders.map(subfolder => (
@@ -491,15 +786,21 @@ function FolderSection({
               onNavigate={onNavigate}
               onDelete={onDelete}
               onSelectFolder={onSelectFolder}
-              onAddItem={() => {
-                onSelectFolder(subfolder.id);
-                onAddItem();
+              onAddItem={(folderId: string) => {
+                onAddItem(folderId);
               }}
               expandedFolderIds={expandedFolderIds}
               onToggleExpanded={onToggleExpanded}
               onMoveItem={onMoveItem}
               onQuickTotp={onQuickTotp}
               totpCopiedFor={totpCopiedFor}
+              onMoveFolder={onMoveFolder}
+              showMoveModal={showMoveModal}
+              onShowMoveModal={onShowMoveModal}
+              onDeleteItem={onDeleteItem}
+              showMoveItemModal={showMoveItemModal}
+              onShowMoveItemModal={onShowMoveItemModal}
+              level={level + 1}
             />
           ))}
           {subfolders.length > 0 && directItems.length > 0 && (
@@ -515,6 +816,10 @@ function FolderSection({
               onQuickTotp={onQuickTotp}
               totpCopied={totpCopiedFor === item.id}
               index={index}
+              indentLevel={indentLevel + 1}
+              onDeleteItem={onDeleteItem}
+              showMoveItemModal={showMoveItemModal}
+              onShowMoveItemModal={onShowMoveItemModal}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
@@ -536,6 +841,10 @@ function ItemRow({
   onQuickTotp,
   totpCopied,
   index = 0,
+  indentLevel = 0,
+  onDeleteItem,
+  showMoveItemModal,
+  onShowMoveItemModal,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -544,6 +853,10 @@ function ItemRow({
   onQuickTotp: (item: VaultItemRow) => Promise<void> | void;
   totpCopied: boolean;
   index?: number;
+  indentLevel?: number;
+  onDeleteItem: (item: VaultItemRow) => Promise<void> | void;
+  showMoveItemModal: string | null;
+  onShowMoveItemModal: (itemId: string | null) => void;
 }) {
   const { Button, Select } = useUi();
   
@@ -558,14 +871,20 @@ function ItemRow({
     }
   };
 
+  // Get available folders for move dropdown (same vault only)
+  const availableFolders = useMemo(() => {
+    return folders.filter(f => f.vaultId === item.vaultId);
+  }, [folders, item.vaultId]);
+
   const folderOptions = [
     { value: '', label: 'No folder' },
-    ...folders
+    ...availableFolders
       .slice()
       .sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name))
       .map(f => ({
         value: f.id,
         label: `${'  '.repeat((f.path?.split('/').filter(Boolean).length || 1) - 1)}${f.name}`,
+        disabled: f.id === item.folderId, // Disable current folder so user can't "move" to same location
       })),
   ];
 
@@ -578,6 +897,7 @@ function ItemRow({
         isEven ? 'bg-background' : 'bg-muted/30',
         'hover:bg-muted/60',
       ].join(' ')}
+      style={{ paddingLeft: `${12 + indentLevel * 24}px` }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (!target.closest('button') && !target.closest('select')) {
@@ -608,17 +928,59 @@ function ItemRow({
           {totpCopied ? <Check size={16} className="text-green-600" /> : <ShieldCheck size={16} />}
         </Button>
 
-        <div className="min-w-[160px]" title="Move item to folder">
-          <div className="flex items-center gap-1">
-            <ArrowRightLeft size={14} className="text-muted-foreground" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onShowMoveItemModal(item.id);
+          }}
+          title="Move item to folder"
+        >
+          <Move size={14} />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteItem(item);
+          }}
+          title="Delete item"
+        >
+          <Trash2 size={14} />
+        </Button>
+      </div>
+
+      {/* Move Item Modal */}
+      {showMoveItemModal === item.id && (
+        <div className="px-3 py-2 border-t bg-muted/30 flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Move to:</span>
+          <div className="flex-1 min-w-[200px]">
             <Select
               value={item.folderId || ''}
-              onChange={(value) => onMoveItem(item.id, value ? value : null)}
+              onChange={(value) => {
+                // Explicitly handle empty string as root (null folderId)
+                const newFolderId = value === '' ? null : value;
+                // Only move if the value actually changed
+                const currentFolderId = item.folderId || null;
+                if (newFolderId !== currentFolderId) {
+                  onMoveItem(item.id, newFolderId);
+                }
+              }}
               options={folderOptions}
             />
           </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => onShowMoveItemModal(null)}
+          >
+            Cancel
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

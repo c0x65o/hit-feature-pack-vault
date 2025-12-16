@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Lock as LockIcon, Users, Folder } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 
@@ -47,9 +48,15 @@ export function SharedVaultDetail({ vaultId, onNavigate }: Props) {
     }
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Shared Vaults', href: '/vault/shared', icon: <Users size={14} /> },
+    ...(vault ? [{ label: vault.name, icon: <Folder size={14} /> }] : []),
+  ];
+
   if (loading) {
     return (
-      <Page title="Loading..." description="">
+      <Page title="Loading..." description="" breadcrumbs={breadcrumbs} onNavigate={navigate}>
         <div className="text-center py-8 text-muted-foreground">Loading...</div>
       </Page>
     );
@@ -59,6 +66,8 @@ export function SharedVaultDetail({ vaultId, onNavigate }: Props) {
     <Page
       title={vault?.name || 'Vault not found'}
       description={vault ? `Shared vault • ${items.length} items in ${folders.length} folders` : ''}
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
     >
       {error && (
         <Alert variant="error" title="Error loading vault">

@@ -2,7 +2,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Users, Plus } from 'lucide-react';
+import { Users, Plus, Lock as LockIcon } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 export function SharedVaults({ onNavigate }) {
     const { Page, Card, Alert, Button, Modal, Input } = useUi();
@@ -59,10 +59,14 @@ export function SharedVaults({ onNavigate }) {
             setCreating(false);
         }
     }
+    const breadcrumbs = [
+        { label: 'Vault', href: '/vault/personal', icon: _jsx(LockIcon, { size: 14 }) },
+        { label: 'Shared Vaults', icon: _jsx(Users, { size: 14 }) },
+    ];
     if (loading) {
-        return (_jsx(Page, { title: "Shared Vaults", description: "Loading...", children: _jsx("div", { className: "text-center py-8 text-muted-foreground", children: "Loading..." }) }));
+        return (_jsx(Page, { title: "Shared Vaults", description: "Loading...", breadcrumbs: breadcrumbs, onNavigate: navigate, children: _jsx("div", { className: "text-center py-8 text-muted-foreground", children: "Loading..." }) }));
     }
-    return (_jsxs(_Fragment, { children: [_jsxs(Page, { title: "Shared Vaults", description: "Team and organization password vaults", actions: _jsxs(Button, { variant: "primary", onClick: () => setShowCreateModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Create Vault"] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error loading vaults", children: error.message })), vaults.length === 0 && (_jsx(Card, { children: _jsx("div", { className: "p-6 text-center text-muted-foreground", children: "No shared vaults available. Create one to get started." }) })), vaults.length > 0 && (_jsx("div", { className: "grid gap-4 md:grid-cols-2 lg:grid-cols-3", children: vaults.map(vault => (_jsx("button", { onClick: () => navigate(`/vault/shared/${vault.id}`), className: "text-left", children: _jsx(Card, { children: _jsxs("div", { className: "p-6", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Users, { className: "h-5 w-5" }), _jsx("h3", { className: "font-semibold", children: vault.name })] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Shared vault" })] }) }) }, vault.id))) }))] }), _jsx(Modal, { open: showCreateModal, onClose: () => {
+    return (_jsxs(_Fragment, { children: [_jsxs(Page, { title: "Shared Vaults", description: "Team and organization password vaults", breadcrumbs: breadcrumbs, onNavigate: navigate, actions: _jsxs(Button, { variant: "primary", onClick: () => setShowCreateModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Create Vault"] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error loading vaults", children: error.message })), vaults.length === 0 && (_jsx(Card, { children: _jsx("div", { className: "p-6 text-center text-muted-foreground", children: "No shared vaults available. Create one to get started." }) })), vaults.length > 0 && (_jsx("div", { className: "grid gap-4 md:grid-cols-2 lg:grid-cols-3", children: vaults.map(vault => (_jsx("button", { onClick: () => navigate(`/vault/shared/${vault.id}`), className: "text-left", children: _jsx(Card, { children: _jsxs("div", { className: "p-6", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Users, { className: "h-5 w-5" }), _jsx("h3", { className: "font-semibold", children: vault.name })] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Shared vault" })] }) }) }, vault.id))) }))] }), _jsx(Modal, { open: showCreateModal, onClose: () => {
                     setShowCreateModal(false);
                     setVaultName('');
                     setCreateError(null);

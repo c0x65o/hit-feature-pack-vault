@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
 import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultItem } from '../schema/vault';
@@ -61,10 +61,8 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     try {
       const revealedData = await vaultApi.revealItem(item.id);
       setRevealed(revealedData);
-      // Auto-show password for API keys, require click for credentials
-      if (item.type === 'api_key') {
-        setShowPassword(true);
-      }
+      // Don't auto-show - user must click eye icon to reveal
+      setShowPassword(false);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to reveal item'));
     }
@@ -113,10 +111,18 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     );
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <Lock size={14} /> },
+    ...(item?.folderId ? [{ label: 'Folder', href: `/vault/folders/${item.folderId}` }] : []),
+    { label: item?.title || 'Item' },
+  ];
+
   return (
     <Page
       title={item?.title || 'Item not found'}
       description={item?.url || ''}
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
       actions={
         item ? (
           <Button variant="primary" onClick={() => navigate(`/vault/items/${item.id}/edit`)}>
@@ -221,31 +227,64 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                 </div>
               )}
 
-              {item.type === 'api_key' && (revealed?.secret || revealed?.password) && (
+              {item.type === 'api_key' && (
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Secret / Key</label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1 break-all">
-                      {showPassword ? (revealed.secret || revealed.password) : '••••••••'}
-                    </code>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy('secret', revealed.secret || revealed.password!)}
-                    >
-                      {copied.secret ? (
-                        <Check size={16} className="text-green-600" />
-                      ) : (
-                        <Copy size={16} />
-                      )}
-                    </Button>
+                  <div className="relative mt-1">
+                    {revealed?.secret || revealed?.password ? (
+                      <>
+                        <textarea
+                          value={showPassword ? (revealed.secret || revealed.password) : '•'.repeat(Math.max((revealed.secret || revealed.password || '').length, 50))}
+                          readOnly
+                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm bg-secondary"
+                          style={{
+                            ...(showPassword ? {} : { 
+                              caretColor: 'transparent',
+                            })
+                          }}
+                        />
+                        <div className="absolute top-2 right-2 flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowPassword(!showPassword)}
+                            title={showPassword ? 'Hide key' : 'Show key'}
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCopy('secret', revealed.secret || revealed.password!)}
+                            title="Copy key"
+                          >
+                            {copied.secret ? (
+                              <Check size={16} className="text-green-600" />
+                            ) : (
+                              <Copy size={16} />
+                            )}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <textarea
+                          value="••••••••"
+                          readOnly
+                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm bg-secondary"
+                        />
+                        <div className="absolute top-2 right-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleReveal}
+                            title="Reveal secret"
+                          >
+                            <Eye size={16} />
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

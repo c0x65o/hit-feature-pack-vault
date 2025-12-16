@@ -1,13 +1,16 @@
 'use client';
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsxs as _jsxs, Fragment as _Fragment, jsx as _jsx } from "react/jsx-runtime";
 import React, { useState, useEffect, useMemo } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check } from 'lucide-react';
+import { useUi, useAlertDialog } from '@hit/ui-kit';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
+import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 export function VaultLanding({ onNavigate }) {
-    const { Page, Card, Button, Select, Alert } = useUi();
+    const { Page, Card, Button, Select, Alert, AlertDialog } = useUi();
+    const alertDialog = useAlertDialog();
     const [vaultFilter, setVaultFilter] = useState('all');
     const [vaults, setVaults] = useState([]);
     const [folders, setFolders] = useState([]);
@@ -20,6 +23,9 @@ export function VaultLanding({ onNavigate }) {
     const [folderToDelete, setFolderToDelete] = useState(null);
     const [expandedFolderIds, setExpandedFolderIds] = useState(new Set());
     const [totpCopiedFor, setTotpCopiedFor] = useState(null);
+    const [activeFolderId, setActiveFolderId] = useState(null);
+    const [showMoveFolderModal, setShowMoveFolderModal] = useState(null);
+    const [showMoveItemModal, setShowMoveItemModal] = useState(null);
     const navigate = (path) => {
         if (onNavigate)
             onNavigate(path);
@@ -124,8 +130,14 @@ export function VaultLanding({ onNavigate }) {
         };
         totalSubfolderItems = countSubfolderItems(folder.id);
         const totalItems = folderItems.length + totalSubfolderItems;
-        const confirmMessage = `Delete folder "${folder.name}"?\n\nThis will delete:\n- ${totalItems} item(s)\n- ${subfolders.length} subfolder(s)\n\nThis action cannot be undone.`;
-        if (!confirm(confirmMessage)) {
+        const message = (_jsxs(_Fragment, { children: ["This will delete:", _jsxs("ul", { style: { marginTop: '8px', marginBottom: '8px', paddingLeft: '20px' }, children: [_jsxs("li", { children: [totalItems, " item(s)"] }), _jsxs("li", { children: [subfolders.length, " subfolder(s)"] })] }), "This action cannot be undone."] }));
+        const confirmed = await alertDialog.showConfirm(message, {
+            title: `Delete folder "${folder.name}"?`,
+            variant: 'error',
+            confirmText: 'OK',
+            cancelText: 'Cancel',
+        });
+        if (!confirmed) {
             return;
         }
         try {
@@ -149,11 +161,12 @@ export function VaultLanding({ onNavigate }) {
                 if (!fallbackVault) {
                     throw new Error('Personal vault not available');
                 }
-                // Use fallback vault
+                // Use folderId from itemData if provided, otherwise use selectedFolderId
+                const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
                 const createdItem = await vaultApi.createItem({
                     ...itemData,
                     vaultId: fallbackVault.id,
-                    folderId: selectedFolderId || null,
+                    folderId: folderId || null,
                 });
                 if (itemData.totpSecret && createdItem.id) {
                     await vaultApi.importTotp(createdItem.id, itemData.totpSecret);
@@ -163,10 +176,12 @@ export function VaultLanding({ onNavigate }) {
                 return;
             }
             // Backend will set createdBy from authenticated user
+            // Use folderId from itemData if provided, otherwise use selectedFolderId
+            const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
             const createdItem = await vaultApi.createItem({
                 ...itemData,
                 vaultId: personalVault.id,
-                folderId: selectedFolderId || null,
+                folderId: folderId || null,
             });
             // If TOTP secret was provided, import it after creating the item
             if (itemData.totpSecret && createdItem.id) {
@@ -206,9 +221,28 @@ export function VaultLanding({ onNavigate }) {
         try {
             await vaultApi.moveItem(itemId, newFolderId);
             await loadData();
+            setShowMoveItemModal(null);
         }
         catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to move item'));
+        }
+    }
+    async function handleDeleteItem(item) {
+        const confirmed = await alertDialog.showConfirm(`Are you sure you want to delete "${item.title}"? This action cannot be undone.`, {
+            title: 'Delete Item',
+            variant: 'error',
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+        });
+        if (!confirmed) {
+            return;
+        }
+        try {
+            await vaultApi.deleteItem(item.id);
+            await loadData();
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to delete item'));
         }
     }
     async function handleQuickTotp(item) {
@@ -222,27 +256,130 @@ export function VaultLanding({ onNavigate }) {
             setError(err instanceof Error ? err : new Error('Failed to generate 2FA code'));
         }
     }
+    async function handleMoveFolder(folderId, newParentId) {
+        try {
+            await vaultApi.moveFolder(folderId, newParentId);
+            await loadData();
+            setShowMoveFolderModal(null);
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to move folder'));
+        }
+    }
+    const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor));
+    const handleDragStart = (event) => {
+        const { active } = event;
+        if (typeof active.id === 'string' && active.id.startsWith('folder:')) {
+            setActiveFolderId(active.id.replace('folder:', ''));
+        }
+    };
+    const handleDragEnd = async (event) => {
+        const { active, over } = event;
+        setActiveFolderId(null);
+        if (!over || active.id === over.id) {
+            return;
+        }
+        const activeId = typeof active.id === 'string' ? active.id.replace('folder:', '') : null;
+        const overId = typeof over.id === 'string' ? over.id.replace('folder:', '') : null;
+        if (!activeId)
+            return;
+        // Prevent moving folder into itself or its descendants
+        const isDescendant = (folderId, potentialParentId) => {
+            const folder = folders.find(f => f.id === folderId);
+            if (!folder || !folder.parentId)
+                return false;
+            if (folder.parentId === potentialParentId)
+                return true;
+            return isDescendant(folder.parentId, potentialParentId);
+        };
+        if (overId && isDescendant(overId, activeId)) {
+            setError(new Error('Cannot move folder into its own subfolder'));
+            return;
+        }
+        // If dropping on root (no overId), move to root
+        // If dropping on another folder, move into that folder
+        const newParentId = overId || null;
+        await handleMoveFolder(activeId, newParentId);
+    };
     if (loading) {
         return (_jsx(Page, { title: "Vault", description: "Loading...", children: _jsx("div", { className: "text-center py-8 text-muted-foreground", children: "Loading..." }) }));
     }
-    return (_jsxs(Page, { title: "Vault", description: "Manage your passwords and 2FA secrets", actions: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("div", { className: "[&>div]:!mb-0", children: _jsx(Select, { value: vaultFilter, onChange: (value) => setVaultFilter(value), options: [
+    const breadcrumbs = [
+        { label: 'Vault', icon: _jsx(Lock, { size: 14 }) },
+    ];
+    return (_jsxs(Page, { title: "Vault", description: "Manage your passwords and 2FA secrets", breadcrumbs: breadcrumbs, onNavigate: navigate, actions: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("div", { className: "[&>div]:!mb-0", children: _jsx(Select, { value: vaultFilter, onChange: (value) => setVaultFilter(value), options: [
                             { value: 'all', label: 'All Vaults' },
                             { value: 'personal', label: 'Personal Only' },
                             { value: 'shared', label: 'Shared Only' },
-                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders.filter(f => f.vaultId === item.vaultId), onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index }, item.id))) })] })), rootFolders.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: () => {
-                            setSelectedFolderId(folder.id);
-                            setShowAddItemModal(true);
-                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor }, folder.id))), rootFolders.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), showAddItemModal && (_jsx(AddItemModal, { onClose: () => {
+                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs(DndContext, { sensors: sensors, onDragStart: handleDragStart, onDragEnd: handleDragEnd, children: [_jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders.filter(f => f.vaultId === item.vaultId), onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal }, item.id))) })] })), _jsx(RootDropZone, {}), rootFolders.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
+                                    setSelectedFolderId(folderId);
+                                    setShowAddItemModal(true);
+                                }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal }, folder.id))), rootFolders.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), _jsx(DragOverlay, { children: activeFolderId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folders.find(f => f.id === activeFolderId)?.name || '' })] }) })) : null })] }), showAddItemModal && (_jsx(AddItemModal, { onClose: () => {
                     setShowAddItemModal(false);
                     setSelectedFolderId(null);
-                }, onSave: handleCreateItem, folderId: selectedFolderId })), showAddFolderModal && (_jsx(FolderModal, { onClose: () => setShowAddFolderModal(false), onSave: handleCreateFolder, vaults: vaults, folders: folders }))] }));
+                }, onSave: handleCreateItem, folderId: selectedFolderId })), showAddFolderModal && (_jsx(FolderModal, { onClose: () => setShowAddFolderModal(false), onSave: handleCreateFolder, vaults: vaults, folders: folders })), _jsx(AlertDialog, { ...alertDialog.props })] }));
 }
-function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, }) {
-    const { Button } = useUi();
+function RootDropZone() {
+    const { setNodeRef, isOver } = useDroppable({
+        id: 'root',
+        data: { type: 'folder-drop-zone' },
+    });
+    return (_jsx("div", { ref: setNodeRef, className: isOver ? 'min-h-[20px] border-2 border-dashed border-primary rounded mb-2' : 'min-h-[4px] mb-2' }));
+}
+function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, onMoveFolder, showMoveModal, onShowMoveModal, onDeleteItem, showMoveItemModal, onShowMoveItemModal, level = 0, }) {
+    const { Button, Select } = useUi();
     const expanded = expandedFolderIds.has(folder.id);
     const subfolders = allFolders.filter(f => f.parentId === folder.id);
     const directItems = allItems.filter(item => item.folderId === folder.id);
     const folderScope = vaultTypeById[folder.vaultId];
+    // Calculate indentation based on level
+    const indentLevel = level;
+    // Drag and drop setup
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: `folder:${folder.id}`,
+        data: { type: 'folder', folderId: folder.id },
+    });
+    const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+        id: `folder:${folder.id}`,
+        data: { type: 'folder', folderId: folder.id },
+    });
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        opacity: isDragging ? 0.5 : 1,
+    };
+    // Get available folders for move dropdown (exclude current folder and its descendants)
+    const availableFolders = useMemo(() => {
+        // Check if potentialParent is a descendant of folder (to prevent moving folder into its own subfolder)
+        const isDescendant = (potentialParentId, ancestorId) => {
+            const potentialParent = allFolders.find(f => f.id === potentialParentId);
+            if (!potentialParent || !potentialParent.parentId)
+                return false;
+            if (potentialParent.parentId === ancestorId)
+                return true;
+            return isDescendant(potentialParent.parentId, ancestorId);
+        };
+        return allFolders.filter(f => f.id !== folder.id &&
+            f.vaultId === folder.vaultId &&
+            !isDescendant(f.id, folder.id) // Don't allow moving into own descendants
+        );
+    }, [allFolders, folder.id, folder.vaultId]);
+    // Always include current parent in options so Select can show correct current value
+    // even if it's not in availableFolders (shouldn't happen, but safety check)
+    const currentParent = folder.parentId ? allFolders.find(f => f.id === folder.parentId) : null;
+    const foldersForOptions = currentParent && !availableFolders.find(f => f.id === currentParent.id)
+        ? [currentParent, ...availableFolders]
+        : availableFolders;
+    const folderOptions = [
+        { value: '', label: 'Root (no folder)' },
+        ...foldersForOptions
+            .slice()
+            .sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name))
+            .map(f => ({
+            value: f.id,
+            label: `${'  '.repeat((f.path?.split('/').filter(Boolean).length || 1) - 1)}${f.name}`,
+            disabled: f.id === folder.parentId, // Disable current parent so user can't "move" to same location
+        })),
+    ];
     // Count items in this folder and all subfolders (with cycle detection)
     const totalItems = useMemo(() => {
         const visited = new Set();
@@ -267,17 +404,27 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
         };
         return countRecursive(folder.id);
     }, [folder.id, allItems, allFolders]);
-    return (_jsxs("div", { className: "border rounded-lg", children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", children: [_jsxs("button", { onClick: () => onToggleExpanded(folder.id), className: "flex items-center gap-2 flex-1 text-left", children: [expanded ? _jsx(ChevronDown, { className: "h-4 w-4" }) : _jsx(ChevronRight, { className: "h-4 w-4" }), _jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folder.name }), folderScope && (_jsx("span", { className: [
-                                    'text-[11px] px-2 py-0.5 rounded border',
-                                    folderScope === 'personal'
-                                        ? 'bg-blue-50 border-blue-200 text-blue-800'
-                                        : 'bg-violet-50 border-violet-200 text-violet-800',
-                                ].join(' '), title: folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault', children: folderScope === 'personal' ? 'Personal' : 'Shared' })), _jsxs("span", { className: "text-sm text-muted-foreground", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] }), _jsxs("div", { className: "flex items-center gap-1", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: onAddItem, children: _jsx(Plus, { size: 14 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) })] })] }), expanded && (_jsxs("div", { className: "border-t bg-background", children: [subfolders.map(subfolder => (_jsx(FolderSection, { folder: subfolder, allFolders: allFolders, allItems: allItems, vaultTypeById: vaultTypeById, onNavigate: onNavigate, onDelete: onDelete, onSelectFolder: onSelectFolder, onAddItem: () => {
-                            onSelectFolder(subfolder.id);
-                            onAddItem();
-                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders.filter(f => f.vaultId === item.vaultId), onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
+    return (_jsxs("div", { ref: setDroppableRef, className: `border rounded-lg ${isOver ? 'border-primary border-2' : ''}`, style: style, children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", style: { paddingLeft: `${12 + indentLevel * 24}px` }, children: [_jsxs("div", { className: "flex items-center gap-1 flex-1 min-w-0", children: [_jsx("div", { ref: setNodeRef, ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                                    e.stopPropagation();
+                                    onShowMoveModal(folder.id);
+                                }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) }), _jsxs("button", { onClick: () => onToggleExpanded(folder.id), className: "flex items-center gap-2 flex-1 text-left min-w-0", children: [expanded ? _jsx(ChevronDown, { className: "h-4 w-4" }) : _jsx(ChevronRight, { className: "h-4 w-4" }), _jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm truncate", children: folder.name }), folderScope && (_jsx("span", { className: [
+                                            'text-[11px] px-2 py-0.5 rounded border flex-shrink-0',
+                                            folderScope === 'personal'
+                                                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                                                : 'bg-violet-50 border-violet-200 text-violet-800',
+                                        ].join(' '), title: folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault', children: folderScope === 'personal' ? 'Personal' : 'Shared' })), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] })] }), _jsxs("div", { className: "flex items-center gap-1", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) })] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
+                                // Explicitly handle empty string as root (null parentId)
+                                const newParentId = value === '' ? null : value;
+                                // Only move if the value actually changed
+                                const currentParentId = folder.parentId || null;
+                                if (newParentId !== currentParentId) {
+                                    onMoveFolder(folder.id, newParentId);
+                                }
+                            }, options: folderOptions }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onShowMoveModal(null), children: "Cancel" })] })), expanded && (_jsxs("div", { className: "border-t bg-background", children: [subfolders.map(subfolder => (_jsx(FolderSection, { folder: subfolder, allFolders: allFolders, allItems: allItems, vaultTypeById: vaultTypeById, onNavigate: onNavigate, onDelete: onDelete, onSelectFolder: onSelectFolder, onAddItem: (folderId) => {
+                            onAddItem(folderId);
+                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, level: level + 1 }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders.filter(f => f.vaultId === item.vaultId), onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
 }
-function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, }) {
+function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, }) {
     const { Button, Select } = useUi();
     const getItemIcon = () => {
         switch (item.type) {
@@ -289,14 +436,19 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
                 return _jsx(Lock, { size: 14 });
         }
     };
+    // Get available folders for move dropdown (same vault only)
+    const availableFolders = useMemo(() => {
+        return folders.filter(f => f.vaultId === item.vaultId);
+    }, [folders, item.vaultId]);
     const folderOptions = [
         { value: '', label: 'No folder' },
-        ...folders
+        ...availableFolders
             .slice()
             .sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name))
             .map(f => ({
             value: f.id,
             label: `${'  '.repeat((f.path?.split('/').filter(Boolean).length || 1) - 1)}${f.name}`,
+            disabled: f.id === item.folderId, // Disable current folder so user can't "move" to same location
         })),
     ];
     const isEven = index % 2 === 0;
@@ -304,11 +456,25 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
             'px-3 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors border-b border-border/50 last:border-b-0',
             isEven ? 'bg-background' : 'bg-muted/30',
             'hover:bg-muted/60',
-        ].join(' '), onClick: (e) => {
+        ].join(' '), style: { paddingLeft: `${12 + indentLevel * 24}px` }, onClick: (e) => {
             const target = e.target;
             if (!target.closest('button') && !target.closest('select')) {
                 onNavigate(`/vault/items/${item.id}`);
             }
-        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2", onClick: (e) => e.stopPropagation(), children: [_jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), _jsx("div", { className: "min-w-[160px]", title: "Move item to folder", children: _jsxs("div", { className: "flex items-center gap-1", children: [_jsx(ArrowRightLeft, { size: 14, className: "text-muted-foreground" }), _jsx(Select, { value: item.folderId || '', onChange: (value) => onMoveItem(item.id, value ? value : null), options: folderOptions })] }) })] })] }));
+        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2", onClick: (e) => e.stopPropagation(), children: [_jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                            e.stopPropagation();
+                            onShowMoveItemModal(item.id);
+                        }, title: "Move item to folder", children: _jsx(Move, { size: 14 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                            e.stopPropagation();
+                            onDeleteItem(item);
+                        }, title: "Delete item", children: _jsx(Trash2, { size: 14 }) })] }), showMoveItemModal === item.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: item.folderId || '', onChange: (value) => {
+                                // Explicitly handle empty string as root (null folderId)
+                                const newFolderId = value === '' ? null : value;
+                                // Only move if the value actually changed
+                                const currentFolderId = item.folderId || null;
+                                if (newFolderId !== currentFolderId) {
+                                    onMoveItem(item.id, newFolderId);
+                                }
+                            }, options: folderOptions }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onShowMoveItemModal(null), children: "Cancel" })] }))] }));
 }
 export default VaultLanding;

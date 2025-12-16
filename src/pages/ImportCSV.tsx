@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Upload } from 'lucide-react';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Upload, Lock as LockIcon } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 
 interface Props {
@@ -41,10 +41,17 @@ export function ImportCSV({ onNavigate }: Props) {
     }
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Import CSV', icon: <Upload size={14} /> },
+  ];
+
   return (
     <Page
       title="Import CSV"
       description="Import passwords from a CSV file"
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
     >
       {error && (
         <Alert variant="error" title="Error importing">

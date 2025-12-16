@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Save, Trash2, AlertCircle } from 'lucide-react';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Save, Trash2, AlertCircle, Lock as LockIcon, Phone, Settings } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 
 interface Props {
@@ -99,9 +99,15 @@ export function PhoneNumberSetup({ onNavigate }: Props) {
     );
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Setup', href: '/vault/setup', icon: <Settings size={14} /> },
+    { label: 'Phone Number', icon: <Phone size={14} /> },
+  ];
+
   if (!isAdmin) {
     return (
-      <Page title="Phone Number Setup" description="Configure SMS phone number for 2FA">
+      <Page title="Phone Number Setup" description="Configure SMS phone number for 2FA" breadcrumbs={breadcrumbs} onNavigate={navigate}>
         <Alert variant="error" title="Access Denied">
           Admin access required to configure phone numbers.
         </Alert>
@@ -113,6 +119,8 @@ export function PhoneNumberSetup({ onNavigate }: Props) {
     <Page
       title="Phone Number Setup"
       description="Configure the shared phone number for SMS 2FA codes"
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
     >
       {error && (
         <Alert variant="error" title="Error">

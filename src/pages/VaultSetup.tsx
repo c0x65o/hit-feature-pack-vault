@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw } from 'lucide-react';
+import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw, Lock as LockIcon, Settings } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage } from '../schema/vault';
 
@@ -144,9 +144,16 @@ export function VaultSetup({ onNavigate }: Props) {
     );
   }
 
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Setup', icon: <Settings size={14} /> },
+  ];
+
   return (
     <Page
       title="Setup"
+      breadcrumbs={breadcrumbs}
+      onNavigate={navigate}
       description="Configure project SMS 2FA phone number and view inbox for debugging"
     >
       {error && (
