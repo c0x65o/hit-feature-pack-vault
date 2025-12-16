@@ -10,6 +10,7 @@ import type {
   VaultAcl,
   VaultSmsNumber,
   VaultSmsMessage,
+  VaultWebhookLog,
   VaultAuditEvent,
   VaultStaticGroup,
   InsertVaultVault,
@@ -374,6 +375,25 @@ export class VaultApiClient {
     if (filters?.limit) params.append('limit', String(filters.limit));
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request<VaultAuditEvent[]>(`/audit${query}`);
+  }
+
+  // Webhook Logs (admin only)
+  async getWebhookLogs(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    items: VaultWebhookLog[];
+    pagination: {
+      total: number;
+      limit: number;
+      offset: number;
+    };
+  }> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', String(options.limit));
+    if (options?.offset) params.append('offset', String(options.offset));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/webhook-logs${query}`);
   }
 
   // Static Groups (fallback)

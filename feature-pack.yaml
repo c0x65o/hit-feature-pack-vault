@@ -79,6 +79,7 @@ schema:
     vaultAcls,
     vaultSmsNumbers,
     vaultSmsMessages,
+    vaultWebhookLogs,
     vaultAuditEvents,
     vaultStaticGroups,
     vaultGroupMembers,
@@ -88,6 +89,7 @@ schema:
     VaultAcl,
     VaultSmsNumber,
     VaultSmsMessage,
+    VaultWebhookLog,
     VaultAuditEvent,
     VaultStaticGroup,
     VaultGroupMember,
@@ -97,6 +99,7 @@ schema:
     InsertVaultAcl,
     InsertVaultSmsNumber,
     InsertVaultSmsMessage,
+    InsertVaultWebhookLog,
     InsertVaultAuditEvent,
     InsertVaultStaticGroup,
     InsertVaultGroupMember,
@@ -201,6 +204,10 @@ api:
       methods: [POST]
       handler: "@hit/feature-pack-vault/server/api/sms-messages-reveal"
       description: "Reveal SMS message body (audited)"
+    - path: /api/vault/webhook-logs
+      methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/webhook-logs"
+      description: "List webhook logs (admin only)"
     # Import
     - path: /api/vault/import/csv/preview
       methods: [POST]

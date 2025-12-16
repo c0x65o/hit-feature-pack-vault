@@ -2,7 +2,7 @@
  * Vault API Service
  * Client for interacting with vault API endpoints
  */
-import type { VaultVault, VaultFolder, VaultItem, VaultAcl, VaultSmsNumber, VaultSmsMessage, VaultAuditEvent, VaultStaticGroup, InsertVaultVault, InsertVaultFolder, InsertVaultItem, InsertVaultAcl } from '../schema/vault';
+import type { VaultVault, VaultFolder, VaultItem, VaultAcl, VaultSmsNumber, VaultSmsMessage, VaultWebhookLog, VaultAuditEvent, VaultStaticGroup, InsertVaultVault, InsertVaultFolder, InsertVaultItem, InsertVaultAcl } from '../schema/vault';
 /**
  * Vault API Client
  */
@@ -104,6 +104,17 @@ export declare class VaultApiClient {
         actorUserId?: string;
         limit?: number;
     }): Promise<VaultAuditEvent[]>;
+    getWebhookLogs(options?: {
+        limit?: number;
+        offset?: number;
+    }): Promise<{
+        items: VaultWebhookLog[];
+        pagination: {
+            total: number;
+            limit: number;
+            offset: number;
+        };
+    }>;
     getGroups(): Promise<VaultStaticGroup[]>;
     createGroup(name: string, description?: string): Promise<VaultStaticGroup>;
     updateGroup(id: string, data: Partial<VaultStaticGroup>): Promise<VaultStaticGroup>;

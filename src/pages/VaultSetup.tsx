@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw, Lock as LockIcon, Settings } from 'lucide-react';
+import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import type { VaultSmsNumber, VaultSmsMessage } from '../schema/vault';
+import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
 
 interface Props {
   onNavigate?: (path: string) => void;
@@ -22,6 +22,8 @@ export function VaultSetup({ onNavigate }: Props) {
   const [messages, setMessages] = useState<VaultSmsMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [revealedMessages, setRevealedMessages] = useState<Map<string, string>>(new Map());
+  const [webhookLogs, setWebhookLogs] = useState<VaultWebhookLog[]>([]);
+  const [loadingWebhookLogs, setLoadingWebhookLogs] = useState(false);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -30,6 +32,7 @@ export function VaultSetup({ onNavigate }: Props) {
 
   useEffect(() => {
     loadData();
+    loadWebhookLogs();
   }, []);
 
   useEffect(() => {
@@ -69,6 +72,18 @@ export function VaultSetup({ onNavigate }: Props) {
       setError(err instanceof Error ? err : new Error('Failed to load messages'));
     } finally {
       setLoadingMessages(false);
+    }
+  }
+
+  async function loadWebhookLogs() {
+    try {
+      setLoadingWebhookLogs(true);
+      const result = await vaultApi.getWebhookLogs({ limit: 50 });
+      setWebhookLogs(result.items);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to load webhook logs'));
+    } finally {
+      setLoadingWebhookLogs(false);
     }
   }
 
@@ -326,6 +341,105 @@ export function VaultSetup({ onNavigate }: Props) {
             </div>
           </Card>
         )}
+
+        {/* Webhook Logs */}
+        <Card>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Activity size={20} />
+                Webhook Logs
+              </h2>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={loadWebhookLogs}
+                disabled={loadingWebhookLogs}
+              >
+                <RefreshCw size={16} className={`mr-2 ${loadingWebhookLogs ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              View all incoming webhook requests for debugging. This includes successful requests, failed requests, and validation errors.
+            </p>
+
+            {loadingWebhookLogs ? (
+              <div className="text-center py-4 text-muted-foreground">Loading webhook logs...</div>
+            ) : webhookLogs.length === 0 ? (
+              <div className="text-center py-4 text-muted-foreground">
+                No webhook logs yet
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {webhookLogs.map(log => (
+                  <div
+                    key={log.id}
+                    className={`p-3 border rounded-lg ${
+                      log.success
+                        ? 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800'
+                        : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="text-sm flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{log.method}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            log.success
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                              : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          }`}>
+                            {log.statusCode || 'N/A'}
+                          </span>
+                          {log.processingTimeMs && (
+                            <span className="text-xs text-muted-foreground">
+                              {log.processingTimeMs}ms
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {new Date(log.receivedAt).toLocaleString()}
+                        </div>
+                        {log.fromNumber && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            From: {log.fromNumber} → To: {log.toNumber || 'N/A'}
+                          </div>
+                        )}
+                        {log.messageSid && (
+                          <div className="text-xs text-muted-foreground mt-1 font-mono">
+                            SID: {log.messageSid}
+                          </div>
+                        )}
+                        {log.error && (
+                          <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                            Error: {log.error}
+                          </div>
+                        )}
+                        {log.ip && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            IP: {log.ip}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {log.body && Object.keys(log.body).length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-muted-foreground cursor-pointer">
+                          View request body
+                        </summary>
+                        <pre className="text-xs mt-2 p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto">
+                          {JSON.stringify(log.body, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
     </Page>
   );

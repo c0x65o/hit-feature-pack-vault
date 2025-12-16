@@ -1,9 +1,10 @@
 // src/server/api/folders.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, desc, asc, like, sql, and, inArray, type AnyColumn } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultFolders, vaultVaults, vaultAcls } from '@/lib/feature-pack-schemas';
+import { eq, desc, asc, like, sql, and, inArray, or, type AnyColumn } from 'drizzle-orm';
+import { extractUserFromRequest } from '../auth';
+import { checkVaultAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -31,8 +32,8 @@ export async function GET(request: NextRequest) {
     const vaultId = searchParams.get('vaultId') || null;
     const parentId = searchParams.get('parentId') || null;
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -40,19 +41,33 @@ export async function GET(request: NextRequest) {
     const userVaults = await db
       .select({ id: vaultVaults.id })
       .from(vaultVaults)
-      .where(eq(vaultVaults.ownerUserId, userId));
+      .where(eq(vaultVaults.ownerUserId, user.sub));
     
     const userVaultIds = userVaults.map((v: { id: string }) => v.id);
+
+    // Get vaults user has ACL access to
+    // TODO: Optimize this - could cache user's accessible vaults
+    const allVaults = await db.select({ id: vaultVaults.id }).from(vaultVaults);
+    const accessibleVaultIds = new Set<string>(userVaultIds);
     
-    if (userVaultIds.length === 0) {
+    for (const vault of allVaults) {
+      if (!accessibleVaultIds.has(vault.id)) {
+        const accessCheck = await checkVaultAccess(db, vault.id, user);
+        if (accessCheck.hasAccess) {
+          accessibleVaultIds.add(vault.id);
+        }
+      }
+    }
+    
+    if (accessibleVaultIds.size === 0) {
       return NextResponse.json({
         items: [],
         pagination: { page, pageSize, total: 0, totalPages: 0 },
       });
     }
 
-    // Build where conditions - folders must be in user's vaults
-    const conditions: ReturnType<typeof eq>[] = [inArray(vaultFolders.vaultId, userVaultIds)];
+    // Build where conditions - folders must be in accessible vaults
+    const conditions: ReturnType<typeof eq>[] = [inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds))];
     
     if (vaultId) {
       conditions.push(eq(vaultFolders.vaultId, vaultId));
@@ -133,23 +148,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify user owns the vault
-    const vault = await db
+    // Verify user has access to vault (ownership or ACL with IMPORT permission)
+    const [vault] = await db
       .select()
       .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, body.vaultId),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
+      .where(eq(vaultVaults.id, body.vaultId))
       .limit(1);
 
-    if (!vault[0]) {
+    if (!vault) {
       return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
+    }
+
+    // Check if user owns vault or has IMPORT permission
+    if (vault.ownerUserId !== user.sub) {
+      const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['IMPORT']);
+      if (!accessCheck.hasAccess) {
+        return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+      }
     }
 
     // Build materialized path
@@ -173,7 +193,7 @@ export async function POST(request: NextRequest) {
       parentId: body.parentId || null,
       name: body.name as string,
       path,
-      createdBy: userId,
+      createdBy: user.sub,
     }).returning();
 
     return NextResponse.json(result[0], { status: 201 });

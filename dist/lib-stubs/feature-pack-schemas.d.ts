@@ -7,5 +7,5 @@
  *
  * This stub re-exports from the local schema file for type checking.
  */
-export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultStaticGroups, vaultGroupMembers, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, type VaultVault, type VaultFolder, type VaultItem, type VaultAcl, type VaultSmsNumber, type VaultSmsMessage, type VaultAuditEvent, type VaultStaticGroup, type VaultGroupMember, type InsertVaultVault, type InsertVaultFolder, type InsertVaultItem, type InsertVaultAcl, type InsertVaultSmsNumber, type InsertVaultSmsMessage, type InsertVaultAuditEvent, type InsertVaultStaticGroup, type InsertVaultGroupMember, } from '../schema/vault';
+export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultStaticGroups, vaultGroupMembers, vaultSmsNumbers, vaultSmsMessages, vaultWebhookLogs, vaultAuditEvents, type VaultVault, type VaultFolder, type VaultItem, type VaultAcl, type VaultSmsNumber, type VaultSmsMessage, type VaultWebhookLog, type VaultAuditEvent, type VaultStaticGroup, type VaultGroupMember, type InsertVaultVault, type InsertVaultFolder, type InsertVaultItem, type InsertVaultAcl, type InsertVaultSmsNumber, type InsertVaultSmsMessage, type InsertVaultWebhookLog, type InsertVaultAuditEvent, type InsertVaultStaticGroup, type InsertVaultGroupMember, } from '../schema/vault';
 //# sourceMappingURL=feature-pack-schemas.d.ts.map

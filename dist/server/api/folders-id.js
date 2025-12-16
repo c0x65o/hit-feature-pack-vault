@@ -1,9 +1,10 @@
 // src/server/api/folders-id.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, and, inArray } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultFolders } from '@/lib/feature-pack-schemas';
+import { eq } from 'drizzle-orm';
+import { extractUserFromRequest } from '../auth';
+import { checkFolderAccess } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -12,22 +13,21 @@ function extractId(request) {
     return parts[parts.length - 1] || null;
 }
 /**
- * Check if user has access to a folder (via vault ownership)
+ * Check if user has access to a folder (via vault ownership or ACL)
  */
-async function verifyFolderAccess(db, folderId, userId) {
-    // Get user's vault IDs
-    const userVaults = await db
-        .select({ id: vaultVaults.id })
-        .from(vaultVaults)
-        .where(eq(vaultVaults.ownerUserId, userId));
-    const userVaultIds = userVaults.map((v) => v.id);
-    if (userVaultIds.length === 0)
+async function verifyFolderAccess(db, folderId, user) {
+    if (!user)
         return null;
-    // Check if folder is in user's vaults
+    // Check ACL access
+    const accessCheck = await checkFolderAccess(db, folderId, user);
+    if (!accessCheck.hasAccess) {
+        return null;
+    }
+    // Get folder if access is granted
     const [folder] = await db
         .select()
         .from(vaultFolders)
-        .where(and(eq(vaultFolders.id, folderId), inArray(vaultFolders.vaultId, userVaultIds)))
+        .where(eq(vaultFolders.id, folderId))
         .limit(1);
     return folder;
 }
@@ -41,11 +41,11 @@ export async function GET(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const folder = await verifyFolderAccess(db, id, userId);
+        const folder = await verifyFolderAccess(db, id, user);
         if (!folder) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -67,12 +67,17 @@ export async function PUT(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const body = await request.json();
-        const existing = await verifyFolderAccess(db, id, userId);
+        // Check if user has EDIT permission
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['EDIT'] });
+        if (!accessCheck.hasAccess) {
+            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        }
+        const existing = await verifyFolderAccess(db, id, user);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -110,11 +115,16 @@ export async function DELETE(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const existing = await verifyFolderAccess(db, id, userId);
+        // Check if user has DELETE permission
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] });
+        if (!accessCheck.hasAccess) {
+            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        }
+        const existing = await verifyFolderAccess(db, id, user);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }

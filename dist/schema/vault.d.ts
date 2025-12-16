@@ -903,6 +903,185 @@ export declare const vaultSmsMessages: import("drizzle-orm/pg-core").PgTableWith
     dialect: "pg";
 }>;
 /**
+ * Webhook Logs Table
+ * Logs all incoming webhook requests for debugging
+ */
+export declare const vaultWebhookLogs: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "vault_webhook_logs";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        receivedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "received_at";
+            tableName: "vault_webhook_logs";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        method: import("drizzle-orm/pg-core").PgColumn<{
+            name: "method";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        url: import("drizzle-orm/pg-core").PgColumn<{
+            name: "url";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        headers: import("drizzle-orm/pg-core").PgColumn<{
+            name: "headers";
+            tableName: "vault_webhook_logs";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: Record<string, string>;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        body: import("drizzle-orm/pg-core").PgColumn<{
+            name: "body";
+            tableName: "vault_webhook_logs";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: Record<string, any>;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        ip: import("drizzle-orm/pg-core").PgColumn<{
+            name: "ip";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        statusCode: import("drizzle-orm/pg-core").PgColumn<{
+            name: "status_code";
+            tableName: "vault_webhook_logs";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        success: import("drizzle-orm/pg-core").PgColumn<{
+            name: "success";
+            tableName: "vault_webhook_logs";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        error: import("drizzle-orm/pg-core").PgColumn<{
+            name: "error";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        processingTimeMs: import("drizzle-orm/pg-core").PgColumn<{
+            name: "processing_time_ms";
+            tableName: "vault_webhook_logs";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        messageSid: import("drizzle-orm/pg-core").PgColumn<{
+            name: "message_sid";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        fromNumber: import("drizzle-orm/pg-core").PgColumn<{
+            name: "from_number";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        toNumber: import("drizzle-orm/pg-core").PgColumn<{
+            name: "to_number";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
+/**
  * Audit Events Table
  * Immutable audit log for all sensitive actions
  */
@@ -1087,6 +1266,7 @@ export type VaultItem = typeof vaultItems.$inferSelect;
 export type VaultAcl = typeof vaultAcls.$inferSelect;
 export type VaultSmsNumber = typeof vaultSmsNumbers.$inferSelect;
 export type VaultSmsMessage = typeof vaultSmsMessages.$inferSelect;
+export type VaultWebhookLog = typeof vaultWebhookLogs.$inferSelect;
 export type VaultAuditEvent = typeof vaultAuditEvents.$inferSelect;
 export type VaultStaticGroup = typeof vaultStaticGroups.$inferSelect;
 export type VaultGroupMember = typeof vaultGroupMembers.$inferSelect;
@@ -1096,6 +1276,7 @@ export type InsertVaultItem = typeof vaultItems.$inferInsert;
 export type InsertVaultAcl = typeof vaultAcls.$inferInsert;
 export type InsertVaultSmsNumber = typeof vaultSmsNumbers.$inferInsert;
 export type InsertVaultSmsMessage = typeof vaultSmsMessages.$inferInsert;
+export type InsertVaultWebhookLog = typeof vaultWebhookLogs.$inferInsert;
 export type InsertVaultAuditEvent = typeof vaultAuditEvents.$inferInsert;
 export type InsertVaultStaticGroup = typeof vaultStaticGroups.$inferInsert;
 export type InsertVaultGroupMember = typeof vaultGroupMembers.$inferInsert;

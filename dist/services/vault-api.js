@@ -284,6 +284,16 @@ export class VaultApiClient {
         const query = params.toString() ? `?${params.toString()}` : '';
         return this.request(`/audit${query}`);
     }
+    // Webhook Logs (admin only)
+    async getWebhookLogs(options) {
+        const params = new URLSearchParams();
+        if (options?.limit)
+            params.append('limit', String(options.limit));
+        if (options?.offset)
+            params.append('offset', String(options.offset));
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/webhook-logs${query}`);
+    }
     // Static Groups (fallback)
     async getGroups() {
         return this.request('/groups');

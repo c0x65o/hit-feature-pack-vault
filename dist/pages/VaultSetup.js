@@ -2,7 +2,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Save, Trash2, Copy, RefreshCw, Lock as LockIcon, Settings } from 'lucide-react';
+import { Save, Trash2, Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 export function VaultSetup({ onNavigate }) {
     const { Page, Card, Button, Input, Alert } = useUi();
@@ -16,6 +16,8 @@ export function VaultSetup({ onNavigate }) {
     const [messages, setMessages] = useState([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [revealedMessages, setRevealedMessages] = useState(new Map());
+    const [webhookLogs, setWebhookLogs] = useState([]);
+    const [loadingWebhookLogs, setLoadingWebhookLogs] = useState(false);
     const navigate = (path) => {
         if (onNavigate)
             onNavigate(path);
@@ -24,6 +26,7 @@ export function VaultSetup({ onNavigate }) {
     };
     useEffect(() => {
         loadData();
+        loadWebhookLogs();
     }, []);
     useEffect(() => {
         if (selectedSmsNumberId) {
@@ -65,6 +68,19 @@ export function VaultSetup({ onNavigate }) {
         }
         finally {
             setLoadingMessages(false);
+        }
+    }
+    async function loadWebhookLogs() {
+        try {
+            setLoadingWebhookLogs(true);
+            const result = await vaultApi.getWebhookLogs({ limit: 50 });
+            setWebhookLogs(result.items);
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to load webhook logs'));
+        }
+        finally {
+            setLoadingWebhookLogs(false);
         }
     }
     async function handleSave() {
@@ -142,6 +158,10 @@ export function VaultSetup({ onNavigate }) {
                                             const isRevealed = !!revealedBody;
                                             const messageBody = isRevealed ? revealedBody : '••••••••';
                                             return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.fromNumber] }), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), _jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border", children: messageBody })] }, msg.id));
-                                        }) })) }))] }) }))] })] }));
+                                        }) })) }))] }) })), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("h2", { className: "text-lg font-semibold flex items-center gap-2", children: [_jsx(Activity, { size: 20 }), "Webhook Logs"] }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: loadWebhookLogs, disabled: loadingWebhookLogs, children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loadingWebhookLogs ? 'animate-spin' : ''}` }), "Refresh"] })] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "View all incoming webhook requests for debugging. This includes successful requests, failed requests, and validation errors." }), loadingWebhookLogs ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "Loading webhook logs..." })) : webhookLogs.length === 0 ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "No webhook logs yet" })) : (_jsx("div", { className: "space-y-2 max-h-96 overflow-y-auto", children: webhookLogs.map(log => (_jsxs("div", { className: `p-3 border rounded-lg ${log.success
+                                            ? 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800'
+                                            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`, children: [_jsx("div", { className: "flex items-start justify-between mb-2", children: _jsxs("div", { className: "text-sm flex-1", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx("span", { className: "font-medium", children: log.method }), _jsx("span", { className: `px-2 py-0.5 rounded text-xs ${log.success
+                                                                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                                                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`, children: log.statusCode || 'N/A' }), log.processingTimeMs && (_jsxs("span", { className: "text-xs text-muted-foreground", children: [log.processingTimeMs, "ms"] }))] }), _jsx("div", { className: "text-xs text-muted-foreground mt-1", children: new Date(log.receivedAt).toLocaleString() }), log.fromNumber && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["From: ", log.fromNumber, " \u2192 To: ", log.toNumber || 'N/A'] })), log.messageSid && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1 font-mono", children: ["SID: ", log.messageSid] })), log.error && (_jsxs("div", { className: "text-xs text-red-600 dark:text-red-400 mt-1", children: ["Error: ", log.error] })), log.ip && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["IP: ", log.ip] }))] }) }), log.body && Object.keys(log.body).length > 0 && (_jsxs("details", { className: "mt-2", children: [_jsx("summary", { className: "text-xs text-muted-foreground cursor-pointer", children: "View request body" }), _jsx("pre", { className: "text-xs mt-2 p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto", children: JSON.stringify(log.body, null, 2) })] }))] }, log.id))) }))] }) })] })] }));
 }
 export default VaultSetup;

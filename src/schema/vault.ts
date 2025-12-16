@@ -285,6 +285,35 @@ export const vaultSmsMessages = pgTable(
 );
 
 /**
+ * Webhook Logs Table
+ * Logs all incoming webhook requests for debugging
+ */
+export const vaultWebhookLogs = pgTable(
+  "vault_webhook_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receivedAt: timestamp("received_at").defaultNow().notNull(),
+    method: varchar("method", { length: 10 }).notNull(), // GET, POST, etc.
+    url: text("url").notNull(),
+    headers: jsonb("headers").$type<Record<string, string>>(), // Request headers
+    body: jsonb("body").$type<Record<string, any>>(), // Request body (sanitized)
+    ip: varchar("ip", { length: 45 }), // Client IP
+    statusCode: integer("status_code"), // Response status code
+    success: boolean("success").notNull().default(true),
+    error: text("error"), // Error message if failed
+    processingTimeMs: integer("processing_time_ms"), // Time taken to process
+    messageSid: varchar("message_sid", { length: 100 }), // Twilio message SID if applicable
+    fromNumber: varchar("from_number", { length: 50 }),
+    toNumber: varchar("to_number", { length: 50 }),
+  },
+  (table) => ({
+    receivedIdx: index("vault_webhook_logs_received_idx").on(table.receivedAt),
+    successIdx: index("vault_webhook_logs_success_idx").on(table.success),
+    messageSidIdx: index("vault_webhook_logs_message_sid_idx").on(table.messageSid),
+  })
+);
+
+/**
  * Audit Events Table
  * Immutable audit log for all sensitive actions
  */
@@ -390,6 +419,7 @@ export type VaultItem = typeof vaultItems.$inferSelect;
 export type VaultAcl = typeof vaultAcls.$inferSelect;
 export type VaultSmsNumber = typeof vaultSmsNumbers.$inferSelect;
 export type VaultSmsMessage = typeof vaultSmsMessages.$inferSelect;
+export type VaultWebhookLog = typeof vaultWebhookLogs.$inferSelect;
 export type VaultAuditEvent = typeof vaultAuditEvents.$inferSelect;
 export type VaultStaticGroup = typeof vaultStaticGroups.$inferSelect;
 export type VaultGroupMember = typeof vaultGroupMembers.$inferSelect;
@@ -400,6 +430,7 @@ export type InsertVaultItem = typeof vaultItems.$inferInsert;
 export type InsertVaultAcl = typeof vaultAcls.$inferInsert;
 export type InsertVaultSmsNumber = typeof vaultSmsNumbers.$inferInsert;
 export type InsertVaultSmsMessage = typeof vaultSmsMessages.$inferInsert;
+export type InsertVaultWebhookLog = typeof vaultWebhookLogs.$inferInsert;
 export type InsertVaultAuditEvent = typeof vaultAuditEvents.$inferInsert;
 export type InsertVaultStaticGroup = typeof vaultStaticGroups.$inferInsert;
 export type InsertVaultGroupMember = typeof vaultGroupMembers.$inferInsert;

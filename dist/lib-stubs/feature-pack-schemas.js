@@ -8,4 +8,4 @@
  * This stub re-exports from the local schema file for type checking.
  */
 // Re-export from the actual schema file for type checking during build
-export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultStaticGroups, vaultGroupMembers, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, } from '../schema/vault';
+export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultStaticGroups, vaultGroupMembers, vaultSmsNumbers, vaultSmsMessages, vaultWebhookLogs, vaultAuditEvents, } from '../schema/vault';

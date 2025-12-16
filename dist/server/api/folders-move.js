@@ -1,9 +1,10 @@
 // src/server/api/folders-move.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
+import { vaultFolders } from '@/lib/feature-pack-schemas';
 import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { extractUserFromRequest } from '../auth';
+import { checkFolderAccess } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -24,13 +25,13 @@ export async function POST(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const body = await request.json();
         const parentId = body.parentId || null;
-        // Get folder and verify user owns the vault it belongs to
+        // Get folder
         const [existing] = await db
             .select()
             .from(vaultFolders)
@@ -39,16 +40,12 @@ export async function POST(request) {
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        // Verify user owns the vault
-        const [vault] = await db
-            .select()
-            .from(vaultVaults)
-            .where(and(eq(vaultVaults.id, existing.vaultId), eq(vaultVaults.ownerUserId, userId)))
-            .limit(1);
-        if (!vault) {
-            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        // Check if user has EDIT permission on the folder
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['EDIT'] });
+        if (!accessCheck.hasAccess) {
+            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }
-        // If parentId provided, verify it exists in the same vault
+        // If parentId provided, verify it exists in the same vault and user has access
         if (parentId) {
             const [parent] = await db
                 .select()
@@ -57,6 +54,11 @@ export async function POST(request) {
                 .limit(1);
             if (!parent) {
                 return NextResponse.json({ error: 'Parent folder not found' }, { status: 404 });
+            }
+            // Check if user has access to parent folder
+            const parentAccessCheck = await checkFolderAccess(db, parentId, user);
+            if (!parentAccessCheck.hasAccess) {
+                return NextResponse.json({ error: 'Forbidden: No access to parent folder' }, { status: 403 });
             }
         }
         // Update folder - vaultFolders doesn't have updatedAt field

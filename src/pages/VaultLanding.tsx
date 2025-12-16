@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
+import { FolderAclModal } from '../components/FolderAclModal';
 import {
   DndContext,
   DragOverlay,
@@ -47,6 +48,7 @@ export function VaultLanding({ onNavigate }: Props) {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [showMoveFolderModal, setShowMoveFolderModal] = useState<string | null>(null);
   const [showMoveItemModal, setShowMoveItemModal] = useState<string | null>(null);
+  const [showAclModalFolderId, setShowAclModalFolderId] = useState<string | null>(null);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -466,6 +468,7 @@ export function VaultLanding({ onNavigate }: Props) {
               onDeleteItem={handleDeleteItem}
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={setShowMoveItemModal}
+              onShowAclModal={setShowAclModalFolderId}
             />
           ))}
 
@@ -525,6 +528,17 @@ export function VaultLanding({ onNavigate }: Props) {
         />
       )}
 
+      {showAclModalFolderId && (
+        <FolderAclModal
+          folderId={showAclModalFolderId}
+          isOpen={!!showAclModalFolderId}
+          onClose={() => setShowAclModalFolderId(null)}
+          onUpdate={() => {
+            loadData();
+          }}
+        />
+      )}
+
       <AlertDialog {...alertDialog.props} />
     </Page>
   );
@@ -564,6 +578,7 @@ function FolderSection({
   onDeleteItem,
   showMoveItemModal,
   onShowMoveItemModal,
+  onShowAclModal,
   level = 0,
 }: {
   folder: VaultFolder;
@@ -585,6 +600,7 @@ function FolderSection({
   onDeleteItem: (item: VaultItemRow) => Promise<void> | void;
   showMoveItemModal: string | null;
   onShowMoveItemModal: (itemId: string | null) => void;
+  onShowAclModal: (folderId: string | null) => void;
   level?: number;
 }) {
   const { Button, Select } = useUi();
@@ -737,6 +753,17 @@ function FolderSection({
           </button>
         </div>
         <div className="flex items-center gap-1">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowAclModal(folder.id);
+            }}
+            title="Manage Access"
+          >
+            <Users size={14} />
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
             <Plus size={14} />
           </Button>
@@ -800,6 +827,7 @@ function FolderSection({
               onDeleteItem={onDeleteItem}
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={onShowMoveItemModal}
+              onShowAclModal={onShowAclModal}
               level={level + 1}
             />
           ))}
