@@ -295,8 +295,8 @@ export function VaultLanding({ onNavigate }: Props) {
         {rootItems.length > 0 && (
           <div>
             <h2 className="text-lg font-semibold mb-3">Items</h2>
-            <div className="grid gap-2">
-              {rootItems.map(item => (
+            <div className="border rounded-lg overflow-hidden">
+              {rootItems.map((item, index) => (
                 <ItemRow
                   key={item.id}
                   item={item}
@@ -305,6 +305,7 @@ export function VaultLanding({ onNavigate }: Props) {
                   onMoveItem={handleMoveItem}
                   onQuickTotp={handleQuickTotp}
                   totpCopied={totpCopiedFor === item.id}
+                  index={index}
                 />
               ))}
             </div>
@@ -479,7 +480,7 @@ function FolderSection({
         </div>
       </div>
       {expanded && (
-        <div className="px-3 py-2 space-y-1">
+        <div className="border-t bg-background">
           {subfolders.map(subfolder => (
             <FolderSection
               key={subfolder.id}
@@ -501,7 +502,10 @@ function FolderSection({
               totpCopiedFor={totpCopiedFor}
             />
           ))}
-          {directItems.map(item => (
+          {subfolders.length > 0 && directItems.length > 0 && (
+            <div className="h-px bg-border/50" />
+          )}
+          {directItems.map((item, index) => (
             <ItemRow
               key={item.id}
               item={item}
@@ -510,10 +514,11 @@ function FolderSection({
               onMoveItem={onMoveItem}
               onQuickTotp={onQuickTotp}
               totpCopied={totpCopiedFor === item.id}
+              index={index}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
-            <div className="text-sm text-muted-foreground text-center py-4">
+            <div className="text-sm text-muted-foreground text-center py-6 bg-muted/20">
               Empty folder
             </div>
           )}
@@ -530,6 +535,7 @@ function ItemRow({
   onMoveItem,
   onQuickTotp,
   totpCopied,
+  index = 0,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -537,6 +543,7 @@ function ItemRow({
   onMoveItem: (itemId: string, newFolderId: string | null) => Promise<void> | void;
   onQuickTotp: (item: VaultItemRow) => Promise<void> | void;
   totpCopied: boolean;
+  index?: number;
 }) {
   const { Button, Select } = useUi();
   
@@ -562,9 +569,15 @@ function ItemRow({
       })),
   ];
 
+  const isEven = index % 2 === 0;
+  
   return (
     <div
-      className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-secondary/50 rounded cursor-pointer border border-transparent hover:border-border transition-colors"
+      className={[
+        'px-3 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors border-b border-border/50 last:border-b-0',
+        isEven ? 'bg-background' : 'bg-muted/30',
+        'hover:bg-muted/60',
+      ].join(' ')}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (!target.closest('button') && !target.closest('select')) {

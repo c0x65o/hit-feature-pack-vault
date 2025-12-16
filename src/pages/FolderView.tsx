@@ -80,20 +80,29 @@ export function FolderView({ folderId, onNavigate }: Props) {
       )}
 
       {folder && items.length > 0 && (
-        <div className="grid gap-2">
-          {items.map(item => (
-            <button key={item.id} onClick={() => navigate(`/vault/items/${item.id}`)} className="text-left w-full">
-              <Card>
-                <div className="p-4">
-                  <h3 className="font-medium">{item.title}</h3>
-                  <p className="text-sm text-muted-foreground">
+        <div className="border rounded-lg overflow-hidden">
+          {items.map((item, index) => {
+            const isEven = index % 2 === 0;
+            return (
+              <button
+                key={item.id}
+                onClick={() => navigate(`/vault/items/${item.id}`)}
+                className={[
+                  'text-left w-full px-3 py-2.5 flex items-center justify-between gap-3 transition-colors border-b border-border/50 last:border-b-0',
+                  isEven ? 'bg-background' : 'bg-muted/30',
+                  'hover:bg-muted/60',
+                ].join(' ')}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium text-sm">{item.title}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {item.username && `Username: ${item.username}`}
                     {item.url && ` • ${item.url}`}
                   </p>
                 </div>
-              </Card>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </Page>
