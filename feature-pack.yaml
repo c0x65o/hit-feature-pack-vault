@@ -5,7 +5,9 @@ name: vault
 version: 1.0.0
 description: Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
 
-# Route definitions - mapped to React components
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTES - Frontend page routes
+# ─────────────────────────────────────────────────────────────────────────────
 routes:
   - path: /vault
     page: VaultLanding
@@ -35,7 +37,9 @@ routes:
     page: GroupManagement
     roles: [admin]  # Only if static groups enabled
 
-# Navigation contributions - auto-added to shell sidebar
+# ─────────────────────────────────────────────────────────────────────────────
+# NAVIGATION - Sidebar/topbar items
+# ─────────────────────────────────────────────────────────────────────────────
 nav:
   - id: vault
     label: Vault
@@ -64,8 +68,9 @@ nav:
         weight: 120
         showWhen: authenticated
 
-# Schema contributions (Drizzle tables)
-# Projects import these into their schema
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEMA - Drizzle ORM table definitions
+# ─────────────────────────────────────────────────────────────────────────────
 schema:
   source: src/schema/vault.ts
   exports: [
@@ -98,118 +103,151 @@ schema:
     InsertVaultGroupMember,
   ]
 
-# API routes the feature pack expects
-# Applications should create these routes using the schema
+# ─────────────────────────────────────────────────────────────────────────────
+# API ROUTES - Backend endpoints (handler-based pattern - RECOMMENDED)
+# ─────────────────────────────────────────────────────────────────────────────
 api:
   routes:
     # Vaults
     - path: /api/vault/vaults
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/vaults"
       description: "List vaults (GET) or create shared vault (POST)"
     - path: /api/vault/vaults/[id]
       methods: [GET, PUT, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/vaults-id"
       description: "Get, update, or delete a vault"
     # Folders
     - path: /api/vault/folders
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/folders"
       description: "List folders (GET) or create folder (POST)"
     - path: /api/vault/folders/[id]
       methods: [GET, PUT, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/folders-id"
       description: "Get, update, or delete a folder"
     - path: /api/vault/folders/[id]/move
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/folders-move"
       description: "Move folder to new parent"
     # Items
     - path: /api/vault/items
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/items"
       description: "List items (GET) or create item (POST)"
     - path: /api/vault/items/[id]
       methods: [GET, PUT, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/items-id"
       description: "Get, update, or delete an item"
     - path: /api/vault/items/[id]/reveal
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-reveal"
       description: "Reveal decrypted password/secret (audited)"
     - path: /api/vault/items/[id]/copy
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-copy"
       description: "Copy password to clipboard (audited)"
     - path: /api/vault/items/[id]/move
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-move"
       description: "Move item to new folder"
     # Sharing/ACL
     - path: /api/vault/acl
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/acl"
       description: "List ACLs (GET) or create ACL entry (POST)"
     - path: /api/vault/acl/[id]
       methods: [DELETE]
+      handler: "@hit/feature-pack-vault/server/api/acl-id"
       description: "Delete ACL entry"
     - path: /api/vault/acl/recompute
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/acl-recompute"
       description: "Recompute effective ACLs for a resource"
     # 2FA TOTP
     - path: /api/vault/items/[id]/totp/import
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-totp-import"
       description: "Import TOTP secret (QR or manual)"
     - path: /api/vault/items/[id]/totp/code
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-totp-code"
       description: "Generate TOTP code (audited)"
     - path: /api/vault/items/[id]/totp
       methods: [DELETE]
+      handler: "@hit/feature-pack-vault/server/api/items-totp"
       description: "Remove TOTP secret"
     # SMS
     - path: /api/vault/sms/numbers
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/sms-numbers"
       description: "List SMS numbers (GET) or provision number (POST)"
     - path: /api/vault/sms/numbers/[id]
       methods: [GET, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/sms-numbers-id"
       description: "Get or delete SMS number"
     - path: /api/vault/sms/webhook/inbound
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/sms-webhook-inbound"
       description: "Inbound SMS webhook (Twilio/etc)"
     - path: /api/vault/sms/numbers/[id]/messages
       methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/sms-numbers-messages"
       description: "List messages for SMS number"
     - path: /api/vault/sms/messages/[id]/reveal
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/sms-messages-reveal"
       description: "Reveal SMS message body (audited)"
     # Import
     - path: /api/vault/import/csv/preview
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/import-csv-preview"
       description: "Preview CSV import with mapping"
     - path: /api/vault/import/csv/commit
       methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/import-csv-commit"
       description: "Commit CSV import"
     # Search
     - path: /api/vault/search
       methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/search"
       description: "Search items by metadata (access-controlled)"
     # Audit
     - path: /api/vault/audit
       methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/audit"
       description: "List audit events (filtered by access)"
     - path: /api/vault/audit/export
       methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/audit-export"
       description: "Export audit log (admin only)"
     # Groups (static only)
     - path: /api/vault/groups
       methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/groups"
       description: "List groups (GET) or create group (POST) - static groups only"
     - path: /api/vault/groups/[id]
       methods: [GET, PUT, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/groups-id"
       description: "Get, update, or delete group - static groups only"
     - path: /api/vault/groups/[id]/members
       methods: [GET, POST, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/groups-members"
       description: "Manage group members - static groups only"
 
-# Dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+# DEPENDENCIES
+# ─────────────────────────────────────────────────────────────────────────────
 requires:
   modules: [auth]
 
-# Dependencies on other feature packs
 dependencies:
   feature_packs:
     - name: dashboard-shell
 
-# Configurable options
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION OPTIONS
+# ─────────────────────────────────────────────────────────────────────────────
 config:
   schema:
     use_dynamic_groups:

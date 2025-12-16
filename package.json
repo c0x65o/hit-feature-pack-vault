@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,6 +23,12 @@
       "import": "./dist/schema/vault.js",
       "require": "./dist/schema/vault.js",
       "default": "./dist/schema/vault.js"
+    },
+    "./server/api/*": {
+      "types": "./dist/server/api/*.d.ts",
+      "import": "./dist/server/api/*.js",
+      "require": "./dist/server/api/*.js",
+      "default": "./dist/server/api/*.js"
     }
   },
   "files": [
@@ -48,6 +54,7 @@
   "devDependencies": {
     "@hit/sdk": "file:../../hit-sdks/hit-sdk-typescript",
     "@hit/ui-kit": "file:../hit-ui-kit",
+    "@types/node": "^20.0.0",
     "@types/react": "^18.2.0",
     "drizzle-orm": "^0.30.0",
     "drizzle-zod": "^0.5.0",
@@ -69,4 +76,3 @@
   ],
   "license": "MIT"
 }
-

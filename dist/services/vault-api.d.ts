@@ -50,6 +50,21 @@ export declare class VaultApiClient {
     revealSmsMessage(id: string): Promise<{
         body: string;
     }>;
+    getGlobalPhoneNumber(): Promise<{
+        phoneNumber: string | null;
+    }>;
+    setGlobalPhoneNumber(phoneNumber: string): Promise<{
+        phoneNumber: string;
+    }>;
+    deleteGlobalPhoneNumber(): Promise<void>;
+    getLatestSmsMessages(since?: string): Promise<{
+        messages: Array<{
+            id: string;
+            fromNumber: string;
+            toNumber: string;
+            receivedAt: Date;
+        }>;
+    }>;
     search(query: string, filters?: {
         vaultId?: string;
         folderId?: string;

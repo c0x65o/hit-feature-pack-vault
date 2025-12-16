@@ -251,6 +251,39 @@ export class VaultApiClient {
     });
   }
 
+  // Global phone number (admin only)
+  async getGlobalPhoneNumber(): Promise<{ phoneNumber: string | null }> {
+    return this.request<{ phoneNumber: string | null }>('/sms/global');
+  }
+
+  async setGlobalPhoneNumber(phoneNumber: string): Promise<{ phoneNumber: string }> {
+    return this.request<{ phoneNumber: string }>('/sms/global', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber }),
+    });
+  }
+
+  async deleteGlobalPhoneNumber(): Promise<void> {
+    return this.request<void>('/sms/global', {
+      method: 'DELETE',
+    });
+  }
+
+  // Latest SMS messages for polling
+  async getLatestSmsMessages(since?: string): Promise<{
+    messages: Array<{
+      id: string;
+      fromNumber: string;
+      toNumber: string;
+      receivedAt: Date;
+    }>;
+  }> {
+    const params = new URLSearchParams();
+    if (since) params.append('since', since);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/sms/messages/latest${query}`);
+  }
+
   // Search
   async search(query: string, filters?: {
     vaultId?: string;

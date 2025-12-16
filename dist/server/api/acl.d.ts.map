@@ -1,0 +1,1 @@
+{"version":3,"file":"acl.d.ts","sourceRoot":"","sources":["../../../src/server/api/acl.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,WAAW,EAAE,YAAY,EAAE,MAAM,aAAa,CAAC;AAMxD,eAAO,MAAM,OAAO,kBAAkB,CAAC;AACvC,eAAO,MAAM,OAAO,WAAW,CAAC;AAEhC;;;GAGG;AACH,wBAAsB,GAAG,CAAC,OAAO,EAAE,WAAW;;;;IAsB7C;AAED;;;GAGG;AACH,wBAAsB,IAAI,CAAC,OAAO,EAAE,WAAW,8BAwB9C"}

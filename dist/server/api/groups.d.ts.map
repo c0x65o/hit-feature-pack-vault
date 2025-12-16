@@ -1,0 +1,1 @@
+{"version":3,"file":"groups.d.ts","sourceRoot":"","sources":["../../../src/server/api/groups.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,WAAW,EAAE,YAAY,EAAE,MAAM,aAAa,CAAC;AAMxD,eAAO,MAAM,OAAO,kBAAkB,CAAC;AACvC,eAAO,MAAM,OAAO,WAAW,CAAC;AAEhC;;;GAGG;AACH,wBAAsB,GAAG,CAAC,OAAO,EAAE,WAAW;;;;IA0B7C;AAED;;;GAGG;AACH,wBAAsB,IAAI,CAAC,OAAO,EAAE,WAAW,8BAkC9C"}

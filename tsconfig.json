@@ -14,7 +14,12 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/lib/*": ["./src/lib-stubs/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

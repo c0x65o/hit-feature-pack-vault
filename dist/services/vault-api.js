@@ -199,6 +199,29 @@ export class VaultApiClient {
             method: 'POST',
         });
     }
+    // Global phone number (admin only)
+    async getGlobalPhoneNumber() {
+        return this.request('/sms/global');
+    }
+    async setGlobalPhoneNumber(phoneNumber) {
+        return this.request('/sms/global', {
+            method: 'POST',
+            body: JSON.stringify({ phoneNumber }),
+        });
+    }
+    async deleteGlobalPhoneNumber() {
+        return this.request('/sms/global', {
+            method: 'DELETE',
+        });
+    }
+    // Latest SMS messages for polling
+    async getLatestSmsMessages(since) {
+        const params = new URLSearchParams();
+        if (since)
+            params.append('since', since);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/sms/messages/latest${query}`);
+    }
     // Search
     async search(query, filters) {
         const params = new URLSearchParams({ q: query });
