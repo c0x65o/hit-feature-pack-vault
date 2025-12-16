@@ -476,7 +476,7 @@ export declare const vaultAcls: import("drizzle-orm/pg-core").PgTableWithColumns
             tableName: "vault_acls";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "role" | "user" | "group";
+            data: "user" | "group" | "role";
             driverParam: string;
             notNull: true;
             hasDefault: false;

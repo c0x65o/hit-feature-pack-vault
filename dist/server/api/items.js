@@ -64,6 +64,8 @@ export async function GET(request) {
         const countResult = await countQuery.where(whereClause);
         const total = Number(countResult[0]?.count || 0);
         // Select only non-sensitive fields (exclude secretBlobEncrypted)
+        // We temporarily select secretBlobEncrypted server-side to derive flags like hasTotp,
+        // but we never return the encrypted blob to the client.
         const items = await db
             .select({
             id: vaultItems.id,
@@ -78,14 +80,29 @@ export async function GET(request) {
             updatedBy: vaultItems.updatedBy,
             createdAt: vaultItems.createdAt,
             updatedAt: vaultItems.updatedAt,
+            secretBlobEncrypted: vaultItems.secretBlobEncrypted,
         })
             .from(vaultItems)
             .where(whereClause)
             .orderBy(orderDirection)
             .limit(pageSize)
             .offset(offset);
+        const { decrypt } = await import('../utils/encryption');
+        const safeItems = items.map((item) => {
+            let hasTotp = false;
+            try {
+                const secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
+                hasTotp = !!secretBlob?.totpSecret;
+            }
+            catch {
+                // ignore parse/decrypt errors; treat as no TOTP
+            }
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { secretBlobEncrypted, ...safeItem } = item;
+            return { ...safeItem, hasTotp };
+        });
         return NextResponse.json({
-            items,
+            items: safeItems,
             pagination: {
                 page,
                 pageSize,
@@ -113,6 +130,9 @@ export async function POST(request) {
         if (!body.vaultId) {
             return NextResponse.json({ error: 'Vault ID is required' }, { status: 400 });
         }
+        if ((body.type ?? 'credential') === 'credential' && !String(body.url ?? '').trim()) {
+            return NextResponse.json({ error: 'URL is required for Login items' }, { status: 400 });
+        }
         const userId = getUserId(request);
         if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -126,12 +146,26 @@ export async function POST(request) {
         if (!vault[0]) {
             return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
         }
-        // Encrypt the secret blob (placeholder - actual encryption should use KMS)
-        const secretData = {
-            password: body.password || '',
-            notes: body.notes || '',
-        };
-        const secretBlobEncrypted = Buffer.from(JSON.stringify(secretData)).toString('base64');
+        // Encrypt the secret blob
+        const { encrypt } = await import('../utils/encryption');
+        const secretData = {};
+        // Add type-specific secret fields
+        if (body.type === 'api_key') {
+            // For API keys, store the secret in the password field
+            secretData.password = body.secret || body.password || '';
+            secretData.notes = body.notes || '';
+        }
+        else if (body.type === 'secure_note') {
+            // For secure notes, store content in notes field
+            secretData.notes = body.notes || '';
+        }
+        else {
+            // For credentials, store password and notes normally
+            secretData.password = body.password || '';
+            secretData.notes = body.notes || '';
+        }
+        // Encrypt the secret blob
+        const secretBlobEncrypted = encrypt(JSON.stringify(secretData));
         const result = await db.insert(vaultItems).values({
             vaultId: body.vaultId,
             folderId: body.folderId || null,
@@ -143,18 +177,7 @@ export async function POST(request) {
             secretBlobEncrypted,
             secretVersion: 1,
             createdBy: userId,
-        }).returning({
-            id: vaultItems.id,
-            vaultId: vaultItems.vaultId,
-            folderId: vaultItems.folderId,
-            type: vaultItems.type,
-            title: vaultItems.title,
-            username: vaultItems.username,
-            url: vaultItems.url,
-            tags: vaultItems.tags,
-            createdBy: vaultItems.createdBy,
-            createdAt: vaultItems.createdAt,
-        });
+        }).returning();
         return NextResponse.json(result[0], { status: 201 });
     }
     catch (error) {

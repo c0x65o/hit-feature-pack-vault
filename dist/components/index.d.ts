@@ -2,5 +2,6 @@
  * Vault Components
  * Exported individually for tree-shaking
  */
-export {};
+export { AddItemModal } from './AddItemModal';
+export { FolderModal } from './FolderModal';
 //# sourceMappingURL=index.d.ts.map

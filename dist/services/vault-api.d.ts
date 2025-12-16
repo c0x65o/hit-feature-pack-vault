@@ -12,12 +12,12 @@ export declare class VaultApiClient {
     private request;
     getVaults(): Promise<VaultVault[]>;
     getVault(id: string): Promise<VaultVault>;
-    createVault(data: InsertVaultVault): Promise<VaultVault>;
+    createVault(data: Omit<InsertVaultVault, 'ownerUserId' | 'createdAt' | 'updatedAt'>): Promise<VaultVault>;
     updateVault(id: string, data: Partial<VaultVault>): Promise<VaultVault>;
     deleteVault(id: string): Promise<void>;
     getFolders(vaultId?: string, parentId?: string): Promise<VaultFolder[]>;
     getFolder(id: string): Promise<VaultFolder>;
-    createFolder(data: InsertVaultFolder): Promise<VaultFolder>;
+    createFolder(data: Omit<InsertVaultFolder, 'path' | 'createdBy' | 'createdAt'>): Promise<VaultFolder>;
     updateFolder(id: string, data: Partial<VaultFolder>): Promise<VaultFolder>;
     moveFolder(id: string, newParentId: string | null): Promise<VaultFolder>;
     deleteFolder(id: string): Promise<void>;
@@ -37,12 +37,18 @@ export declare class VaultApiClient {
     createAcl(data: InsertVaultAcl): Promise<VaultAcl>;
     deleteAcl(id: string): Promise<void>;
     recomputeAcl(resourceType: string, resourceId: string): Promise<void>;
-    importTotp(itemId: string, otpauthUri: string): Promise<VaultItem>;
+    importTotp(itemId: string, secretOrUri: string): Promise<VaultItem>;
     generateTotpCode(itemId: string): Promise<{
         code: string;
-        expiresIn: number;
+        expiresAt: string;
     }>;
     removeTotp(itemId: string): Promise<void>;
+    requestSms2fa(itemId: string, phoneNumber: string): Promise<{
+        success: boolean;
+        messageSid: string;
+        status: string;
+        message: string;
+    }>;
     getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]>;
     provisionSmsNumber(vaultId: string, itemId?: string): Promise<VaultSmsNumber>;
     deleteSmsNumber(id: string): Promise<void>;

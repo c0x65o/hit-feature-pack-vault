@@ -13,3 +13,5 @@ export { ItemDetail, default as ItemDetailPage } from './ItemDetail';
 export { ItemEdit, default as ItemEditPage } from './ItemEdit';
 export { ImportCSV, default as ImportCSVPage } from './ImportCSV';
 export { GroupManagement, default as GroupManagementPage } from './GroupManagement';
+export { PhoneNumberSetup, default as PhoneNumberSetupPage } from './PhoneNumberSetup';
+export { VaultSetup, default as VaultSetupPage } from './VaultSetup';

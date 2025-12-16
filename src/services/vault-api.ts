@@ -54,14 +54,15 @@ export class VaultApiClient {
 
   // Vaults
   async getVaults(): Promise<VaultVault[]> {
-    return this.request<VaultVault[]>('/vaults');
+    const response = await this.request<{ items: VaultVault[]; pagination: any }>('/vaults');
+    return response.items || [];
   }
 
   async getVault(id: string): Promise<VaultVault> {
     return this.request<VaultVault>(`/vaults/${id}`);
   }
 
-  async createVault(data: InsertVaultVault): Promise<VaultVault> {
+  async createVault(data: Omit<InsertVaultVault, 'ownerUserId' | 'createdAt' | 'updatedAt'>): Promise<VaultVault> {
     return this.request<VaultVault>('/vaults', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -84,17 +85,18 @@ export class VaultApiClient {
   // Folders
   async getFolders(vaultId?: string, parentId?: string): Promise<VaultFolder[]> {
     const params = new URLSearchParams();
-    if (vaultId) params.append('vault_id', vaultId);
-    if (parentId) params.append('parent_id', parentId);
+    if (vaultId) params.append('vaultId', vaultId);
+    if (parentId) params.append('parentId', parentId);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<VaultFolder[]>(`/folders${query}`);
+    const response = await this.request<{ items: VaultFolder[]; pagination: any }>(`/folders${query}`);
+    return response.items || [];
   }
 
   async getFolder(id: string): Promise<VaultFolder> {
     return this.request<VaultFolder>(`/folders/${id}`);
   }
 
-  async createFolder(data: InsertVaultFolder): Promise<VaultFolder> {
+  async createFolder(data: Omit<InsertVaultFolder, 'path' | 'createdBy' | 'createdAt'>): Promise<VaultFolder> {
     return this.request<VaultFolder>('/folders', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -124,10 +126,11 @@ export class VaultApiClient {
   // Items
   async getItems(vaultId?: string, folderId?: string): Promise<VaultItem[]> {
     const params = new URLSearchParams();
-    if (vaultId) params.append('vault_id', vaultId);
-    if (folderId) params.append('folder_id', folderId);
+    if (vaultId) params.append('vaultId', vaultId);
+    if (folderId) params.append('folderId', folderId);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<VaultItem[]>(`/items${query}`);
+    const response = await this.request<{ items: VaultItem[]; pagination: any }>(`/items${query}`);
+    return response.items || [];
   }
 
   async getItem(id: string): Promise<VaultItem> {
@@ -135,10 +138,11 @@ export class VaultApiClient {
   }
 
   async createItem(data: InsertVaultItem): Promise<VaultItem> {
-    return this.request<VaultItem>('/items', {
+    const response = await this.request<VaultItem>('/items', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    return response;
   }
 
   async updateItem(id: string, data: Partial<VaultItem>): Promise<VaultItem> {
@@ -200,14 +204,20 @@ export class VaultApiClient {
   }
 
   // TOTP
-  async importTotp(itemId: string, otpauthUri: string): Promise<VaultItem> {
+  async importTotp(itemId: string, secretOrUri: string): Promise<VaultItem> {
+    // Try to detect if it's a URI or just a secret
+    const isUri = secretOrUri.startsWith('otpauth://');
     return this.request<VaultItem>(`/items/${itemId}/totp/import`, {
       method: 'POST',
-      body: JSON.stringify({ otpauthUri }),
+      body: JSON.stringify(
+        isUri 
+          ? { qrCode: secretOrUri }
+          : { secret: secretOrUri }
+      ),
     });
   }
 
-  async generateTotpCode(itemId: string): Promise<{ code: string; expiresIn: number }> {
+  async generateTotpCode(itemId: string): Promise<{ code: string; expiresAt: string }> {
     return this.request(`/items/${itemId}/totp/code`, {
       method: 'POST',
     });
@@ -219,13 +229,27 @@ export class VaultApiClient {
     });
   }
 
+  // SMS 2FA
+  async requestSms2fa(itemId: string, phoneNumber: string): Promise<{
+    success: boolean;
+    messageSid: string;
+    status: string;
+    message: string;
+  }> {
+    return this.request(`/items/${itemId}/sms/request`, {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber }),
+    });
+  }
+
   // SMS
   async getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]> {
     const params = new URLSearchParams();
-    if (vaultId) params.append('vault_id', vaultId);
-    if (itemId) params.append('item_id', itemId);
+    if (vaultId) params.append('vaultId', vaultId);
+    if (itemId) params.append('itemId', itemId);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<VaultSmsNumber[]>(`/sms/numbers${query}`);
+    const response = await this.request<{ items: VaultSmsNumber[] }>(`/sms/numbers${query}`);
+    return response.items || [];
   }
 
   async provisionSmsNumber(vaultId: string, itemId?: string): Promise<VaultSmsNumber> {
@@ -293,12 +317,10 @@ export class VaultApiClient {
     hasSms?: boolean;
   }): Promise<VaultItem[]> {
     const params = new URLSearchParams({ q: query });
-    if (filters?.vaultId) params.append('vault_id', filters.vaultId);
-    if (filters?.folderId) params.append('folder_id', filters.folderId);
-    if (filters?.tags) filters.tags.forEach(tag => params.append('tag', tag));
-    if (filters?.hasTotp !== undefined) params.append('has_totp', String(filters.hasTotp));
-    if (filters?.hasSms !== undefined) params.append('has_sms', String(filters.hasSms));
-    return this.request<VaultItem[]>(`/search?${params.toString()}`);
+    // Note: Backend search API currently only supports 'q' parameter
+    // Filters are not yet implemented in the backend
+    const response = await this.request<{ items: VaultItem[] }>(`/search?${params.toString()}`);
+    return response.items || [];
   }
 
   // Import

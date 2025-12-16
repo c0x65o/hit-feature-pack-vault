@@ -8,38 +8,36 @@ description: Password management and 2FA vault with team sharing, folders, CSV i
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTES - Frontend page routes
 # ─────────────────────────────────────────────────────────────────────────────
+# Primary pages:
+# - /vault: Main Vault page (daily driver)
+# - /vault/import: CSV import page
+# - /vault/setup: Setup page (admin only)
+# - /vault/items/[itemId]: Item detail page
+# - /vault/items/[itemId]/edit: Item edit page
 routes:
   - path: /vault
     page: VaultLanding
     roles: []  # Empty = authenticated users only
-  - path: /vault/personal
-    page: PersonalVault
-    roles: []
-  - path: /vault/shared
-    page: SharedVaults
-    roles: []
-  - path: /vault/shared/[vaultId]
-    page: SharedVaultDetail
-    roles: []
-  - path: /vault/shared/[vaultId]/folders/[folderId]
-    page: FolderView
-    roles: []
-  - path: /vault/items/[id]
-    page: ItemDetail
-    roles: []
-  - path: /vault/items/[id]/edit
-    page: ItemEdit
-    roles: []
   - path: /vault/import
     page: ImportCSV
     roles: []
-  - path: /vault/admin/groups
-    page: GroupManagement
-    roles: [admin]  # Only if static groups enabled
+  - path: /vault/setup
+    page: VaultSetup
+    roles: [admin]  # Admin only - configure project SMS 2FA phone number and view inbox for debugging
+  - path: /vault/items/[itemId]
+    page: ItemDetail
+    roles: []
+  - path: /vault/items/[itemId]/edit
+    page: ItemEdit
+    roles: []
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NAVIGATION - Sidebar/topbar items
 # ─────────────────────────────────────────────────────────────────────────────
+# Three top-level navigation items under Vault:
+# - Vault: Main daily driver page
+# - Import: CSV import page
+# - Setup: Admin configuration (project SMS 2FA phone number + inbox for debugging)
 nav:
   - id: vault
     label: Vault
@@ -49,24 +47,25 @@ nav:
     showWhen: authenticated
     weight: 200
     children:
-      - id: vault-personal
-        label: Personal
-        path: /vault/personal
-        icon: User
+      - id: vault-main
+        label: Vault
+        path: /vault
+        icon: Lock
         weight: 100
-        showWhen: authenticated
-      - id: vault-shared
-        label: Shared
-        path: /vault/shared
-        icon: Users
-        weight: 110
         showWhen: authenticated
       - id: vault-import
         label: Import
         path: /vault/import
         icon: Upload
+        weight: 110
+        showWhen: authenticated
+      - id: vault-setup
+        label: Setup
+        path: /vault/setup
+        icon: Settings
         weight: 120
         showWhen: authenticated
+        roles: [admin]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SCHEMA - Drizzle ORM table definitions
@@ -177,6 +176,10 @@ api:
       methods: [DELETE]
       handler: "@hit/feature-pack-vault/server/api/items-totp"
       description: "Remove TOTP secret"
+    - path: /api/vault/items/[id]/sms/request
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-sms-request"
+      description: "Request 2FA code via SMS (sends SMS to user's phone)"
     # SMS
     - path: /api/vault/sms/numbers
       methods: [GET, POST]
@@ -274,4 +277,8 @@ config:
       type: boolean
       default: false
       description: "Require re-authentication before revealing sensitive items"
+    sms_2fa_enabled:
+      type: boolean
+      default: true
+      description: "Enable SMS 2FA functionality (requires Twilio configuration)"
 

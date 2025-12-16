@@ -67,11 +67,35 @@ export async function POST(request: NextRequest) {
       success: true,
     });
 
-    // TODO: Implement TOTP code generation
-    return NextResponse.json({
-      code: '[generated TOTP code]',
-      expiresAt: new Date(Date.now() + 30000), // 30 seconds
-    });
+    // Decrypt the secret blob to get TOTP secret
+    try {
+      const { decrypt } = await import('../utils/encryption');
+      const secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
+      const totpSecret = secretBlob.totpSecret;
+
+      if (!totpSecret) {
+        return NextResponse.json(
+          { error: 'TOTP secret not found for this item' },
+          { status: 400 }
+        );
+      }
+
+      // Generate TOTP code using pyotp-compatible algorithm
+      // Using the same algorithm as Python's pyotp library
+      const { generateTotpCode } = await import('../utils/totp');
+      const code = generateTotpCode(totpSecret);
+
+      return NextResponse.json({
+        code: code,
+        expiresAt: new Date(Date.now() + 30000), // 30 seconds (TOTP codes refresh every 30s)
+      });
+    } catch (error) {
+      console.error('[vault] TOTP generation error:', error);
+      return NextResponse.json(
+        { error: 'Failed to generate TOTP code' },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('[vault] Generate TOTP code error:', error);
     return NextResponse.json(

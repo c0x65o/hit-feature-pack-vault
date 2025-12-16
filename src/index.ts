@@ -27,6 +27,8 @@ export {
   ImportCSVPage,
   GroupManagement,
   GroupManagementPage,
+  VaultSetup,
+  VaultSetupPage,
 } from './pages/index';
 
 // Components - exported individually for tree-shaking

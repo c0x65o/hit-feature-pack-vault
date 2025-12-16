@@ -62,10 +62,18 @@ export async function POST(request) {
             resourceId: id,
             success: true,
         });
-        // TODO: Implement decryption
-        return NextResponse.json({
-            body: '[decrypted message body]',
-        });
+        // Decrypt the message body
+        try {
+            const { decrypt } = await import('../utils/encryption');
+            const decryptedBody = decrypt(message.bodyEncrypted);
+            return NextResponse.json({
+                body: decryptedBody,
+            });
+        }
+        catch (error) {
+            console.error('[vault] Decryption error:', error);
+            return NextResponse.json({ error: 'Failed to decrypt message' }, { status: 500 });
+        }
     }
     catch (error) {
         console.error('[vault] Reveal SMS message error:', error);

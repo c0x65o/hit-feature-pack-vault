@@ -27,7 +27,8 @@ export class VaultApiClient {
     }
     // Vaults
     async getVaults() {
-        return this.request('/vaults');
+        const response = await this.request('/vaults');
+        return response.items || [];
     }
     async getVault(id) {
         return this.request(`/vaults/${id}`);
@@ -53,11 +54,12 @@ export class VaultApiClient {
     async getFolders(vaultId, parentId) {
         const params = new URLSearchParams();
         if (vaultId)
-            params.append('vault_id', vaultId);
+            params.append('vaultId', vaultId);
         if (parentId)
-            params.append('parent_id', parentId);
+            params.append('parentId', parentId);
         const query = params.toString() ? `?${params.toString()}` : '';
-        return this.request(`/folders${query}`);
+        const response = await this.request(`/folders${query}`);
+        return response.items || [];
     }
     async getFolder(id) {
         return this.request(`/folders/${id}`);
@@ -89,20 +91,22 @@ export class VaultApiClient {
     async getItems(vaultId, folderId) {
         const params = new URLSearchParams();
         if (vaultId)
-            params.append('vault_id', vaultId);
+            params.append('vaultId', vaultId);
         if (folderId)
-            params.append('folder_id', folderId);
+            params.append('folderId', folderId);
         const query = params.toString() ? `?${params.toString()}` : '';
-        return this.request(`/items${query}`);
+        const response = await this.request(`/items${query}`);
+        return response.items || [];
     }
     async getItem(id) {
         return this.request(`/items/${id}`);
     }
     async createItem(data) {
-        return this.request('/items', {
+        const response = await this.request('/items', {
             method: 'POST',
             body: JSON.stringify(data),
         });
+        return response;
     }
     async updateItem(id, data) {
         return this.request(`/items/${id}`, {
@@ -154,10 +158,14 @@ export class VaultApiClient {
         });
     }
     // TOTP
-    async importTotp(itemId, otpauthUri) {
+    async importTotp(itemId, secretOrUri) {
+        // Try to detect if it's a URI or just a secret
+        const isUri = secretOrUri.startsWith('otpauth://');
         return this.request(`/items/${itemId}/totp/import`, {
             method: 'POST',
-            body: JSON.stringify({ otpauthUri }),
+            body: JSON.stringify(isUri
+                ? { qrCode: secretOrUri }
+                : { secret: secretOrUri }),
         });
     }
     async generateTotpCode(itemId) {
@@ -170,15 +178,23 @@ export class VaultApiClient {
             method: 'DELETE',
         });
     }
+    // SMS 2FA
+    async requestSms2fa(itemId, phoneNumber) {
+        return this.request(`/items/${itemId}/sms/request`, {
+            method: 'POST',
+            body: JSON.stringify({ phoneNumber }),
+        });
+    }
     // SMS
     async getSmsNumbers(vaultId, itemId) {
         const params = new URLSearchParams();
         if (vaultId)
-            params.append('vault_id', vaultId);
+            params.append('vaultId', vaultId);
         if (itemId)
-            params.append('item_id', itemId);
+            params.append('itemId', itemId);
         const query = params.toString() ? `?${params.toString()}` : '';
-        return this.request(`/sms/numbers${query}`);
+        const response = await this.request(`/sms/numbers${query}`);
+        return response.items || [];
     }
     async provisionSmsNumber(vaultId, itemId) {
         return this.request('/sms/numbers', {
@@ -225,17 +241,10 @@ export class VaultApiClient {
     // Search
     async search(query, filters) {
         const params = new URLSearchParams({ q: query });
-        if (filters?.vaultId)
-            params.append('vault_id', filters.vaultId);
-        if (filters?.folderId)
-            params.append('folder_id', filters.folderId);
-        if (filters?.tags)
-            filters.tags.forEach(tag => params.append('tag', tag));
-        if (filters?.hasTotp !== undefined)
-            params.append('has_totp', String(filters.hasTotp));
-        if (filters?.hasSms !== undefined)
-            params.append('has_sms', String(filters.hasSms));
-        return this.request(`/search?${params.toString()}`);
+        // Note: Backend search API currently only supports 'q' parameter
+        // Filters are not yet implemented in the backend
+        const response = await this.request(`/search?${params.toString()}`);
+        return response.items || [];
     }
     // Import
     async previewCsvImport(file, vaultId, folderId) {

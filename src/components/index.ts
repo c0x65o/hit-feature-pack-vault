@@ -3,6 +3,6 @@
  * Exported individually for tree-shaking
  */
 
-// Placeholder for future components
-export {};
+export { AddItemModal } from './AddItemModal';
+export { FolderModal } from './FolderModal';
 

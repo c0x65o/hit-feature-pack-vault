@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Eye, Copy, Edit } from 'lucide-react';
+import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultItem } from '../schema/vault';
 
@@ -14,7 +14,11 @@ interface Props {
 export function ItemDetail({ itemId, onNavigate }: Props) {
   const { Page, Card, Button, Alert } = useUi();
   const [item, setItem] = useState<VaultItem | null>(null);
-  const [revealed, setRevealed] = useState<{ password?: string; notes?: string } | null>(null);
+  const [revealed, setRevealed] = useState<{ password?: string; secret?: string; notes?: string; totpSecret?: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [totpCode, setTotpCode] = useState<string | null>(null);
+  const [totpExpiresAt, setTotpExpiresAt] = useState<Date | null>(null);
+  const [copied, setCopied] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -28,6 +32,17 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
       loadItem();
     }
   }, [itemId]);
+
+  useEffect(() => {
+    // Auto-refresh TOTP code every 30 seconds
+    if (revealed?.totpSecret) {
+      generateTotpCode();
+      const interval = setInterval(() => {
+        generateTotpCode();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [revealed?.totpSecret]);
 
   async function loadItem() {
     try {
@@ -46,17 +61,47 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     try {
       const revealedData = await vaultApi.revealItem(item.id);
       setRevealed(revealedData);
+      // Auto-show password for API keys, require click for credentials
+      if (item.type === 'api_key') {
+        setShowPassword(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to reveal item'));
     }
   }
 
-  async function handleCopy(field: 'password' | 'username' | 'totp') {
-    if (!item) return;
+  async function generateTotpCode() {
+    if (!item || !revealed?.totpSecret) return;
     try {
-      await vaultApi.copyItem(item.id, field);
+      const result = await vaultApi.generateTotpCode(item.id);
+      setTotpCode(result.code);
+      setTotpExpiresAt(new Date(result.expiresAt));
+    } catch (err) {
+      console.error('Failed to generate TOTP code:', err);
+    }
+  }
+
+  async function handleCopy(field: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied({ ...copied, [field]: true });
+      setTimeout(() => {
+        setCopied({ ...copied, [field]: false });
+      }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to copy'));
+    }
+  }
+
+  function getItemIcon() {
+    if (!item) return <Lock size={20} />;
+    switch (item.type) {
+      case 'api_key':
+        return <Key size={20} />;
+      case 'secure_note':
+        return <FileText size={20} />;
+      default:
+        return <Lock size={20} />;
     }
   }
 
@@ -96,60 +141,191 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
       )}
 
       {item && (
-        <Card>
-          <div className="p-6 space-y-4">
-            {item.username && (
-              <div>
-                <label className="text-sm font-medium">Username</label>
-                <div className="flex items-center gap-2 mt-1">
-                  <p className="text-sm">{item.username}</p>
-                  <Button variant="ghost" size="sm" onClick={() => handleCopy('username')}>
-                    <Copy size={16} />
-                  </Button>
+        <div className="space-y-4">
+          <Card>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                {getItemIcon()}
+                <div className="flex-1">
+                  <h2 className="text-xl font-semibold">{item.title}</h2>
+                  {item.url && (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      {item.url}
+                    </a>
+                  )}
                 </div>
               </div>
-            )}
 
-            <div>
-              <label className="text-sm font-medium">Password</label>
-              <div className="flex items-center gap-2 mt-1">
-                {revealed?.password ? (
-                  <>
-                    <p className="text-sm font-mono">{revealed.password}</p>
-                    <Button variant="ghost" size="sm" onClick={() => handleCopy('password')}>
-                      <Copy size={16} />
+              {item.username && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Username</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1">
+                      {item.username}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleCopy('username', item.username!)}
+                    >
+                      {copied.username ? (
+                        <Check size={16} className="text-green-600" />
+                      ) : (
+                        <Copy size={16} />
+                      )}
                     </Button>
-                  </>
-                ) : (
-                  <Button variant="secondary" onClick={handleReveal}>
-                    <Eye size={16} className="mr-2" />
-                    Reveal Password
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {revealed?.notes && (
-              <div>
-                <label className="text-sm font-medium">Notes</label>
-                <p className="text-sm mt-1 whitespace-pre-wrap">{revealed.notes}</p>
-              </div>
-            )}
-
-            {item.tags && item.tags.length > 0 && (
-              <div>
-                <label className="text-sm font-medium">Tags</label>
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {item.tags.map(tag => (
-                    <span key={tag} className="px-2 py-1 bg-secondary rounded-md text-sm">
-                      {tag}
-                    </span>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </Card>
+              )}
+
+              {item.type === 'credential' && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Password</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    {revealed?.password ? (
+                      <>
+                        <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1">
+                          {showPassword ? revealed.password : '••••••••'}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCopy('password', revealed.password!)}
+                        >
+                          {copied.password ? (
+                            <Check size={16} className="text-green-600" />
+                          ) : (
+                            <Copy size={16} />
+                          )}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="secondary" onClick={handleReveal}>
+                        <Eye size={16} className="mr-2" />
+                        Reveal Password
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {item.type === 'api_key' && (revealed?.secret || revealed?.password) && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Secret / Key</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1 break-all">
+                      {showPassword ? (revealed.secret || revealed.password) : '••••••••'}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleCopy('secret', revealed.secret || revealed.password!)}
+                    >
+                      {copied.secret ? (
+                        <Check size={16} className="text-green-600" />
+                      ) : (
+                        <Copy size={16} />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {revealed?.totpSecret && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">2FA Code (TOTP)</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    {totpCode ? (
+                      <>
+                        <code className="text-2xl font-mono font-bold bg-secondary px-4 py-2 rounded">
+                          {totpCode}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={generateTotpCode}
+                          title="Refresh code"
+                        >
+                          <RefreshCw size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCopy('totp', totpCode)}
+                        >
+                          {copied.totp ? (
+                            <Check size={16} className="text-green-600" />
+                          ) : (
+                            <Copy size={16} />
+                          )}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="secondary" onClick={generateTotpCode}>
+                        Generate TOTP Code
+                      </Button>
+                    )}
+                  </div>
+                  {totpExpiresAt && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Expires in {Math.ceil((totpExpiresAt.getTime() - Date.now()) / 1000)}s
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {(revealed?.notes || item.type === 'secure_note') && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">
+                    {item.type === 'secure_note' ? 'Content' : 'Notes'}
+                  </label>
+                  {revealed?.notes ? (
+                    <div className="mt-1 p-3 bg-secondary rounded text-sm whitespace-pre-wrap">
+                      {revealed.notes}
+                    </div>
+                  ) : (
+                    <Button variant="secondary" onClick={handleReveal}>
+                      <Eye size={16} className="mr-2" />
+                      Reveal Note
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {item.tags && item.tags.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Tags</label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {item.tags.map(tag => (
+                      <span key={tag} className="px-2 py-1 bg-secondary rounded-md text-sm">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
       )}
     </Page>
   );

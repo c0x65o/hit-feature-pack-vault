@@ -29,7 +29,7 @@ export async function POST(request) {
         }
         const body = await request.json();
         const secret = body.secret;
-        const qrCode = body.qrCode;
+        const qrCode = body.qrCode || body.otpauthUri;
         if (!secret && !qrCode) {
             return NextResponse.json({ error: 'secret or qrCode is required' }, { status: 400 });
         }
@@ -52,7 +52,48 @@ export async function POST(request) {
             // TODO: Check ACL for shared vault access
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        // TODO: Implement TOTP secret import and encryption
+        // Parse TOTP secret from QR code URI or manual secret
+        const { parseTotpUri } = await import('../utils/totp');
+        const { encrypt } = await import('../utils/encryption');
+        let totpSecret = null;
+        if (body.qrCode) {
+            // Try to parse as otpauth:// URI
+            totpSecret = parseTotpUri(body.qrCode);
+            if (!totpSecret && body.qrCode.match(/^[A-Z2-7]+=*$/i)) {
+                // If it's just a base32 string, use it directly
+                totpSecret = body.qrCode.toUpperCase();
+            }
+        }
+        else if (body.secret) {
+            // Manual secret entry (base32)
+            totpSecret = body.secret.toUpperCase();
+        }
+        if (!totpSecret) {
+            return NextResponse.json({ error: 'Invalid TOTP secret or QR code' }, { status: 400 });
+        }
+        // Decrypt existing secret blob, add TOTP secret, re-encrypt
+        const { decrypt } = await import('../utils/encryption');
+        let secretBlob = {};
+        try {
+            if (item.secretBlobEncrypted) {
+                secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
+            }
+        }
+        catch (error) {
+            // If decryption fails, start with empty blob
+            console.warn('[vault] Failed to decrypt existing secret blob, starting fresh');
+        }
+        // Add TOTP secret to blob
+        secretBlob.totpSecret = totpSecret;
+        // Re-encrypt and update item
+        const encryptedBlob = encrypt(JSON.stringify(secretBlob));
+        await db.update(vaultItems)
+            .set({
+            secretBlobEncrypted: encryptedBlob,
+            updatedBy: userId,
+            updatedAt: new Date(),
+        })
+            .where(eq(vaultItems.id, id));
         return NextResponse.json({ success: true });
     }
     catch (error) {

@@ -55,12 +55,22 @@ export async function POST(request) {
             resourceId: id,
             success: true,
         });
-        // TODO: Implement decryption logic
-        // For now, return placeholder
-        return NextResponse.json({
-            secret: '[decrypted secret]',
-            // Include other decrypted fields as needed
-        });
+        // Decrypt the secret blob
+        try {
+            const { decrypt } = await import('../utils/encryption');
+            const secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
+            return NextResponse.json({
+                password: secretBlob.password || null,
+                secret: secretBlob.secret || secretBlob.password || null, // For API keys
+                notes: secretBlob.notes || null,
+                totpSecret: secretBlob.totpSecret || null,
+                // Don't expose recovery codes or other sensitive data
+            });
+        }
+        catch (error) {
+            console.error('[vault] Decryption error:', error);
+            return NextResponse.json({ error: 'Failed to decrypt item' }, { status: 500 });
+        }
     }
     catch (error) {
         console.error('[vault] Reveal item error:', error);

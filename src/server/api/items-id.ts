@@ -97,6 +97,16 @@ export async function PUT(request: NextRequest) {
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
+    if (
+      existing.type === 'credential' &&
+      body.url !== undefined &&
+      !String(body.url ?? '').trim()
+    ) {
+      return NextResponse.json(
+        { error: 'URL is required for Login items' },
+        { status: 400 }
+      );
+    }
 
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),

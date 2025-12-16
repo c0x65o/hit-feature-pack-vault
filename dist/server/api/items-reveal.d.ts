@@ -8,6 +8,9 @@ export declare const runtime = "nodejs";
 export declare function POST(request: NextRequest): Promise<NextResponse<{
     error: string;
 }> | NextResponse<{
-    secret: string;
+    password: any;
+    secret: any;
+    notes: any;
+    totpSecret: any;
 }>>;
 //# sourceMappingURL=items-reveal.d.ts.map
