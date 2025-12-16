@@ -1,0 +1,72 @@
+{
+  "name": "@hit/feature-pack-vault",
+  "version": "1.0.0",
+  "description": "Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./pages/*": {
+      "types": "./dist/pages/*.d.ts",
+      "import": "./dist/pages/*.js",
+      "require": "./dist/pages/*.js",
+      "default": "./dist/pages/*.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/vault.d.ts",
+      "import": "./dist/schema/vault.js",
+      "require": "./dist/schema/vault.js",
+      "default": "./dist/schema/vault.js"
+    }
+  },
+  "files": [
+    "dist",
+    "feature-pack.yaml"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@hit/ui-kit": "*",
+    "react": "^18.0.0 || ^19.0.0",
+    "next": "^14.0.0 || ^15.0.0",
+    "@hit/sdk": "*",
+    "lucide-react": ">=0.263.0",
+    "drizzle-orm": ">=0.30.0",
+    "drizzle-zod": ">=0.5.0",
+    "zod": ">=3.22.0"
+  },
+  "devDependencies": {
+    "@hit/sdk": "file:../../hit-sdks/hit-sdk-typescript",
+    "@hit/ui-kit": "file:../hit-ui-kit",
+    "@types/react": "^18.2.0",
+    "drizzle-orm": "^0.30.0",
+    "drizzle-zod": "^0.5.0",
+    "zod": "^3.22.0",
+    "lucide-react": "^0.460.0",
+    "typescript": "^5.0.0",
+    "next": "^14.2.5"
+  },
+  "keywords": [
+    "hit",
+    "feature-pack",
+    "vault",
+    "password-manager",
+    "2fa",
+    "totp",
+    "sms",
+    "security",
+    "ui-kit"
+  ],
+  "license": "MIT"
+}
+
