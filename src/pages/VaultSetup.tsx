@@ -5,6 +5,7 @@ import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
 import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
+import { extractOtpCode } from '../utils/otp-extractor';
 
 interface Props {
   onNavigate?: (path: string) => void;
@@ -38,6 +39,13 @@ export function VaultSetup({ onNavigate }: Props) {
   useEffect(() => {
     if (selectedSmsNumberId) {
       loadMessages(selectedSmsNumberId);
+      
+      // Auto-refresh messages every 5 seconds to catch new webhook messages
+      const interval = setInterval(() => {
+        loadMessages(selectedSmsNumberId);
+      }, 5000);
+      
+      return () => clearInterval(interval);
     } else {
       setMessages([]);
     }
@@ -63,11 +71,42 @@ export function VaultSetup({ onNavigate }: Props) {
     }
   }
 
+  function formatTimeAgo(date: Date | string): string {
+    const now = new Date();
+    const msgDate = typeof date === 'string' ? new Date(date) : date;
+    const diffMs = now.getTime() - msgDate.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    
+    if (diffSecs < 60) {
+      return `${diffSecs} sec${diffSecs !== 1 ? 's' : ''} old`;
+    } else if (diffMins < 60) {
+      return `${diffMins} min${diffMins !== 1 ? 's' : ''} old`;
+    } else {
+      const diffHours = Math.floor(diffMins / 60);
+      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} old`;
+    }
+  }
+
   async function loadMessages(smsNumberId: string) {
     try {
       setLoadingMessages(true);
       const msgs = await vaultApi.getSmsMessages(smsNumberId);
       setMessages(msgs);
+      
+      // Automatically reveal the most recent message if it's within 5 minutes
+      if (msgs.length > 0) {
+        const mostRecent = msgs[0];
+        const receivedAt = new Date(mostRecent.receivedAt);
+        const now = new Date();
+        const diffMs = now.getTime() - receivedAt.getTime();
+        const diffMins = diffMs / (1000 * 60);
+        
+        // If message is within 5 minutes, try to reveal it (handleRevealMessage checks if already revealed)
+        if (diffMins <= 5) {
+          await handleRevealMessage(mostRecent.id);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load messages'));
     } finally {
@@ -305,6 +344,7 @@ export function VaultSetup({ onNavigate }: Props) {
                         const revealedBody = revealedMessages.get(msg.id);
                         const isRevealed = !!revealedBody;
                         const messageBody = isRevealed ? revealedBody : '••••••••';
+                        const otpCode = isRevealed && revealedBody ? extractOtpCode(revealedBody) : null;
 
                         return (
                           <div
@@ -328,6 +368,33 @@ export function VaultSetup({ onNavigate }: Props) {
                                 </Button>
                               )}
                             </div>
+                            
+                            {otpCode && (
+                              <div className="mb-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border-2 border-green-500">
+                                <div className="flex items-center justify-between mb-2">
+                                  <label className="text-sm font-medium text-green-600 dark:text-green-400">
+                                    OTP Code Detected
+                                  </label>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatTimeAgo(msg.receivedAt)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <code className="text-2xl font-mono font-bold">
+                                    {otpCode}
+                                  </code>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => navigator.clipboard.writeText(otpCode)}
+                                    title="Copy OTP code"
+                                  >
+                                    <Copy size={16} />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            
                             <div className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border">
                               {messageBody}
                             </div>

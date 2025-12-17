@@ -30,8 +30,6 @@ export function ItemEdit({ itemId, onNavigate }) {
     const [latestMessageTime, setLatestMessageTime] = useState(null);
     const [qrCodeInput, setQrCodeInput] = useState('');
     const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
-    const [userPhoneNumber, setUserPhoneNumber] = useState('');
-    const [sendingSmsRequest, setSendingSmsRequest] = useState(false);
     const lastPollTimeRef = useRef(null);
     const pollingIntervalRef = useRef(null);
     const navigate = (path) => {
@@ -114,29 +112,6 @@ export function ItemEdit({ itemId, onNavigate }) {
         }
         catch (err) {
             console.error('Failed to copy phone number:', err);
-        }
-    }
-    async function sendSmsRequest() {
-        if (!itemId) {
-            setError(new Error('Please save the item first before requesting SMS 2FA'));
-            return;
-        }
-        if (!userPhoneNumber.trim()) {
-            setError(new Error('Please enter your phone number'));
-            return;
-        }
-        try {
-            setSendingSmsRequest(true);
-            setError(null);
-            await vaultApi.requestSms2fa(itemId, userPhoneNumber.trim());
-            // After sending SMS request, start polling for the response
-            await startSmsPolling();
-        }
-        catch (err) {
-            setError(err instanceof Error ? err : new Error('Failed to send SMS request'));
-        }
-        finally {
-            setSendingSmsRequest(false);
         }
     }
     async function startSmsPolling() {
@@ -325,13 +300,13 @@ export function ItemEdit({ itemId, onNavigate }) {
                                                 { value: 'off', label: 'Off' },
                                                 { value: 'qr', label: 'QR Code (TOTP)' },
                                                 { value: 'phone', label: 'Phone Number (SMS)' },
-                                            ] })] }), twoFactorType === 'phone' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: globalPhoneNumber ? (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Registered Phone Number" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-background px-2 py-1 rounded", children: globalPhoneNumber }), _jsx(Button, { variant: "ghost", size: "sm", onClick: copyPhoneNumber, title: "Copy to clipboard", children: phoneCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), _jsx("p", { className: "text-xs text-muted-foreground mt-2", children: "Copy this number and use it for 2FA setup on the website" })] }), itemId && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Your Phone Number (E.164 format)" }), _jsx(Input, { value: userPhoneNumber, onChange: (value) => setUserPhoneNumber(value), placeholder: "+1234567890", className: "mt-1" }), _jsx("p", { className: "text-xs text-muted-foreground mt-1", children: "Enter your phone number to receive 2FA code requests" })] })), !pollingSms && !otpCode && (_jsxs("div", { className: "flex gap-2", children: [itemId && userPhoneNumber.trim() && (_jsx(Button, { variant: "primary", size: "sm", onClick: sendSmsRequest, disabled: sendingSmsRequest, children: sendingSmsRequest ? 'Sending...' : 'Send SMS Request' })), _jsx(Button, { variant: "secondary", size: "sm", onClick: startSmsPolling, children: "Start Waiting for SMS" })] })), pollingSms && (_jsxs("div", { className: "space-y-2", children: [_jsx("p", { className: "text-sm text-muted-foreground", children: latestMessageTime
+                                            ] })] }), twoFactorType === 'phone' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: globalPhoneNumber ? (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Registered Phone Number" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-background px-2 py-1 rounded", children: globalPhoneNumber }), _jsx(Button, { variant: "ghost", size: "sm", onClick: copyPhoneNumber, title: "Copy to clipboard", children: phoneCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), _jsx("p", { className: "text-xs text-muted-foreground mt-2", children: "Copy this number and use it for 2FA setup on the website" })] }), !pollingSms && !otpCode && (_jsx(Button, { variant: "secondary", size: "sm", onClick: startSmsPolling, children: "Start Waiting for SMS" })), pollingSms && (_jsxs("div", { className: "space-y-2", children: [_jsx("p", { className: "text-sm text-muted-foreground", children: latestMessageTime
                                                             ? `Waiting for SMS message... Last message: ${formatTimeAgo(latestMessageTime)}`
                                                             : 'Waiting for SMS message...' }), _jsx(Button, { variant: "ghost", size: "sm", onClick: stopSmsPolling, children: "Stop Polling" })] })), otpCode && (_jsxs("div", { className: "p-3 bg-background rounded-md border-2 border-green-500", children: [_jsxs("label", { className: "text-sm font-medium text-green-600", children: ["OTP Code Received", latestMessageTime && (_jsxs("span", { className: "text-xs font-normal text-muted-foreground ml-2", children: ["(", formatTimeAgo(latestMessageTime), ")"] }))] }), _jsxs("div", { className: "flex items-center gap-2 mt-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => {
                                                                     navigator.clipboard.writeText(otpCode);
                                                                     setPhoneCopied(true);
                                                                     setTimeout(() => setPhoneCopied(false), 2000);
-                                                                }, children: _jsx(Copy, { size: 16 }) })] })] }))] })) : (_jsx(Alert, { variant: "warning", title: "No Phone Number Configured", children: "A global admin must configure a phone number in the vault settings." })) })), twoFactorType === 'qr' && (_jsx("div", { className: "p-4 bg-secondary rounded-md space-y-3", children: _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "QR Code / TOTP Secret" }), _jsx("p", { className: "text-sm text-muted-foreground mt-1 mb-2", children: "Paste the TOTP secret URI (otpauth://totp/...) or base32 secret" }), _jsxs("div", { className: "flex gap-2", children: [_jsx(Input, { value: qrCodeInput, onChange: (value) => setQrCodeInput(value), placeholder: "otpauth://totp/... or paste secret", className: "flex-1" }), _jsx(Button, { variant: "secondary", size: "sm", onClick: handlePasteFromClipboard, children: "Paste from Clipboard" })] }), qrCodeInput && (_jsx(Button, { variant: "primary", size: "sm", onClick: handleQrCodePaste, disabled: saving || !itemId, className: "mt-2", children: "Import TOTP Secret" }))] }) }))] })), itemType === 'api_key' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Secret / Key" }), _jsxs("div", { className: "relative", children: [_jsx("textarea", { value: showPassword ? secret : secret ? '•'.repeat(Math.max(secret.length, 50)) : '', onChange: (e) => setSecret(e.target.value), placeholder: "Paste SSH key or API key", className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm", style: {
+                                                                }, children: _jsx(Copy, { size: 16 }) })] })] }))] })) : (_jsx(Alert, { variant: "warning", title: "No Phone Number Configured", children: "A global admin must configure a phone number in the vault settings." })) })), twoFactorType === 'qr' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "QR Code / TOTP Secret" }), _jsx("p", { className: "text-sm text-muted-foreground mt-1 mb-2", children: "Paste the TOTP secret URI (otpauth://totp/...) or base32 secret" }), _jsxs("div", { className: "flex gap-2", children: [_jsx(Input, { value: qrCodeInput, onChange: (value) => setQrCodeInput(value), placeholder: "otpauth://totp/... or paste secret", className: "flex-1" }), _jsx(Button, { variant: "secondary", size: "sm", onClick: handlePasteFromClipboard, children: "Paste from Clipboard" })] }), qrCodeInput && (_jsx(Button, { variant: "primary", size: "sm", onClick: handleQrCodePaste, disabled: saving || !itemId, className: "mt-2", children: "Import TOTP Secret" }))] }) }))] })), itemType === 'api_key' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Secret / Key" }), _jsxs("div", { className: "relative", children: [_jsx("textarea", { value: showPassword ? secret : secret ? '•'.repeat(Math.max(secret.length, 50)) : '', onChange: (e) => setSecret(e.target.value), placeholder: "Paste SSH key or API key", className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm", style: {
                                                 ...(showPassword ? {} : {
                                                     caretColor: 'transparent',
                                                 })

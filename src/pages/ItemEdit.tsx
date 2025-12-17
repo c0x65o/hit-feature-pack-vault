@@ -40,8 +40,6 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
   const [latestMessageTime, setLatestMessageTime] = useState<Date | null>(null);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
-  const [userPhoneNumber, setUserPhoneNumber] = useState('');
-  const [sendingSmsRequest, setSendingSmsRequest] = useState(false);
   const lastPollTimeRef = useRef<Date | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -123,30 +121,6 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
       setTimeout(() => setPhoneCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy phone number:', err);
-    }
-  }
-
-  async function sendSmsRequest() {
-    if (!itemId) {
-      setError(new Error('Please save the item first before requesting SMS 2FA'));
-      return;
-    }
-
-    if (!userPhoneNumber.trim()) {
-      setError(new Error('Please enter your phone number'));
-      return;
-    }
-
-    try {
-      setSendingSmsRequest(true);
-      setError(null);
-      await vaultApi.requestSms2fa(itemId, userPhoneNumber.trim());
-      // After sending SMS request, start polling for the response
-      await startSmsPolling();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to send SMS request'));
-    } finally {
-      setSendingSmsRequest(false);
     }
   }
 
@@ -458,44 +432,15 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                           Copy this number and use it for 2FA setup on the website
                         </p>
                       </div>
-
-                      {itemId && (
-                        <div>
-                          <label className="text-sm font-medium">
-                            Your Phone Number (E.164 format)
-                          </label>
-                          <Input
-                            value={userPhoneNumber}
-                            onChange={(value: string) => setUserPhoneNumber(value)}
-                            placeholder="+1234567890"
-                            className="mt-1"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Enter your phone number to receive 2FA code requests
-                          </p>
-                        </div>
-                      )}
                       
                       {!pollingSms && !otpCode && (
-                        <div className="flex gap-2">
-                          {itemId && userPhoneNumber.trim() && (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={sendSmsRequest}
-                              disabled={sendingSmsRequest}
-                            >
-                              {sendingSmsRequest ? 'Sending...' : 'Send SMS Request'}
-                            </Button>
-                          )}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={startSmsPolling}
-                          >
-                            Start Waiting for SMS
-                          </Button>
-                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={startSmsPolling}
+                        >
+                          Start Waiting for SMS
+                        </Button>
                       )}
                       
                       {pollingSms && (

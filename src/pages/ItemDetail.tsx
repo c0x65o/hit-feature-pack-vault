@@ -193,39 +193,35 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Password</label>
                   <div className="flex items-center gap-2 mt-1">
-                    {revealed?.password ? (
-                      <>
-                        <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1">
-                          {showPassword ? revealed.password : '••••••••'}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCopy('password', revealed.password!)}
-                        >
-                          {copied.password ? (
-                            <Check size={16} className="text-green-600" />
-                          ) : (
-                            <Copy size={16} />
-                          )}
-                        </Button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleReveal}
-                        className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary/80 transition-colors w-full text-left"
+                    <code className="text-sm font-mono bg-secondary px-3 py-2 rounded flex-1">
+                      {revealed?.password && showPassword ? revealed.password : '••••••••'}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        if (!revealed?.password) {
+                          await handleReveal();
+                          setShowPassword(true);
+                        } else {
+                          setShowPassword(!showPassword);
+                        }
+                      }}
+                    >
+                      {revealed?.password && showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </Button>
+                    {revealed?.password && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCopy('password', revealed.password!)}
                       >
-                        <Eye size={16} />
-                        <span>Reveal Password</span>
-                      </button>
+                        {copied.password ? (
+                          <Check size={16} className="text-green-600" />
+                        ) : (
+                          <Copy size={16} />
+                        )}
+                      </Button>
                     )}
                   </div>
                 </div>

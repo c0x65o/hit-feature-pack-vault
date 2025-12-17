@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
 import { Save, Trash2, Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
+import { extractOtpCode } from '../utils/otp-extractor';
 export function VaultSetup({ onNavigate }) {
     const { Page, Card, Button, Input, Alert } = useUi();
     const [loading, setLoading] = useState(true);
@@ -31,6 +32,11 @@ export function VaultSetup({ onNavigate }) {
     useEffect(() => {
         if (selectedSmsNumberId) {
             loadMessages(selectedSmsNumberId);
+            // Auto-refresh messages every 5 seconds to catch new webhook messages
+            const interval = setInterval(() => {
+                loadMessages(selectedSmsNumberId);
+            }, 5000);
+            return () => clearInterval(interval);
         }
         else {
             setMessages([]);
@@ -57,11 +63,40 @@ export function VaultSetup({ onNavigate }) {
             setLoading(false);
         }
     }
+    function formatTimeAgo(date) {
+        const now = new Date();
+        const msgDate = typeof date === 'string' ? new Date(date) : date;
+        const diffMs = now.getTime() - msgDate.getTime();
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        if (diffSecs < 60) {
+            return `${diffSecs} sec${diffSecs !== 1 ? 's' : ''} old`;
+        }
+        else if (diffMins < 60) {
+            return `${diffMins} min${diffMins !== 1 ? 's' : ''} old`;
+        }
+        else {
+            const diffHours = Math.floor(diffMins / 60);
+            return `${diffHours} hour${diffHours !== 1 ? 's' : ''} old`;
+        }
+    }
     async function loadMessages(smsNumberId) {
         try {
             setLoadingMessages(true);
             const msgs = await vaultApi.getSmsMessages(smsNumberId);
             setMessages(msgs);
+            // Automatically reveal the most recent message if it's within 5 minutes
+            if (msgs.length > 0) {
+                const mostRecent = msgs[0];
+                const receivedAt = new Date(mostRecent.receivedAt);
+                const now = new Date();
+                const diffMs = now.getTime() - receivedAt.getTime();
+                const diffMins = diffMs / (1000 * 60);
+                // If message is within 5 minutes, try to reveal it (handleRevealMessage checks if already revealed)
+                if (diffMins <= 5) {
+                    await handleRevealMessage(mostRecent.id);
+                }
+            }
         }
         catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to load messages'));
@@ -157,7 +192,8 @@ export function VaultSetup({ onNavigate }) {
                                             const revealedBody = revealedMessages.get(msg.id);
                                             const isRevealed = !!revealedBody;
                                             const messageBody = isRevealed ? revealedBody : '••••••••';
-                                            return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.fromNumber] }), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), _jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border", children: messageBody })] }, msg.id));
+                                            const otpCode = isRevealed && revealedBody ? extractOtpCode(revealedBody) : null;
+                                            return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.fromNumber] }), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), otpCode && (_jsxs("div", { className: "mb-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border-2 border-green-500", children: [_jsxs("div", { className: "flex items-center justify-between mb-2", children: [_jsx("label", { className: "text-sm font-medium text-green-600 dark:text-green-400", children: "OTP Code Detected" }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpCode), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), _jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border", children: messageBody })] }, msg.id));
                                         }) })) }))] }) })), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("h2", { className: "text-lg font-semibold flex items-center gap-2", children: [_jsx(Activity, { size: 20 }), "Webhook Logs"] }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: loadWebhookLogs, disabled: loadingWebhookLogs, children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loadingWebhookLogs ? 'animate-spin' : ''}` }), "Refresh"] })] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "View all incoming webhook requests for debugging. This includes successful requests, failed requests, and validation errors." }), loadingWebhookLogs ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "Loading webhook logs..." })) : webhookLogs.length === 0 ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "No webhook logs yet" })) : (_jsx("div", { className: "space-y-2 max-h-96 overflow-y-auto", children: webhookLogs.map(log => (_jsxs("div", { className: `p-3 border rounded-lg ${log.success
                                             ? 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800'
                                             : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`, children: [_jsx("div", { className: "flex items-start justify-between mb-2", children: _jsxs("div", { className: "text-sm flex-1", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx("span", { className: "font-medium", children: log.method }), _jsx("span", { className: `px-2 py-0.5 rounded text-xs ${log.success
