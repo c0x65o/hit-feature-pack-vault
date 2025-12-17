@@ -7,6 +7,8 @@
  */
 const OTP_PATTERNS = [
     // Steam Guard patterns (alphanumeric, 5 chars, e.g., "TF35D")
+    // Most robust: anchors on "Steam Guard code" and captures exactly 5 chars
+    { regex: /Steam\s+Guard\s+code[^A-Z0-9]*([A-Z0-9]{5})/i, name: 'steam-guard-robust', confidence: 'high' },
     { regex: /steam\s+guard[^a-z0-9]*code[:\s]+([A-Z0-9]{5})/i, name: 'steam-guard', confidence: 'high' },
     { regex: /(?:here is|is)\s+(?:the\s+)?steam\s+guard\s+code[:\s]+([A-Z0-9]{5})/i, name: 'steam-guard-here-is', confidence: 'high' },
     { regex: /steam\s+guard[^a-z0-9]*([A-Z0-9]{5})/i, name: 'steam-guard-bare', confidence: 'high' },
@@ -45,14 +47,10 @@ const OTP_PATTERNS = [
     { regex: /G-(\d{6})/i, name: 'google-style', confidence: 'high' },
     // Microsoft pattern
     { regex: /microsoft[^0-9]*(\d{6})/i, name: 'microsoft', confidence: 'high' },
-    // Generic 6-digit in short message (SMS style)
+    // Generic 6-digit in short message (SMS style) - only if message is very short
     { regex: /^[^0-9]*(\d{6})[^0-9]*$/i, name: 'standalone-6-digit', confidence: 'medium' },
-    // Standalone alphanumeric sequences (lower confidence, minimum 5 chars)
-    { regex: /\b([A-Z0-9]{5})\b/, name: 'bare-5-alphanumeric', confidence: 'medium' }, // Common for Steam Guard
-    // Exclude common words like "code", "password", etc. from bare matches (minimum 5 chars)
-    // Use negative lookahead to skip words that are likely not codes
-    { regex: /\b(?!code|password|verify|pin|otp|auth|number|digit|enter|click|button|link|url|http|https|www|mail|email|phone|call|text|message|sms|subject|from|to|date|time|year|month|day|hour|minute|second)([A-Z0-9]{5,8})\b/i, name: 'bare-alphanumeric', confidence: 'low' },
     // Standalone digit sequences (lower confidence, minimum 5 chars)
+    // Only match standalone digits, not alphanumeric (to avoid random words)
     { regex: /\b(\d{6})\b/, name: 'bare-6-digit', confidence: 'low' },
     { regex: /\b(\d{5})\b/, name: 'bare-5-digit', confidence: 'low' },
     { regex: /\b(\d{8})\b/, name: 'bare-8-digit', confidence: 'low' },
@@ -63,6 +61,28 @@ const OTP_PATTERNS = [
 export function extractOtpWithConfidence(messageBody) {
     if (!messageBody) {
         return { code: null, confidence: 'none', pattern: null, fullMessage: messageBody || '' };
+    }
+    // First, try HTML-aware patterns for Steam Guard (before stripping HTML)
+    // Steam Guard codes are often in specific HTML elements with large fonts
+    const htmlSteamPatterns = [
+        // HTML-aware pattern for Steam Guard codes in styled elements
+        { regex: /x_title-48[^>]*>\s*([A-Z0-9]{5})\s*</i, name: 'steam-guard-html', confidence: 'high' },
+        // Generic pattern for codes in large/styled HTML elements
+        { regex: /(?:font-size|fontSize)[^>]*>\s*([A-Z0-9]{5})\s*</i, name: 'steam-guard-html-font', confidence: 'high' },
+    ];
+    for (const { regex, name, confidence } of htmlSteamPatterns) {
+        const match = messageBody.match(regex);
+        if (match && match[1]) {
+            const code = match[1].replace(/[-\s]/g, '');
+            if (code.length === 5 && /^[A-Z0-9]{5}$/.test(code)) {
+                return {
+                    code,
+                    confidence,
+                    pattern: name,
+                    fullMessage: stripHtml(messageBody),
+                };
+            }
+        }
     }
     // Clean up the message (strip HTML if present)
     const cleaned = stripHtml(messageBody);
@@ -85,6 +105,7 @@ export function extractOtpWithConfidence(messageBody) {
         }
     }
     // Fallback: look for any 5-8 digit sequence (minimum 5 chars)
+    // Only use this as last resort - digits are safer than alphanumeric
     const digitMatch = cleaned.match(/\d{5,8}/);
     if (digitMatch) {
         return {
@@ -94,16 +115,8 @@ export function extractOtpWithConfidence(messageBody) {
             fullMessage: cleaned,
         };
     }
-    // Fallback: look for any 5-8 alphanumeric sequence (uppercase, minimum 5 chars)
-    const alphanumericMatch = cleaned.match(/\b([A-Z0-9]{5,8})\b/);
-    if (alphanumericMatch) {
-        return {
-            code: alphanumericMatch[1],
-            confidence: 'low',
-            pattern: 'fallback-alphanumeric-sequence',
-            fullMessage: cleaned,
-        };
-    }
+    // No fallback for alphanumeric sequences - they match too many random words
+    // Only context-aware patterns should extract alphanumeric codes
     return { code: null, confidence: 'none', pattern: null, fullMessage: cleaned };
 }
 /**

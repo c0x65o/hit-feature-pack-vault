@@ -191,7 +191,7 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">
-            {itemTitle ? `Waiting for OTP - ${itemTitle}` : `Waiting for ${modeLabel} OTP Code`}
+            {itemTitle ? `Waiting for ${modeLabel} OTP - ${itemTitle}` : `Waiting for ${modeLabel} OTP Code`}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose}>
             <X size={16} />
@@ -272,7 +272,7 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
           <div className="mb-4">
             <Alert variant="info" className="mb-2">
               <div className="text-sm">
-                <div className="font-medium mb-1">Last OTP Code Received</div>
+                <div className="font-medium mb-1">Last {modeLabel} OTP Code Received</div>
                 {lastOtpNotification.receivedAt && (
                   <div className="text-xs text-muted-foreground">
                     {formatTimeAgo(lastOtpNotification.receivedAt)}
