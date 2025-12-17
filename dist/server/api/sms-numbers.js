@@ -64,13 +64,16 @@ export async function POST(request) {
         if (!vault || vault.ownerUserId !== userId) {
             return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
         }
-        // TODO: Implement SMS number provisioning logic with provider (Twilio, etc.)
+        // SMS number provisioning
+        // Supported providers: 'twilio', 'fdroid', 'custom'
+        // For F-Droid: manually add phone number and set provider to 'fdroid'
+        // For Twilio: phone number would come from Twilio API (not implemented here)
         const result = await db.insert(vaultSmsNumbers).values({
             vaultId: vaultId,
             itemId: body.itemId || null,
-            phoneNumber: body.phoneNumber || '[provisioned number]', // Would come from provider
-            provider: body.provider || 'twilio',
-            status: 'pending',
+            phoneNumber: body.phoneNumber || '[provisioned number]', // Required for F-Droid/custom
+            provider: body.provider || 'fdroid', // Default to 'fdroid' for custom Android phone setup
+            status: body.status || 'active', // Default to 'active' for F-Droid
         }).returning();
         return NextResponse.json(result[0], { status: 201 });
     }

@@ -41,15 +41,48 @@ function getClientIP(request) {
     return null;
 }
 /**
+ * Verify API key authentication for F-Droid/custom webhooks
+ */
+function verifyApiKey(request) {
+    const apiKey = process.env.VAULT_SMS_WEBHOOK_API_KEY;
+    if (!apiKey) {
+        // If no API key is configured, allow requests (for backward compatibility)
+        return true;
+    }
+    // Check Authorization header (Bearer token)
+    const authHeader = request.headers.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        return token === apiKey;
+    }
+    // Check X-API-Key header
+    const apiKeyHeader = request.headers.get('x-api-key');
+    if (apiKeyHeader) {
+        return apiKeyHeader === apiKey;
+    }
+    // If API key is configured but not provided, reject
+    return false;
+}
+/**
  * POST /api/vault/sms/webhook/inbound
- * Inbound SMS webhook (Twilio/etc)
+ * Inbound SMS webhook (Twilio/F-Droid/Custom)
  *
- * Twilio sends POST with form-encoded data:
- * - From: sender phone number
- * - To: recipient phone number (our provisioned number)
- * - Body: message text
- * - MessageSid: unique message ID
- * - AccountSid: Twilio account SID
+ * Supports multiple formats:
+ *
+ * 1. Twilio format (form-encoded):
+ *    - From: sender phone number
+ *    - To: recipient phone number (our provisioned number)
+ *    - Body: message text
+ *    - MessageSid: unique message ID
+ *    - AccountSid: Twilio account SID
+ *    - Authenticated via X-Twilio-Signature header
+ *
+ * 2. F-Droid/Custom format (JSON):
+ *    - from: sender phone number
+ *    - to: recipient phone number (our provisioned number)
+ *    - body: message text
+ *    - timestamp: optional timestamp (ISO string or Unix timestamp)
+ *    - Authenticated via Authorization: Bearer <token> or X-API-Key header
  */
 export async function POST(request) {
     const startTime = Date.now();
@@ -62,7 +95,9 @@ export async function POST(request) {
     const headers = {};
     request.headers.forEach((value, key) => {
         // Sanitize sensitive headers
-        if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-twilio-signature') {
+        if (key.toLowerCase() === 'authorization' ||
+            key.toLowerCase() === 'x-twilio-signature' ||
+            key.toLowerCase() === 'x-api-key') {
             headers[key] = '[REDACTED]';
         }
         else {
@@ -70,24 +105,25 @@ export async function POST(request) {
         }
     });
     try {
-        // Twilio sends form-encoded data, but Next.js can parse it as JSON if Content-Type is set
-        // For safety, handle both form data and JSON
+        // Determine format: Twilio uses form-encoded, F-Droid uses JSON
         let body;
         const contentType = request.headers.get('content-type') || '';
         if (contentType.includes('application/x-www-form-urlencoded')) {
-            // Parse form data
+            // Parse form data (Twilio format)
             const formData = await request.formData();
             body = Object.fromEntries(formData.entries());
         }
         else {
-            // Try JSON
+            // Try JSON (F-Droid/Custom format)
             body = await request.json();
         }
+        // Extract fields - support both Twilio and F-Droid formats
         const fromNumber = body.From || body.from;
         const toNumber = body.To || body.to;
         const messageBody = body.Body || body.body || '';
         const messageSid = body.MessageSid || body.messageSid;
         const accountSid = body.AccountSid || body.accountSid;
+        const timestamp = body.timestamp || body.Timestamp;
         // Sanitize body for logging (don't log full message body)
         const sanitizedBody = { ...body };
         if (sanitizedBody.Body)
@@ -107,6 +143,47 @@ export async function POST(request) {
             success: false, // Will update on success
         }).returning({ id: vaultWebhookLogs.id });
         webhookLogId = logEntry.id;
+        // Check for Twilio signature (if present, verify it)
+        const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+        const twilioSignature = request.headers.get('x-twilio-signature');
+        if (twilioSignature && twilioAuthToken) {
+            // Twilio webhook - verify signature
+            const urlWithoutQuery = request.url.split('?')[0];
+            const isValid = verifyTwilioSignature(urlWithoutQuery, body, twilioSignature, twilioAuthToken);
+            if (!isValid) {
+                console.error('[vault] Invalid Twilio signature');
+                const processingTime = Date.now() - startTime;
+                if (webhookLogId) {
+                    await db.update(vaultWebhookLogs)
+                        .set({
+                        statusCode: 403,
+                        success: false,
+                        error: 'Invalid Twilio signature',
+                        processingTimeMs: processingTime,
+                    })
+                        .where(eq(vaultWebhookLogs.id, webhookLogId));
+                }
+                return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
+            }
+        }
+        else {
+            // F-Droid/Custom webhook - verify API key
+            if (!verifyApiKey(request)) {
+                console.error('[vault] Invalid or missing API key');
+                const processingTime = Date.now() - startTime;
+                if (webhookLogId) {
+                    await db.update(vaultWebhookLogs)
+                        .set({
+                        statusCode: 401,
+                        success: false,
+                        error: 'Invalid or missing API key',
+                        processingTimeMs: processingTime,
+                    })
+                        .where(eq(vaultWebhookLogs.id, webhookLogId));
+                }
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+        }
         if (!fromNumber || !toNumber || !messageBody) {
             const processingTime = Date.now() - startTime;
             if (webhookLogId) {
@@ -119,32 +196,7 @@ export async function POST(request) {
                 })
                     .where(eq(vaultWebhookLogs.id, webhookLogId));
             }
-            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-        }
-        // Verify Twilio signature if auth token is available
-        const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-        const twilioSignature = request.headers.get('x-twilio-signature');
-        if (twilioAuthToken && twilioSignature) {
-            const urlWithoutQuery = request.url.split('?')[0];
-            const isValid = verifyTwilioSignature(urlWithoutQuery, body, twilioSignature, twilioAuthToken);
-            if (!isValid) {
-                console.error('[vault] Invalid Twilio signature');
-                const processingTime = Date.now() - startTime;
-                if (webhookLogId) {
-                    await db.update(vaultWebhookLogs)
-                        .set({
-                        statusCode: 403,
-                        success: false,
-                        error: 'Invalid signature',
-                        processingTimeMs: processingTime,
-                    })
-                        .where(eq(vaultWebhookLogs.id, webhookLogId));
-                }
-                return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
-            }
-        }
-        else {
-            console.warn('[vault] Twilio signature verification skipped - TWILIO_AUTH_TOKEN not set');
+            return NextResponse.json({ error: 'Missing required fields: from, to, and body are required' }, { status: 400 });
         }
         // Find the SMS number record by phone number
         const [smsNumber] = await db
@@ -190,16 +242,40 @@ export async function POST(request) {
         const retentionDays = parseInt(process.env.VAULT_SMS_RETENTION_DAYS || '30', 10);
         const retentionExpiresAt = new Date();
         retentionExpiresAt.setDate(retentionExpiresAt.getDate() + retentionDays);
+        // Parse timestamp if provided (F-Droid format), otherwise use current time
+        let receivedAt;
+        if (timestamp) {
+            // Try parsing as ISO string or Unix timestamp
+            if (typeof timestamp === 'string') {
+                receivedAt = new Date(timestamp);
+            }
+            else if (typeof timestamp === 'number') {
+                // Unix timestamp (seconds or milliseconds)
+                receivedAt = timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
+            }
+            else {
+                receivedAt = new Date();
+            }
+            // Validate parsed date
+            if (isNaN(receivedAt.getTime())) {
+                receivedAt = new Date();
+            }
+        }
+        else {
+            receivedAt = new Date();
+        }
         // Store the encrypted message
         await db.insert(vaultSmsMessages).values({
             smsNumberId: smsNumber.id,
             fromNumber: fromNumber,
             toNumber: toNumber,
             bodyEncrypted: encryptedBody,
+            receivedAt: receivedAt,
             metadataEncrypted: {
                 messageSid: messageSid,
                 accountSid: accountSid,
-                receivedAt: new Date().toISOString(),
+                provider: smsNumber.provider,
+                receivedAt: receivedAt.toISOString(),
             },
             retentionExpiresAt: retentionExpiresAt,
         });

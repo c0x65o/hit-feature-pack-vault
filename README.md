@@ -31,12 +31,45 @@ feature_packs:
     version: "1.0.0"
     options:
       use_dynamic_groups: false  # Use dynamic groups if auth.user_groups_enabled is true
-      sms_provider: "twilio"
+      sms_provider: "fdroid"  # Options: "twilio", "fdroid", or "custom"
       sms_retention_days: 30
       encryption_key_version: 1
       enable_export: true
       require_reauth_for_reveal: false
 ```
+
+### SMS Provider Configuration
+
+The vault supports multiple SMS providers for receiving OTP codes:
+
+#### F-Droid (Recommended for OTP)
+Use an Android phone with F-Droid SMS forwarding app to relay SMS messages to the webhook.
+
+**Setup:**
+1. Install an SMS forwarding app from F-Droid (e.g., "SMS Forwarder")
+2. Configure the app to forward SMS to: `https://your-domain.com/api/vault/sms/webhook/inbound`
+3. Set the Authorization header: `Bearer <VAULT_SMS_WEBHOOK_API_KEY>` or use `X-API-Key` header
+4. Add the phone number in the vault settings with provider set to `"fdroid"`
+
+**Environment Variable:**
+```bash
+VAULT_SMS_WEBHOOK_API_KEY=your-secret-api-key-here
+```
+
+**Webhook Format (JSON):**
+```json
+{
+  "from": "+1234567890",
+  "to": "+0987654321",
+  "body": "Your OTP code is 123456",
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+```
+
+#### Twilio (For sending SMS, 2FA provider)
+Twilio is still used for **sending** SMS messages (2FA requests). For receiving SMS, use F-Droid or keep Twilio webhook configured.
+
+**Note:** Twilio virtual numbers may filter OTP codes, so F-Droid with a real phone number is recommended for receiving OTP codes.
 
 Import the schema into your Drizzle schema:
 

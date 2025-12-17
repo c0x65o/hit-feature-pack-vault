@@ -225,8 +225,9 @@ export function VaultSetup({ onNavigate }: Props) {
             <div>
               <label className="text-sm font-medium">Phone Number</label>
               <p className="text-xs text-muted-foreground mt-1 mb-2">
-                Enter the Twilio phone number in E.164 format (e.g., +1234567890).
+                Enter the phone number in E.164 format (e.g., +1234567890).
                 This number will be used for receiving 2FA codes for all vault items.
+                Supports F-Droid (Android phone) or Twilio integrations.
               </p>
               <div className="flex items-center gap-2">
                 <Input
@@ -253,12 +254,16 @@ export function VaultSetup({ onNavigate }: Props) {
                   Current phone number: <code className="font-mono">{currentPhoneNumber}</code>
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Configure this number in Twilio to send webhooks to:{' '}
+                  Configure F-Droid or Twilio to send webhooks to:{' '}
                   <code className="font-mono text-xs">
                     {typeof window !== 'undefined' 
                       ? `${window.location.origin}/api/vault/sms/webhook/inbound`
                       : '/api/vault/sms/webhook/inbound'}
                   </code>
+                  <br />
+                  <span className="mt-1 block">
+                    For F-Droid: Set Authorization header to <code className="font-mono">Bearer {'<API_KEY>'}</code> or use X-API-Key header.
+                  </span>
                 </p>
               </Alert>
             )}

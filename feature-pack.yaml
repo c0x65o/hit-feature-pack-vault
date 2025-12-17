@@ -266,8 +266,8 @@ config:
       description: "Use dynamic groups from auth module (if auth.user_groups_enabled is true), otherwise use static groups or roles"
     sms_provider:
       type: string
-      default: "twilio"
-      description: "SMS provider (twilio, etc.)"
+      default: "fdroid"
+      description: "SMS provider: 'twilio' for Twilio integration, 'fdroid' for F-Droid Android phone relay, or 'custom'"
     sms_retention_days:
       type: integer
       default: 30
