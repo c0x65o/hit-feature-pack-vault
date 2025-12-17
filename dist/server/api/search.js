@@ -35,11 +35,14 @@ export async function GET(request) {
             .where(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
         const accessibleVaultIds = new Set(userPersonalVaults.map((v) => v.id));
         const accessibleFolderIds = new Set();
-        // Build principal IDs for ACL matching
+        // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+        const { getUserPrincipals } = await import('../lib/acl-utils');
+        const principals = await getUserPrincipals(db, user);
         const userPrincipalIds = [
-            user.sub,
-            user.email,
-            ...(user.roles || []),
+            principals.userId,
+            principals.userEmail,
+            ...principals.roles,
+            ...principals.groupIds, // Include group IDs for group-based ACLs
         ].filter(Boolean);
         if (isAdmin) {
             // Admins get access to all items in shared vaults

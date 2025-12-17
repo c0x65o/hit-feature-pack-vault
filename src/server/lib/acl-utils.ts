@@ -78,9 +78,28 @@ export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User
   const userEmail = user.email || '';
   const roles = user.roles || [];
 
-  // TODO: Get groups from auth module or static groups table
-  // For now, return empty groups array - this should be implemented based on your auth setup
+  // Get groups the user belongs to from the vault_group_members table
+  // The userId in vault_group_members can be either the user's sub (ID) or email
   const groupIds: string[] = [];
+  
+  try {
+    // Query by both user ID and email to find group memberships
+    const userIdentifiers = [userId, userEmail].filter(Boolean);
+    if (userIdentifiers.length > 0) {
+      const membershipConditions = userIdentifiers.map(id => eq(vaultGroupMembers.userId, id));
+      const memberships = await db
+        .select({ groupId: vaultGroupMembers.groupId })
+        .from(vaultGroupMembers)
+        .where(or(...membershipConditions));
+      
+      for (const membership of memberships) {
+        groupIds.push(membership.groupId);
+      }
+    }
+  } catch (error) {
+    // If table doesn't exist or query fails, continue with empty groups
+    console.warn('Failed to fetch user group memberships:', error);
+  }
 
   return { userId, userEmail, groupIds, roles };
 }

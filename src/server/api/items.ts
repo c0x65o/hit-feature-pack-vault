@@ -47,12 +47,18 @@ export async function GET(request: NextRequest) {
     
     const userPersonalVaultIds = userPersonalVaults.map((v: { id: string }) => v.id);
     
-    // Build principal IDs for ACL matching (user ID, email, roles)
-    const userPrincipalIds = user ? [
-      user.sub,
-      user.email,
-      ...(user.roles || []),
-    ].filter(Boolean) as string[] : [userId];
+    // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+    let userPrincipalIds: string[] = [userId];
+    if (user) {
+      const { getUserPrincipals } = await import('../lib/acl-utils');
+      const principals = await getUserPrincipals(db, user);
+      userPrincipalIds = [
+        principals.userId,
+        principals.userEmail,
+        ...principals.roles,
+        ...principals.groupIds, // Include group IDs for group-based ACLs
+      ].filter(Boolean) as string[];
+    }
     
     // Build accessible vault IDs and folder IDs
     // - Personal vault owners: see all items in their personal vault

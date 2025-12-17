@@ -47,11 +47,14 @@ export async function GET(request: NextRequest) {
     const accessibleVaultIds = new Set<string>(userPersonalVaults.map((v: { id: string }) => v.id));
     const accessibleFolderIds = new Set<string>();
 
-    // Build principal IDs for ACL matching
+    // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+    const { getUserPrincipals } = await import('../lib/acl-utils');
+    const principals = await getUserPrincipals(db, user);
     const userPrincipalIds = [
-      user.sub,
-      user.email,
-      ...(user.roles || []),
+      principals.userId,
+      principals.userEmail,
+      ...principals.roles,
+      ...principals.groupIds, // Include group IDs for group-based ACLs
     ].filter(Boolean) as string[];
 
     if (isAdmin) {

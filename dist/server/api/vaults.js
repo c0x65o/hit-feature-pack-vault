@@ -34,12 +34,18 @@ export async function GET(request) {
         // Get full user info for role checking
         const user = extractUserFromRequest(request);
         const isAdmin = user?.roles?.includes('admin') || false;
-        // Build principal IDs for ACL matching (user ID, email, and roles)
-        const userPrincipalIds = user ? [
-            user.sub,
-            user.email,
-            ...(user.roles || []),
-        ].filter(Boolean) : [userId];
+        // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+        let userPrincipalIds = [userId];
+        if (user) {
+            const { getUserPrincipals } = await import('../lib/acl-utils');
+            const principals = await getUserPrincipals(db, user);
+            userPrincipalIds = [
+                principals.userId,
+                principals.userEmail,
+                ...principals.roles,
+                ...principals.groupIds, // Include group IDs for group-based ACLs
+            ].filter(Boolean);
+        }
         // Get vault IDs the user has ACL access to (vault-level or folder-level)
         const aclAccessibleVaultIds = new Set();
         if (!isAdmin && userPrincipalIds.length > 0) {

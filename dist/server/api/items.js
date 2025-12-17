@@ -36,12 +36,18 @@ export async function GET(request) {
             .from(vaultVaults)
             .where(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
         const userPersonalVaultIds = userPersonalVaults.map((v) => v.id);
-        // Build principal IDs for ACL matching (user ID, email, roles)
-        const userPrincipalIds = user ? [
-            user.sub,
-            user.email,
-            ...(user.roles || []),
-        ].filter(Boolean) : [userId];
+        // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+        let userPrincipalIds = [userId];
+        if (user) {
+            const { getUserPrincipals } = await import('../lib/acl-utils');
+            const principals = await getUserPrincipals(db, user);
+            userPrincipalIds = [
+                principals.userId,
+                principals.userEmail,
+                ...principals.roles,
+                ...principals.groupIds, // Include group IDs for group-based ACLs
+            ].filter(Boolean);
+        }
         // Build accessible vault IDs and folder IDs
         // - Personal vault owners: see all items in their personal vault
         // - Admins: see all items in all shared vaults

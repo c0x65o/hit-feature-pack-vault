@@ -4,7 +4,6 @@ import { getDb } from '@/lib/db';
 import { vaultFolders, vaultVaults, vaultAcls, type VaultFolder } from '@/lib/feature-pack-schemas';
 import { eq, desc, asc, like, sql, and, or, inArray, type AnyColumn } from 'drizzle-orm';
 import { extractUserFromRequest } from '../auth';
-import { getDescendantFolderIds } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -50,11 +49,15 @@ export async function GET(request: NextRequest) {
     
     const userPersonalVaultIds = userPersonalVaults.map((v: { id: string }) => v.id);
 
-    // Build principal IDs for ACL matching (user ID, email, roles)
+    // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
+    // Import ACL utilities once for use throughout the function
+    const aclUtils = await import('../lib/acl-utils');
+    const principals = await aclUtils.getUserPrincipals(db, user);
     const userPrincipalIds = [
-      user.sub,
-      user.email,
-      ...(user.roles || []),
+      principals.userId,
+      principals.userEmail,
+      ...principals.roles,
+      ...principals.groupIds, // Include group IDs for group-based ACLs
     ].filter(Boolean) as string[];
 
     // Build accessible vault IDs and folder IDs
@@ -119,7 +122,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
-      const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
+      const allAccessibleFolderIds = await aclUtils.getDescendantFolderIds(db, directAccessFolderIds);
       
       // Add all accessible folders (direct + descendants) to the set
       for (const folderId of allAccessibleFolderIds) {
@@ -220,7 +223,6 @@ export async function GET(request: NextRequest) {
       .offset(offset);
 
     // Add permission flags to each folder for UI conditional rendering
-    const { checkFolderAccess, getEffectiveFolderAcls, getUserPrincipals, mergePermissions } = await import('../lib/acl-utils');
     const itemsWithPermissions = await Promise.all(
       items.map(async (folder: VaultFolder) => {
         // Get vault to check ownership
@@ -237,13 +239,13 @@ export async function GET(request: NextRequest) {
         // This shows what permissions the user has via ACLs, not owner/admin status
         let permissionLevel: 'full' | 'read_write' | 'read_only' | 'none' = 'none';
         
-        const principals = await getUserPrincipals(db, user);
-        const effectiveAcls = await getEffectiveFolderAcls(db, folder.id, principals);
+        const folderPrincipals = await aclUtils.getUserPrincipals(db, user);
+        const effectiveAcls = await aclUtils.getEffectiveFolderAcls(db, folder.id, folderPrincipals);
         
         if (effectiveAcls.length > 0) {
           // Merge permissions from all ACLs
           const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
-          const mergedPermissions = mergePermissions(allPermissionSets);
+          const mergedPermissions = aclUtils.mergePermissions(allPermissionSets);
           
           // Determine permission level based on merged permissions
           if (mergedPermissions.includes('DELETE')) {
@@ -262,8 +264,8 @@ export async function GET(request: NextRequest) {
         }
         
         // Use checkFolderAccess for the boolean flags (for backward compatibility)
-        const deleteCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['DELETE'] });
-        const writeCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['READ_WRITE'] });
+        const deleteCheck = await aclUtils.checkFolderAccess(db, folder.id, user, { requiredPermissions: ['DELETE'] });
+        const writeCheck = await aclUtils.checkFolderAccess(db, folder.id, user, { requiredPermissions: ['READ_WRITE'] });
         
         return {
           ...folder,
