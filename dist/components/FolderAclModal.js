@@ -375,6 +375,8 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
     function getPermissionsFromLevel(level) {
         switch (level) {
             case 'full':
+                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE, VAULT_PERMISSIONS.MANAGE_ACL];
+            case 'read_write_delete':
                 return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE];
             case 'read_write':
                 return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE];
@@ -388,6 +390,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         READ_ONLY: 'Read Only (view passwords)',
         READ_WRITE: 'Read & Write (add/edit items)',
         DELETE: 'Delete (remove items)',
+        MANAGE_ACL: 'Manage ACL (grant/revoke access)',
     };
     // Get display name for a principal (name if available, otherwise ID)
     function getPrincipalDisplayName(principalType, principalId) {
@@ -415,7 +418,8 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                                                                 newPrincipalType === 'group' ? 'group-id' : 'role-name' }));
                                                     }
                                                 })())] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Permissions" }), _jsx(Select, { value: newPermissionLevel, onChange: (value) => setNewPermissionLevel(value), options: [
-                                                { value: 'full', label: 'Full (read write delete)' },
+                                                { value: 'full', label: 'Full Control (read, write, delete, manage ACL)' },
+                                                { value: 'read_write_delete', label: 'Read, Write & Delete' },
                                                 { value: 'read_write', label: 'Read and Write' },
                                                 { value: 'read_only', label: 'Read Only' },
                                             ], placeholder: "Select permission level" })] }), _jsxs("div", { className: "flex items-center space-x-2", children: [_jsx(Checkbox, { checked: newInherit, onChange: (checked) => setNewInherit(checked) }), _jsx("label", { className: "text-sm", children: "Inherit to child folders and items" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {

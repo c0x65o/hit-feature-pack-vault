@@ -6,7 +6,8 @@ export interface AclCheckOptions {
 }
 /**
  * Merge permissions from multiple ACLs and return the most privileged set
- * Priority: DELETE > READ_WRITE > READ_ONLY
+ * Priority: MANAGE_ACL > DELETE > READ_WRITE > READ_ONLY
+ * Note: MANAGE_ACL is independent and doesn't imply other permissions
  */
 export declare function mergePermissions(permissionSets: string[][]): string[];
 /**

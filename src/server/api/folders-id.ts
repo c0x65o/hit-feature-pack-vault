@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     
     // Check ACL permissions to determine actual permission level
     // Admins ALWAYS have full control on shared vaults, regardless of ACLs
-    let permissionLevel: 'full' | 'read_write' | 'read_only' | 'none' = 'none';
+    let permissionLevel: 'full' | 'read_write_delete' | 'read_write' | 'read_only' | 'none' = 'none';
     
     // Admins always have full access to shared vaults
     if (isAdmin && vault?.type === 'shared') {
@@ -92,8 +92,11 @@ export async function GET(request: NextRequest) {
         const mergedPermissions = mergePermissions(allPermissionSets);
         
         // Determine permission level based on merged permissions
-        if (mergedPermissions.includes('DELETE')) {
+        // Full control requires MANAGE_ACL permission
+        if (mergedPermissions.includes('MANAGE_ACL')) {
           permissionLevel = 'full';
+        } else if (mergedPermissions.includes('DELETE')) {
+          permissionLevel = 'read_write_delete';
         } else if (mergedPermissions.includes('READ_WRITE')) {
           permissionLevel = 'read_write';
         } else if (mergedPermissions.includes('READ_ONLY')) {

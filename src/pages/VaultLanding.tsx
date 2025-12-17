@@ -872,8 +872,8 @@ function FolderSection({
             <GripVertical size={14} className="text-muted-foreground" />
           </div>
           
-          {/* Move Icon - only show if full access */}
-          {(folder as any).permissionLevel === 'full' && (
+          {/* Move Icon - show if full or read_write_delete access */}
+          {((folder as any).permissionLevel === 'full' || (folder as any).permissionLevel === 'read_write_delete') && (
             <Button 
               variant="ghost" 
               size="sm" 
@@ -910,13 +910,19 @@ function FolderSection({
             )}
             {(folder as any).permissionLevel && (folder as any).permissionLevel !== 'none' && (
               (() => {
-                const permissionLevel = (folder as any).permissionLevel as 'full' | 'read_write' | 'read_only';
+                const permissionLevel = (folder as any).permissionLevel as 'full' | 'read_write_delete' | 'read_write' | 'read_only';
                 const permissionConfig = {
                   full: {
                     icon: <Shield className="h-3.5 w-3.5" />,
-                    label: 'Full',
+                    label: 'Full Control',
                     className: 'bg-green-50 border-green-200 text-green-800',
-                    title: 'Full Access (Read, Write, Delete)',
+                    title: 'Full Control (Read, Write, Delete, Manage ACL)',
+                  },
+                  read_write_delete: {
+                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                    label: 'Read/Write/Delete',
+                    className: 'bg-purple-50 border-purple-200 text-purple-800',
+                    title: 'Read, Write & Delete Access',
                   },
                   read_write: {
                     icon: <Edit className="h-3.5 w-3.5" />,
@@ -966,8 +972,10 @@ function FolderSection({
               <Users size={14} />
             </Button>
           )}
-          {/* Add button - show if read_write or full (not read_only) */}
-          {((folder as any).permissionLevel === 'read_write' || (folder as any).permissionLevel === 'full') && (
+          {/* Add button - show if read_write, read_write_delete, or full (not read_only) */}
+          {((folder as any).permissionLevel === 'read_write' || 
+            (folder as any).permissionLevel === 'read_write_delete' || 
+            (folder as any).permissionLevel === 'full') && (
             <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
               <Plus size={14} />
             </Button>

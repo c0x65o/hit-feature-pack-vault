@@ -202,8 +202,12 @@ export async function GET(request) {
                     const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
                     const mergedPermissions = aclUtils.mergePermissions(allPermissionSets);
                     // Determine permission level based on merged permissions
-                    if (mergedPermissions.includes('DELETE')) {
+                    // Full control requires MANAGE_ACL permission
+                    if (mergedPermissions.includes('MANAGE_ACL')) {
                         permissionLevel = 'full';
+                    }
+                    else if (mergedPermissions.includes('DELETE')) {
+                        permissionLevel = 'read_write_delete';
                     }
                     else if (mergedPermissions.includes('READ_WRITE')) {
                         permissionLevel = 'read_write';

@@ -24,7 +24,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPrincipalType, setNewPrincipalType] = useState<'user' | 'group' | 'role'>('user');
   const [newPrincipalId, setNewPrincipalId] = useState('');
-  const [newPermissionLevel, setNewPermissionLevel] = useState<'full' | 'read_write' | 'read_only' | ''>('');
+  const [newPermissionLevel, setNewPermissionLevel] = useState<'full' | 'read_write_delete' | 'read_write' | 'read_only' | ''>('');
   const [newInherit, setNewInherit] = useState(true);
 
   // Principal options state
@@ -345,7 +345,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     try {
       setSaving(true);
       setError(null);
-      const permissions = getPermissionsFromLevel(newPermissionLevel as 'full' | 'read_write' | 'read_only');
+      const permissions = getPermissionsFromLevel(newPermissionLevel as 'full' | 'read_write_delete' | 'read_write' | 'read_only');
       const newAcl: InsertVaultAcl = {
         resourceType: 'folder',
         resourceId: folderId,
@@ -394,9 +394,11 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   }
 
   // Map permission level to actual permissions array
-  function getPermissionsFromLevel(level: 'full' | 'read_write' | 'read_only'): string[] {
+  function getPermissionsFromLevel(level: 'full' | 'read_write_delete' | 'read_write' | 'read_only'): string[] {
     switch (level) {
       case 'full':
+        return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE, VAULT_PERMISSIONS.MANAGE_ACL];
+      case 'read_write_delete':
         return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE];
       case 'read_write':
         return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE];
@@ -411,6 +413,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     READ_ONLY: 'Read Only (view passwords)',
     READ_WRITE: 'Read & Write (add/edit items)',
     DELETE: 'Delete (remove items)',
+    MANAGE_ACL: 'Manage ACL (grant/revoke access)',
   };
 
   // Get display name for a principal (name if available, otherwise ID)
@@ -516,9 +519,10 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                   <label className="text-sm font-medium mb-1 block">Permissions</label>
                   <Select
                     value={newPermissionLevel}
-                    onChange={(value: string) => setNewPermissionLevel(value as 'full' | 'read_write' | 'read_only' | '')}
+                    onChange={(value: string) => setNewPermissionLevel(value as 'full' | 'read_write_delete' | 'read_write' | 'read_only' | '')}
                     options={[
-                      { value: 'full', label: 'Full (read write delete)' },
+                      { value: 'full', label: 'Full Control (read, write, delete, manage ACL)' },
+                      { value: 'read_write_delete', label: 'Read, Write & Delete' },
                       { value: 'read_write', label: 'Read and Write' },
                       { value: 'read_only', label: 'Read Only' },
                     ]}

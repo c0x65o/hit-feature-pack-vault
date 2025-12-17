@@ -532,7 +532,7 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
         };
         return countRecursive(folder.id);
     }, [folder.id, allItems, allFolders]);
-    return (_jsxs("div", { ref: setDroppableRef, className: `border rounded-lg ${isOver ? 'border-primary border-2' : ''}`, style: style, children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", style: { paddingLeft: `${12 + indentLevel * 24}px` }, children: [_jsxs("div", { className: "flex items-center gap-1 flex-1 min-w-0", children: [_jsx("div", { ref: setNodeRef, ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) }), folder.permissionLevel === 'full' && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+    return (_jsxs("div", { ref: setDroppableRef, className: `border rounded-lg ${isOver ? 'border-primary border-2' : ''}`, style: style, children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", style: { paddingLeft: `${12 + indentLevel * 24}px` }, children: [_jsxs("div", { className: "flex items-center gap-1 flex-1 min-w-0", children: [_jsx("div", { ref: setNodeRef, ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) }), (folder.permissionLevel === 'full' || folder.permissionLevel === 'read_write_delete') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                                     e.stopPropagation();
                                     onShowMoveModal(folder.id);
                                 }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) })), _jsxs("button", { onClick: () => onToggleExpanded(folder.id), className: "flex items-center gap-2 flex-1 text-left min-w-0", children: [expanded ? _jsx(ChevronDown, { className: "h-4 w-4" }) : _jsx(ChevronRight, { className: "h-4 w-4" }), _jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm truncate", children: folder.name }), folderScope && (_jsx("span", { className: [
@@ -545,9 +545,15 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                                         const permissionConfig = {
                                             full: {
                                                 icon: _jsx(Shield, { className: "h-3.5 w-3.5" }),
-                                                label: 'Full',
+                                                label: 'Full Control',
                                                 className: 'bg-green-50 border-green-200 text-green-800',
-                                                title: 'Full Access (Read, Write, Delete)',
+                                                title: 'Full Control (Read, Write, Delete, Manage ACL)',
+                                            },
+                                            read_write_delete: {
+                                                icon: _jsx(Trash2, { className: "h-3.5 w-3.5" }),
+                                                label: 'Read/Write/Delete',
+                                                className: 'bg-purple-50 border-purple-200 text-purple-800',
+                                                title: 'Read, Write & Delete Access',
                                             },
                                             read_write: {
                                                 icon: _jsx(Edit, { className: "h-3.5 w-3.5" }),
@@ -570,7 +576,9 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                                     })()), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] })] }), _jsxs("div", { className: "flex items-center gap-1", children: [folder.permissionLevel === 'full' && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                                     e.stopPropagation();
                                     onShowAclModal(folder.id);
-                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), (folder.permissionLevel === 'read_write' || folder.permissionLevel === 'full') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) }))] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
+                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), (folder.permissionLevel === 'read_write' ||
+                                folder.permissionLevel === 'read_write_delete' ||
+                                folder.permissionLevel === 'full') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) }))] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
                                 // Explicitly handle empty string as root (null parentId)
                                 const newParentId = value === '' ? null : value;
                                 // Only move if the value actually changed

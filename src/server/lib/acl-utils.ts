@@ -33,14 +33,15 @@ function mapLegacyPermission(perm: string): string {
  * Normalize permissions array - map legacy permissions and ensure valid ones
  */
 function normalizePermissions(permissions: string[]): string[] {
-  const validPermissions = ['READ_ONLY', 'READ_WRITE', 'DELETE'];
+  const validPermissions = ['READ_ONLY', 'READ_WRITE', 'DELETE', 'MANAGE_ACL'];
   const normalized = permissions.map(mapLegacyPermission);
   return normalized.filter(p => validPermissions.includes(p));
 }
 
 /**
  * Merge permissions from multiple ACLs and return the most privileged set
- * Priority: DELETE > READ_WRITE > READ_ONLY
+ * Priority: MANAGE_ACL > DELETE > READ_WRITE > READ_ONLY
+ * Note: MANAGE_ACL is independent and doesn't imply other permissions
  */
 export function mergePermissions(permissionSets: string[][]): string[] {
   const merged = new Set<string>();
@@ -51,8 +52,10 @@ export function mergePermissions(permissionSets: string[][]): string[] {
     }
   }
   
+  // Build result with implicit permissions
   // If user has DELETE, they implicitly have READ_WRITE and READ_ONLY
   // If user has READ_WRITE, they implicitly have READ_ONLY
+  // MANAGE_ACL is independent and doesn't imply other permissions
   const result: string[] = [];
   if (merged.has('DELETE')) {
     result.push('READ_ONLY', 'READ_WRITE', 'DELETE');
@@ -60,6 +63,11 @@ export function mergePermissions(permissionSets: string[][]): string[] {
     result.push('READ_ONLY', 'READ_WRITE');
   } else if (merged.has('READ_ONLY')) {
     result.push('READ_ONLY');
+  }
+  
+  // MANAGE_ACL is independent - add it if present
+  if (merged.has('MANAGE_ACL')) {
+    result.push('MANAGE_ACL');
   }
   
   return result;

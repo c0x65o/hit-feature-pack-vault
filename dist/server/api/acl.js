@@ -20,20 +20,33 @@ export async function GET(request) {
         const { searchParams } = new URL(request.url);
         const resourceType = searchParams.get('resource_type');
         const resourceId = searchParams.get('resource_id');
+        if (!resourceType || !resourceId) {
+            return NextResponse.json({ error: 'Missing required parameters: resource_type and resource_id' }, { status: 400 });
+        }
+        // Check if user has MANAGE_ACL permission on the resource (required to view ACLs)
+        if (resourceType === 'folder') {
+            const { checkFolderAccess } = await import('../lib/acl-utils');
+            const accessCheck = await checkFolderAccess(db, resourceId, user, { requiredPermissions: ['MANAGE_ACL'] });
+            if (!accessCheck.hasAccess) {
+                return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to view ACLs') }, { status: 403 });
+            }
+        }
+        else if (resourceType === 'vault') {
+            const { checkVaultAccess } = await import('../lib/acl-utils');
+            const accessCheck = await checkVaultAccess(db, resourceId, user, ['MANAGE_ACL']);
+            if (!accessCheck.hasAccess) {
+                return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to view ACLs') }, { status: 403 });
+            }
+        }
         // Build conditions
-        const conditions = [];
-        if (resourceType) {
-            conditions.push(eq(vaultAcls.resourceType, resourceType));
-        }
-        if (resourceId) {
-            conditions.push(eq(vaultAcls.resourceId, resourceId));
-        }
-        // Note: Access control for GET is handled by the resource-level endpoints
-        // This endpoint is used to list ACLs, which requires READ_WRITE permission on the resource
+        const conditions = [
+            eq(vaultAcls.resourceType, resourceType),
+            eq(vaultAcls.resourceId, resourceId),
+        ];
         const items = await db
             .select()
             .from(vaultAcls)
-            .where(conditions.length > 0 ? and(...conditions) : undefined)
+            .where(and(...conditions))
             .orderBy(desc(vaultAcls.createdAt));
         return NextResponse.json({ items });
     }
@@ -58,17 +71,17 @@ export async function POST(request) {
         if (!body.resourceType || !body.resourceId || !body.principalType || !body.principalId || !body.permissions) {
             return NextResponse.json({ error: 'Missing required fields: resourceType, resourceId, principalType, principalId, permissions' }, { status: 400 });
         }
-        // Check if user has READ_WRITE permission on the resource (required to manage ACLs)
+        // Check if user has MANAGE_ACL permission on the resource (required to manage ACLs)
         if (body.resourceType === 'folder') {
             const { checkFolderAccess } = await import('../lib/acl-utils');
-            const accessCheck = await checkFolderAccess(db, body.resourceId, user, { requiredPermissions: ['READ_WRITE'] });
+            const accessCheck = await checkFolderAccess(db, body.resourceId, user, { requiredPermissions: ['MANAGE_ACL'] });
             if (!accessCheck.hasAccess) {
                 return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to manage ACLs') }, { status: 403 });
             }
         }
         else if (body.resourceType === 'vault') {
             const { checkVaultAccess } = await import('../lib/acl-utils');
-            const accessCheck = await checkVaultAccess(db, body.resourceId, user, ['READ_WRITE']);
+            const accessCheck = await checkVaultAccess(db, body.resourceId, user, ['MANAGE_ACL']);
             if (!accessCheck.hasAccess) {
                 return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to manage ACLs') }, { status: 403 });
             }

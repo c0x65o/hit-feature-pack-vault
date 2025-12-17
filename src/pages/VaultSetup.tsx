@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Phone, Check, Edit2, X, ChevronDown, Wifi, WifiOff } from 'lucide-react';
+import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Phone, Check, Edit2, X, ChevronDown, Wifi, WifiOff, CheckCircle2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
@@ -317,6 +317,106 @@ export function VaultSetup({ onNavigate }: Props) {
         <Alert variant="error" title="Error">
           {error.message}
         </Alert>
+      )}
+
+      {/* Prominent OTP Notification */}
+      {otpSubscription.otpCode && (
+        <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-900/20">
+          <div className="p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 size={24} className="text-green-600 dark:text-green-400" />
+                <div>
+                  <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">
+                    OTP Code Received
+                  </h3>
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    {otpSubscription.latestNotification?.type === 'email' ? 'Email' : 'SMS'} from {otpSubscription.latestNotification?.from}
+                    {otpSubscription.latestNotification?.subject && ` - ${otpSubscription.latestNotification.subject}`}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  otpSubscription.clearOtp();
+                }}
+              >
+                <X size={16} />
+              </Button>
+            </div>
+            
+            <div className="flex items-center gap-4 mb-4">
+              <div className="flex-1">
+                <div className="flex items-baseline gap-3">
+                  <code className="text-4xl font-mono font-bold text-green-900 dark:text-green-100">
+                    {otpSubscription.otpCode}
+                  </code>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(otpSubscription.otpCode!);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Copy size={16} />
+                    Copy
+                  </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={`text-xs font-medium px-2 py-1 rounded ${
+                    otpSubscription.otpConfidence === 'high'
+                      ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200'
+                      : otpSubscription.otpConfidence === 'medium'
+                        ? 'bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200'
+                        : 'bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                  }`}>
+                    {otpSubscription.otpConfidence} confidence
+                  </span>
+                  {otpSubscription.latestNotification?.receivedAt && (
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(otpSubscription.latestNotification.receivedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {otpSubscription.fullMessage && (
+              <div className="mt-4 pt-4 border-t border-green-200 dark:border-green-800">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const key = 'otp-full-message';
+                    const isExpanded = expandedLogSections.has(key);
+                    const newSet = new Set(expandedLogSections);
+                    if (isExpanded) {
+                      newSet.delete(key);
+                    } else {
+                      newSet.add(key);
+                    }
+                    setExpandedLogSections(newSet);
+                  }}
+                  className="text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-100"
+                >
+                  <ChevronDown 
+                    size={14} 
+                    className={`mr-2 transition-transform duration-200 ${expandedLogSections.has('otp-full-message') ? 'rotate-180' : ''}`}
+                  />
+                  {expandedLogSections.has('otp-full-message') ? 'Hide' : 'Show'} Full Message
+                </Button>
+                {expandedLogSections.has('otp-full-message') && (
+                  <div className="mt-2 p-3 bg-white dark:bg-gray-800 rounded border text-sm font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {otpSubscription.fullMessage}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
       )}
 
       <div className="space-y-6">
@@ -940,8 +1040,18 @@ export function VaultSetup({ onNavigate }: Props) {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="text-sm flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium">{log.method}</span>
+                          {/* Badge to distinguish email vs SMS webhooks */}
+                          {log.url?.includes('/email/webhook') ? (
+                            <span className="px-2 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium">
+                              Email
+                            </span>
+                          ) : log.url?.includes('/sms/webhook') ? (
+                            <span className="px-2 py-0.5 rounded text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-medium">
+                              SMS
+                            </span>
+                          ) : null}
                           <span className={`px-2 py-0.5 rounded text-xs ${
                             log.success
                               ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'

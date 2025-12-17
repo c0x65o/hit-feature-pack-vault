@@ -13,9 +13,11 @@ try {
     // Dynamic import to avoid build errors when SDK not installed
     const hitSdk = require('@hit/sdk');
     eventsClient = hitSdk.events;
+    console.log('[useOtpSubscription] HIT SDK loaded successfully, eventsClient available:', !!eventsClient);
 }
 catch (e) {
     // SDK not available - will use polling fallback
+    console.log('[useOtpSubscription] HIT SDK not available, will use polling fallback. Error:', e);
 }
 /**
  * Hook for subscribing to OTP notifications
@@ -112,10 +114,13 @@ export function useOtpSubscription(options = {}) {
         setConnectionType('disconnected');
     }, []);
     const startListeningWebSocket = useCallback(() => {
+        console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
         if (!eventsClient) {
+            console.log('[useOtpSubscription] WebSocket not attempted: eventsClient is null/undefined. HIT SDK may not be installed or initialized.');
             return false;
         }
         try {
+            console.log('[useOtpSubscription] Subscribing to vault.otp_received event via WebSocket');
             // Subscribe to vault OTP events
             subscriptionRef.current = eventsClient.subscribe('vault.otp_received', (event) => {
                 handleOtpNotification(event.payload);
@@ -185,8 +190,10 @@ export function useOtpSubscription(options = {}) {
         setIsListening(true);
         setError(null);
         clearOtp();
+        console.log('[useOtpSubscription] Starting to listen, attempting WebSocket first...');
         // Try WebSocket first, fall back to polling
         if (!startListeningWebSocket()) {
+            console.log('[useOtpSubscription] WebSocket attempt failed, falling back to polling');
             startListeningPolling();
         }
     }, [isListening, clearOtp, startListeningWebSocket, startListeningPolling]);
