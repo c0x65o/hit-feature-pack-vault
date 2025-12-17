@@ -231,6 +231,23 @@ export async function POST(request) {
             }).returning();
             smsNumber = newSmsNumber;
         }
+        // If toEmail is not provided, try to use the global email address as fallback
+        let finalToEmail = toEmail;
+        if (!finalToEmail) {
+            const [emailSetting] = await db
+                .select()
+                .from(vaultSettings)
+                .where(eq(vaultSettings.key, 'global_2fa_email'))
+                .limit(1);
+            if (emailSetting) {
+                try {
+                    finalToEmail = decrypt(emailSetting.valueEncrypted);
+                }
+                catch (err) {
+                    console.error('[vault] Failed to decrypt global email setting:', err);
+                }
+            }
+        }
         // Combine subject and body for storage
         const fullMessage = subject ? `Subject: ${subject}\n\n${emailBody}` : emailBody;
         // Encrypt the message body
@@ -265,7 +282,7 @@ export async function POST(request) {
         const [insertedMessage] = await db.insert(vaultSmsMessages).values({
             smsNumberId: smsNumber.id,
             fromNumber: fromEmail,
-            toNumber: toEmail || '[email-inbox]',
+            toNumber: finalToEmail || '[email-inbox]',
             bodyEncrypted: encryptedBody,
             receivedAt: receivedAt,
             metadataEncrypted: {

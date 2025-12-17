@@ -72,30 +72,34 @@ export async function GET(request: NextRequest) {
     const isOwner = vault?.ownerUserId === user.sub;
     
     // Check ACL permissions to determine actual permission level
+    // Admins ALWAYS have full control on shared vaults, regardless of ACLs
     let permissionLevel: 'full' | 'read_write' | 'read_only' | 'none' = 'none';
     
-    const principals = await getUserPrincipals(db, user);
-    const effectiveAcls = await getEffectiveFolderAcls(db, id, principals);
-    
-    if (effectiveAcls.length > 0) {
-      // Merge permissions from all ACLs
-      const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
-      const mergedPermissions = mergePermissions(allPermissionSets);
-      
-      // Determine permission level based on merged permissions
-      if (mergedPermissions.includes('DELETE')) {
-        permissionLevel = 'full';
-      } else if (mergedPermissions.includes('READ_WRITE')) {
-        permissionLevel = 'read_write';
-      } else if (mergedPermissions.includes('READ_ONLY')) {
-        permissionLevel = 'read_only';
-      }
+    // Admins always have full access to shared vaults
+    if (isAdmin && vault?.type === 'shared') {
+      permissionLevel = 'full';
     } else if (isOwner && vault?.type === 'personal') {
       // Personal vault owner has full access (no ACL needed - it's their vault)
       permissionLevel = 'full';
-    } else if (isAdmin && vault?.type === 'shared') {
-      // Admins get full access to shared vaults by default (even without explicit ACLs)
-      permissionLevel = 'full';
+    } else {
+      // For non-admin users or personal vaults, check ACL permissions
+      const principals = await getUserPrincipals(db, user);
+      const effectiveAcls = await getEffectiveFolderAcls(db, id, principals);
+      
+      if (effectiveAcls.length > 0) {
+        // Merge permissions from all ACLs
+        const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
+        const mergedPermissions = mergePermissions(allPermissionSets);
+        
+        // Determine permission level based on merged permissions
+        if (mergedPermissions.includes('DELETE')) {
+          permissionLevel = 'full';
+        } else if (mergedPermissions.includes('READ_WRITE')) {
+          permissionLevel = 'read_write';
+        } else if (mergedPermissions.includes('READ_ONLY')) {
+          permissionLevel = 'read_only';
+        }
+      }
     }
     
     // Use checkFolderAccess for the boolean flags (for backward compatibility)

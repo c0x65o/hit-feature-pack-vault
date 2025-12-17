@@ -462,11 +462,13 @@ export type InsertVaultSetting = typeof vaultSettings.$inferInsert;
  * - READ_ONLY: Can view passwords and items
  * - READ_WRITE: Can add/edit items and folders
  * - DELETE: Can delete items and folders
+ * - MANAGE_ACL: Can manage access control lists (grant/revoke permissions)
  */
 export const VAULT_PERMISSIONS = {
   READ_ONLY: "READ_ONLY",
   READ_WRITE: "READ_WRITE",
   DELETE: "DELETE",
+  MANAGE_ACL: "MANAGE_ACL",
 } as const;
 
 export type VaultPermission = (typeof VAULT_PERMISSIONS)[keyof typeof VAULT_PERMISSIONS];
