@@ -16,8 +16,9 @@ export async function publishVaultEvent(eventType, payload) {
         console.log('[vault] Events module not configured - skipping event publish');
         return { success: false, error: 'Events module not configured' };
     }
-    const projectSlug = process.env.HIT_PROJECT_SLUG || 'hit-dashboard';
+    const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
     const serviceToken = process.env.HIT_SERVICE_TOKEN;
+    console.log(`[vault] Publishing event '${eventType}' to channel '${projectSlug}' at ${eventsUrl}`);
     try {
         const url = `${eventsUrl.replace(/\/$/, '')}/publish?event_type=${encodeURIComponent(eventType)}`;
         const headers = {

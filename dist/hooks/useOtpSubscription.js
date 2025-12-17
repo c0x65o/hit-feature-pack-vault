@@ -43,6 +43,16 @@ if (typeof window !== 'undefined') {
 }
 // Global events client instance (created lazily when needed)
 let eventsClientInstance = null;
+// Global WebSocket connection status (updated by the events client)
+let globalWsStatus = 'disconnected';
+// Listeners for WebSocket status changes
+const wsStatusListeners = new Set();
+function notifyWsStatusChange(status) {
+    globalWsStatus = status;
+    for (const listener of wsStatusListeners) {
+        listener(status);
+    }
+}
 /**
  * Get or create the events client instance
  */
@@ -58,15 +68,24 @@ async function getEventsClient() {
             ? process.env.NEXT_PUBLIC_HIT_EVENTS_WS_URL
             : (getWebSocketUrlFn ? getWebSocketUrlFn('events') : '');
         // Get project slug/channel from environment
+        // IMPORTANT: Must match HIT_PROJECT_SLUG used by server-side publish-event.ts
+        // Default to 'hit-dashboard' to match the server's default
         const EVENTS_CHANNEL = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_EVENTS_CHANNEL
             ? process.env.NEXT_PUBLIC_HIT_EVENTS_CHANNEL
-            : 'shared-events';
+            : (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_PROJECT_SLUG
+                ? process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG
+                : 'hit-dashboard');
+        console.log('[useOtpSubscription] Creating events client with:', {
+            wsUrl: EVENTS_WS_URL || '(auto-discover)',
+            channel: EVENTS_CHANNEL,
+        });
         eventsClientInstance = new HitEventsClass({
             baseUrl: EVENTS_WS_URL,
             projectSlug: EVENTS_CHANNEL,
             useSSE: false, // Use WebSocket
             onStatusChange: (status) => {
-                console.log('[useOtpSubscription] WebSocket status:', status);
+                console.log('[useOtpSubscription] WebSocket status changed:', status);
+                notifyWsStatusChange(status);
             },
             onError: (error) => {
                 console.warn('[useOtpSubscription] WebSocket error:', error.message);
@@ -74,6 +93,12 @@ async function getEventsClient() {
         });
     }
     return eventsClientInstance;
+}
+/**
+ * Get the current global WebSocket connection status
+ */
+export function getGlobalWsStatus() {
+    return globalWsStatus;
 }
 /**
  * Hook for subscribing to OTP notifications
@@ -101,6 +126,7 @@ export function useOtpSubscription(options = {}) {
     const { type = 'all', toFilter, onOtpReceived, enabled = true, pollingInterval = 2000, maxPollTime = 5 * 60 * 1000, keepListening = false, } = options;
     const [isListening, setIsListening] = useState(false);
     const [connectionType, setConnectionType] = useState('disconnected');
+    const [realWsStatus, setRealWsStatus] = useState(globalWsStatus);
     const [otpCode, setOtpCode] = useState(null);
     const [otpConfidence, setOtpConfidence] = useState('none');
     const [fullMessage, setFullMessage] = useState(null);
@@ -110,6 +136,30 @@ export function useOtpSubscription(options = {}) {
     const pollingTimeoutRef = useRef(null);
     const subscriptionRef = useRef(null);
     const lastPollTimeRef = useRef(null);
+    const usingWebSocketRef = useRef(false);
+    // Subscribe to global WebSocket status changes
+    useEffect(() => {
+        const handleStatusChange = (status) => {
+            setRealWsStatus(status);
+            // Only update connectionType if we're trying to use WebSocket
+            if (usingWebSocketRef.current) {
+                if (status === 'connected') {
+                    setConnectionType('websocket');
+                }
+                else if (status === 'error' || status === 'disconnected') {
+                    // WebSocket failed, fall back to polling if we're still listening
+                    if (isListening && subscriptionRef.current) {
+                        console.log('[useOtpSubscription] WebSocket disconnected/error, falling back to polling');
+                        // Don't change connectionType here - let the reconnect logic handle it
+                    }
+                }
+            }
+        };
+        wsStatusListeners.add(handleStatusChange);
+        return () => {
+            wsStatusListeners.delete(handleStatusChange);
+        };
+    }, [isListening]);
     const clearOtp = useCallback(() => {
         setOtpCode(null);
         setOtpConfidence('none');
@@ -122,6 +172,7 @@ export function useOtpSubscription(options = {}) {
             subscriptionRef.current.unsubscribe();
             subscriptionRef.current = null;
         }
+        usingWebSocketRef.current = false;
         // Clean up polling
         if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
@@ -198,19 +249,41 @@ export function useOtpSubscription(options = {}) {
             console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
             if (!eventsClient) {
                 console.log('[useOtpSubscription] WebSocket not attempted: eventsClient is null/undefined. HIT SDK may not be installed or initialized.');
+                usingWebSocketRef.current = false;
                 return false;
             }
+            // Mark that we're attempting WebSocket
+            usingWebSocketRef.current = true;
             console.log('[useOtpSubscription] Subscribing to vault.otp_received event via WebSocket');
-            // Subscribe to vault OTP events
+            // Subscribe to vault OTP events - this triggers the WebSocket connection
             subscriptionRef.current = eventsClient.subscribe('vault.otp_received', (event) => {
                 handleOtpNotification(event.payload);
             });
-            setConnectionType('websocket');
-            console.log('[useOtpSubscription] Connected via WebSocket');
+            // Check the actual WebSocket status from the client
+            const actualStatus = eventsClient.getStatus?.() || globalWsStatus;
+            console.log('[useOtpSubscription] Actual WebSocket status:', actualStatus);
+            // Set connectionType based on real status
+            // If still connecting, the status listener will update when connected
+            if (actualStatus === 'connected') {
+                setConnectionType('websocket');
+                console.log('[useOtpSubscription] WebSocket already connected');
+            }
+            else if (actualStatus === 'connecting') {
+                // Keep as 'disconnected' until actually connected - status listener will update
+                setConnectionType('disconnected');
+                console.log('[useOtpSubscription] WebSocket is connecting...');
+            }
+            else {
+                // Disconnected or error - will need polling fallback
+                console.log('[useOtpSubscription] WebSocket not connected, status:', actualStatus);
+                usingWebSocketRef.current = false;
+                return false;
+            }
             return true;
         }
         catch (err) {
             console.error('[useOtpSubscription] WebSocket connection failed:', err);
+            usingWebSocketRef.current = false;
             return false;
         }
     }, [handleOtpNotification]);

@@ -5,6 +5,10 @@
  * Uses the HIT Events SDK when available, falls back to API polling otherwise.
  */
 import { type OtpExtractionResult } from '../utils/otp-extractor';
+/**
+ * Get the current global WebSocket connection status
+ */
+export declare function getGlobalWsStatus(): 'connecting' | 'connected' | 'disconnected' | 'error';
 export interface OtpNotification {
     messageId: string;
     type: 'sms' | 'email';
