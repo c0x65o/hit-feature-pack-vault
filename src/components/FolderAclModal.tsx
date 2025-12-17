@@ -14,7 +14,7 @@ interface FolderAclModalProps {
 }
 
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAclModalProps) {
-  const { Modal, Button, Alert, Spinner, Input, Select, Badge, Checkbox } = useUi();
+  const { Modal, Button, Alert, Spinner, Input, Select, Badge } = useUi();
   const [acls, setAcls] = useState<VaultAcl[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -25,7 +25,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [newPrincipalType, setNewPrincipalType] = useState<'user' | 'group' | 'role'>('user');
   const [newPrincipalId, setNewPrincipalId] = useState('');
   const [newPermissionLevel, setNewPermissionLevel] = useState<'full' | 'read_write_delete' | 'read_write' | 'read_only' | ''>('');
-  const [newInherit, setNewInherit] = useState(true);
+  const [isRootFolder, setIsRootFolder] = useState<boolean | null>(null);
 
   // Principal options state
   const [users, setUsers] = useState<Array<{ value: string; label: string }>>([]);
@@ -38,10 +38,21 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
 
   useEffect(() => {
     if (isOpen && folderId) {
+      checkIfRootFolder();
       loadAcls();
       loadAllPrincipalsForDisplay();
     }
   }, [isOpen, folderId]);
+
+  async function checkIfRootFolder() {
+    try {
+      const folder = await vaultApi.getFolder(folderId);
+      setIsRootFolder(!folder.parentId);
+    } catch (err) {
+      console.error('Failed to check if folder is root:', err);
+      setIsRootFolder(null);
+    }
+  }
 
   // Load principal options when principal type changes
   useEffect(() => {
@@ -352,7 +363,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
         principalType: newPrincipalType,
         principalId: newPrincipalId.trim(),
         permissions: permissions,
-        inherit: newInherit,
+        inherit: false, // No inheritance allowed - only root folders can have ACLs
         createdBy: '', // Will be set by backend
       };
 
@@ -362,7 +373,6 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       setNewPrincipalType('user');
       setNewPrincipalId('');
       setNewPermissionLevel('');
-      setNewInherit(true);
       setShowAddForm(false);
       
       // Reload ACLs
@@ -436,6 +446,12 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
           </Alert>
         )}
 
+        {isRootFolder === false && (
+          <Alert variant="error" title="Invalid Folder">
+            Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions.
+          </Alert>
+        )}
+
         {loading ? (
           <div className="flex justify-center py-8">
             <Spinner />
@@ -444,16 +460,18 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
           <>
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold">Access Permissions</h3>
-              <Button
-                onClick={() => setShowAddForm(!showAddForm)}
-                variant="secondary"
-                size="sm"
-              >
-                {showAddForm ? 'Cancel' : 'Add Access'}
-              </Button>
+              {isRootFolder !== false && (
+                <Button
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  variant="secondary"
+                  size="sm"
+                >
+                  {showAddForm ? 'Cancel' : 'Add Access'}
+                </Button>
+              )}
             </div>
 
-            {showAddForm && (
+            {showAddForm && isRootFolder !== false && (
               <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
                 <h4 className="font-medium">Add New Access</h4>
                 
@@ -530,13 +548,6 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                   />
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    checked={newInherit}
-                    onChange={(checked: boolean) => setNewInherit(checked)}
-                  />
-                  <label className="text-sm">Inherit to child folders and items</label>
-                </div>
 
                 <div className="flex justify-end gap-2">
                   <Button
@@ -580,9 +591,6 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant="default">{acl.principalType}</Badge>
                         <span className="font-medium">{getPrincipalDisplayName(acl.principalType, acl.principalId)}</span>
-                        {acl.inherit && (
-                          <Badge variant="info" className="text-xs">Inherits</Badge>
-                        )}
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {Array.isArray(acl.permissions) && acl.permissions.map(perm => (

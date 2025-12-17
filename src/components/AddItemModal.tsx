@@ -43,6 +43,10 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
   const [emailCopied, setEmailCopied] = useState(false);
   const [pollingEmail, setPollingEmail] = useState(false);
+  
+  // Track last poll time to avoid re-checking old messages
+  const lastSmsPollTimeRef = useRef<Date | null>(null);
+  const lastEmailPollTimeRef = useRef<Date | null>(null);
 
   useEffect(() => {
     if (twoFactorType === 'phone') {
@@ -99,10 +103,12 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
     setOtpConfidence('none');
     setOtpFullMessage(null);
     setShowFullMessage(false);
+    lastSmsPollTimeRef.current = new Date();
 
     const interval = setInterval(async () => {
       try {
-        const result = await vaultApi.getLatestSmsMessages();
+        const since = lastSmsPollTimeRef.current?.toISOString();
+        const result = await vaultApi.getLatestSmsMessages(since);
         for (const msg of result.messages) {
           try {
             const revealResult = await vaultApi.revealSmsMessage(msg.id);
@@ -119,6 +125,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
             console.error('Failed to reveal SMS message:', err);
           }
         }
+        lastSmsPollTimeRef.current = new Date();
       } catch (err) {
         console.error('Failed to poll SMS messages:', err);
       }
@@ -137,10 +144,12 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
     setOtpConfidence('none');
     setOtpFullMessage(null);
     setShowFullMessage(false);
+    lastEmailPollTimeRef.current = new Date();
 
     const interval = setInterval(async () => {
       try {
-        const result = await vaultApi.getLatestEmailMessages();
+        const since = lastEmailPollTimeRef.current?.toISOString();
+        const result = await vaultApi.getLatestEmailMessages({ since });
         for (const msg of result.messages) {
           try {
             const revealResult = await vaultApi.revealSmsMessage(msg.id);
@@ -157,6 +166,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
             console.error('Failed to reveal email message:', err);
           }
         }
+        lastEmailPollTimeRef.current = new Date();
       } catch (err) {
         console.error('Failed to poll email messages:', err);
       }

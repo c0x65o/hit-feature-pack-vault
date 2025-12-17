@@ -11,7 +11,12 @@ export const runtime = 'nodejs';
 function extractId(request: NextRequest): string | null {
   const url = new URL(request.url);
   const parts = url.pathname.split('/');
-  return parts[parts.length - 1] || null;
+  // /api/vault/sms/messages/{id}/reveal -> id is after 'messages'
+  const messagesIndex = parts.indexOf('messages');
+  if (messagesIndex === -1 || messagesIndex + 1 >= parts.length) {
+    return null;
+  }
+  return parts[messagesIndex + 1] || null;
 }
 
 /**
@@ -24,6 +29,13 @@ export async function POST(request: NextRequest) {
     const id = extractId(request);
     if (!id) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    }
+
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      console.error('[vault] Invalid UUID format:', id);
+      return NextResponse.json({ error: 'Invalid message id format' }, { status: 400 });
     }
 
     const userId = getUserId(request);

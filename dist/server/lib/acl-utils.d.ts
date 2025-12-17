@@ -32,7 +32,8 @@ export declare function checkVaultAccess(db: ReturnType<typeof getDb>, vaultId: 
     reason?: string;
 }>;
 /**
- * Get effective ACL permissions for a folder, checking inheritance from parent folders
+ * Get effective ACL permissions for a folder (direct ACLs only, no inheritance)
+ * Only root folders (folders without parentId) can have ACLs
  */
 export declare function getEffectiveFolderAcls(db: ReturnType<typeof getDb>, folderId: string, principals: {
     userId: string;

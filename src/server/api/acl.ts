@@ -92,6 +92,21 @@ export async function POST(request: NextRequest) {
     
     // Check if user has MANAGE_ACL permission on the resource (required to manage ACLs)
     if (body.resourceType === 'folder') {
+      // Verify folder is a root folder (no parentId) - only root folders can have ACLs
+      const [folder] = await db
+        .select()
+        .from(vaultFolders)
+        .where(eq(vaultFolders.id, body.resourceId))
+        .limit(1);
+      
+      if (!folder) {
+        return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
+      }
+      
+      if (folder.parentId) {
+        return NextResponse.json({ error: 'Access permissions can only be set on root folders (folders without a parent)' }, { status: 400 });
+      }
+      
       const { checkFolderAccess } = await import('../lib/acl-utils');
       const accessCheck = await checkFolderAccess(db, body.resourceId, user, { requiredPermissions: ['MANAGE_ACL'] });
       if (!accessCheck.hasAccess) {
@@ -111,7 +126,7 @@ export async function POST(request: NextRequest) {
       principalType: body.principalType,
       principalId: body.principalId,
       permissions: Array.isArray(body.permissions) ? body.permissions : [],
-      inherit: body.inherit !== undefined ? body.inherit : true,
+      inherit: false, // No inheritance allowed - only root folders can have ACLs
       createdBy: user.sub,
     }).returning();
 

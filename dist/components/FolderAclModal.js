@@ -5,7 +5,7 @@ import { useUi } from '@hit/ui-kit';
 import { vaultApi } from '../services/vault-api';
 import { VAULT_PERMISSIONS } from '../schema/vault';
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
-    const { Modal, Button, Alert, Spinner, Input, Select, Badge, Checkbox } = useUi();
+    const { Modal, Button, Alert, Spinner, Input, Select, Badge } = useUi();
     const [acls, setAcls] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -15,7 +15,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
     const [newPrincipalType, setNewPrincipalType] = useState('user');
     const [newPrincipalId, setNewPrincipalId] = useState('');
     const [newPermissionLevel, setNewPermissionLevel] = useState('');
-    const [newInherit, setNewInherit] = useState(true);
+    const [isRootFolder, setIsRootFolder] = useState(null);
     // Principal options state
     const [users, setUsers] = useState([]);
     const [groups, setGroups] = useState([]);
@@ -25,10 +25,21 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
     const [principalNameMap, setPrincipalNameMap] = useState({});
     useEffect(() => {
         if (isOpen && folderId) {
+            checkIfRootFolder();
             loadAcls();
             loadAllPrincipalsForDisplay();
         }
     }, [isOpen, folderId]);
+    async function checkIfRootFolder() {
+        try {
+            const folder = await vaultApi.getFolder(folderId);
+            setIsRootFolder(!folder.parentId);
+        }
+        catch (err) {
+            console.error('Failed to check if folder is root:', err);
+            setIsRootFolder(null);
+        }
+    }
     // Load principal options when principal type changes
     useEffect(() => {
         if (showAddForm) {
@@ -332,7 +343,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                 principalType: newPrincipalType,
                 principalId: newPrincipalId.trim(),
                 permissions: permissions,
-                inherit: newInherit,
+                inherit: false, // No inheritance allowed - only root folders can have ACLs
                 createdBy: '', // Will be set by backend
             };
             await vaultApi.createAcl(newAcl);
@@ -340,7 +351,6 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setNewPrincipalType('user');
             setNewPrincipalId('');
             setNewPermissionLevel('');
-            setNewInherit(true);
             setShowAddForm(false);
             // Reload ACLs
             await loadAcls();
@@ -397,7 +407,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         const key = `${principalType}:${principalId}`;
         return principalNameMap[key] || principalId;
     }
-    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), loading ? (_jsx("div", { className: "flex justify-center py-8", children: _jsx(Spinner, {}) })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "flex justify-between items-center", children: [_jsx("h3", { className: "text-lg font-semibold", children: "Access Permissions" }), _jsx(Button, { onClick: () => setShowAddForm(!showAddForm), variant: "secondary", size: "sm", children: showAddForm ? 'Cancel' : 'Add Access' })] }), showAddForm && (_jsxs("div", { className: "border rounded-lg p-4 space-y-4 bg-muted/30", children: [_jsx("h4", { className: "font-medium", children: "Add New Access" }), _jsxs("div", { className: "grid grid-cols-2 gap-4", children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Principal Type" }), _jsx(Select, { value: newPrincipalType, onChange: (value) => {
+    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), isRootFolder === false && (_jsx(Alert, { variant: "error", title: "Invalid Folder", children: "Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions." })), loading ? (_jsx("div", { className: "flex justify-center py-8", children: _jsx(Spinner, {}) })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "flex justify-between items-center", children: [_jsx("h3", { className: "text-lg font-semibold", children: "Access Permissions" }), isRootFolder !== false && (_jsx(Button, { onClick: () => setShowAddForm(!showAddForm), variant: "secondary", size: "sm", children: showAddForm ? 'Cancel' : 'Add Access' }))] }), showAddForm && isRootFolder !== false && (_jsxs("div", { className: "border rounded-lg p-4 space-y-4 bg-muted/30", children: [_jsx("h4", { className: "font-medium", children: "Add New Access" }), _jsxs("div", { className: "grid grid-cols-2 gap-4", children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Principal Type" }), _jsx(Select, { value: newPrincipalType, onChange: (value) => {
                                                         setNewPrincipalType(value);
                                                         setNewPrincipalId(''); // Reset when type changes
                                                     }, options: [
@@ -422,7 +432,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                                                 { value: 'read_write_delete', label: 'Read, Write & Delete' },
                                                 { value: 'read_write', label: 'Read and Write' },
                                                 { value: 'read_only', label: 'Read Only' },
-                                            ], placeholder: "Select permission level" })] }), _jsxs("div", { className: "flex items-center space-x-2", children: [_jsx(Checkbox, { checked: newInherit, onChange: (checked) => setNewInherit(checked) }), _jsx("label", { className: "text-sm", children: "Inherit to child folders and items" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {
+                                            ], placeholder: "Select permission level" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {
                                                 setShowAddForm(false);
                                                 setNewPrincipalId('');
                                                 setNewPermissionLevel('');
@@ -430,5 +440,5 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                                                 setUsers([]);
                                                 setGroups([]);
                                                 setRoles([]);
-                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: getPrincipalDisplayName(acl.principalType, acl.principalId) }), acl.inherit && (_jsx(Badge, { variant: "info", className: "text-xs", children: "Inherits" }))] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
+                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: getPrincipalDisplayName(acl.principalType, acl.principalId) })] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
 }

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
@@ -284,6 +284,27 @@ export function VaultLanding({ onNavigate }: Props) {
     return map;
   }, [vaults]);
 
+  // Group root folders by vault type and sort alphabetically
+  const groupedFolders = useMemo(() => {
+    const personal: typeof rootFolders = [];
+    const shared: typeof rootFolders = [];
+    
+    rootFolders.forEach(folder => {
+      const vaultType = vaultTypeById[folder.vaultId];
+      if (vaultType === 'personal') {
+        personal.push(folder);
+      } else if (vaultType === 'shared') {
+        shared.push(folder);
+      }
+    });
+    
+    // Sort alphabetically by name
+    personal.sort((a, b) => a.name.localeCompare(b.name));
+    shared.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return { personal, shared };
+  }, [rootFolders, vaultTypeById]);
+
   const toggleFolderExpanded = (folderId: string) => {
     setExpandedFolderIds(prev => {
       const next = new Set(prev);
@@ -560,42 +581,87 @@ export function VaultLanding({ onNavigate }: Props) {
           {/* Root Drop Zone */}
           <RootDropZone />
 
-          {/* Folders */}
-          {rootFolders.map(folder => (
-            <FolderSection
-              key={folder.id}
-              folder={folder}
-              allFolders={folders}
-              allItems={items}
-              vaultTypeById={vaultTypeById}
-              onNavigate={navigate}
-              onDelete={handleDeleteFolder}
-              onSelectFolder={setSelectedFolderId}
-              onAddItem={(folderId: string) => {
-                setSelectedFolderId(folderId);
-                setShowAddItemModal(true);
-              }}
-              expandedFolderIds={expandedFolderIds}
-              onToggleExpanded={toggleFolderExpanded}
-              onMoveItem={handleMoveItem}
-              onQuickTotp={handleQuickTotp}
-              totpCopiedFor={totpCopiedFor}
-              onMoveFolder={handleMoveFolder}
-              showMoveModal={showMoveFolderModal}
-              onShowMoveModal={setShowMoveFolderModal}
-              onDeleteItem={handleDeleteItem}
-              showMoveItemModal={showMoveItemModal}
-              onShowMoveItemModal={setShowMoveItemModal}
-              onShowAclModal={setShowAclModalFolderId}
-              globalEmailAddress={globalEmailAddress}
-              onQuickEmailOtp={handleQuickEmailOtp}
-              emailOtpPollingFor={emailOtpPollingFor}
-              emailOtpCopiedFor={emailOtpCopiedFor}
-              isAdmin={isAdmin}
-            />
-          ))}
+          {/* Personal Folders */}
+          {groupedFolders.personal.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Personal</h2>
+              {groupedFolders.personal.map(folder => (
+                <FolderSection
+                  key={folder.id}
+                  folder={folder}
+                  allFolders={folders}
+                  allItems={items}
+                  vaultTypeById={vaultTypeById}
+                  onNavigate={navigate}
+                  onDelete={handleDeleteFolder}
+                  onSelectFolder={setSelectedFolderId}
+                  onAddItem={(folderId: string) => {
+                    setSelectedFolderId(folderId);
+                    setShowAddItemModal(true);
+                  }}
+                  expandedFolderIds={expandedFolderIds}
+                  onToggleExpanded={toggleFolderExpanded}
+                  onMoveItem={handleMoveItem}
+                  onQuickTotp={handleQuickTotp}
+                  totpCopiedFor={totpCopiedFor}
+                  onMoveFolder={handleMoveFolder}
+                  showMoveModal={showMoveFolderModal}
+                  onShowMoveModal={setShowMoveFolderModal}
+                  onDeleteItem={handleDeleteItem}
+                  showMoveItemModal={showMoveItemModal}
+                  onShowMoveItemModal={setShowMoveItemModal}
+                  onShowAclModal={setShowAclModalFolderId}
+                  globalEmailAddress={globalEmailAddress}
+                  onQuickEmailOtp={handleQuickEmailOtp}
+                  emailOtpPollingFor={emailOtpPollingFor}
+                  emailOtpCopiedFor={emailOtpCopiedFor}
+                  isAdmin={isAdmin}
+                />
+              ))}
+            </div>
+          )}
 
-          {rootFolders.length === 0 && rootItems.length === 0 && (
+          {/* Shared Folders */}
+          {groupedFolders.shared.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Shared</h2>
+              {groupedFolders.shared.map(folder => (
+                <FolderSection
+                  key={folder.id}
+                  folder={folder}
+                  allFolders={folders}
+                  allItems={items}
+                  vaultTypeById={vaultTypeById}
+                  onNavigate={navigate}
+                  onDelete={handleDeleteFolder}
+                  onSelectFolder={setSelectedFolderId}
+                  onAddItem={(folderId: string) => {
+                    setSelectedFolderId(folderId);
+                    setShowAddItemModal(true);
+                  }}
+                  expandedFolderIds={expandedFolderIds}
+                  onToggleExpanded={toggleFolderExpanded}
+                  onMoveItem={handleMoveItem}
+                  onQuickTotp={handleQuickTotp}
+                  totpCopiedFor={totpCopiedFor}
+                  onMoveFolder={handleMoveFolder}
+                  showMoveModal={showMoveFolderModal}
+                  onShowMoveModal={setShowMoveFolderModal}
+                  onDeleteItem={handleDeleteItem}
+                  showMoveItemModal={showMoveItemModal}
+                  onShowMoveItemModal={setShowMoveItemModal}
+                  onShowAclModal={setShowAclModalFolderId}
+                  globalEmailAddress={globalEmailAddress}
+                  onQuickEmailOtp={handleQuickEmailOtp}
+                  emailOtpPollingFor={emailOtpPollingFor}
+                  emailOtpCopiedFor={emailOtpCopiedFor}
+                  isAdmin={isAdmin}
+                />
+              ))}
+            </div>
+          )}
+
+          {groupedFolders.personal.length === 0 && groupedFolders.shared.length === 0 && rootItems.length === 0 && (
             <Card>
               <div className="p-12 text-center">
                 <Lock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -771,10 +837,14 @@ function FolderSection({
   // Calculate indentation based on level
   const indentLevel = level;
 
+  // Check if folder can be moved (same permission check as move icon)
+  const canMove = (folder as any).permissionLevel === 'full' || (folder as any).permissionLevel === 'read_write_delete';
+
   // Drag and drop setup
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `folder:${folder.id}`,
     data: { type: 'folder', folderId: folder.id },
+    disabled: !canMove,
   });
 
   const { setNodeRef: setDroppableRef, isOver } = useDroppable({
@@ -861,33 +931,6 @@ function FolderSection({
         style={{ paddingLeft: `${12 + indentLevel * 24}px` }}
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
-          {/* Drag Handle */}
-          <div
-            ref={setNodeRef}
-            {...attributes}
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 -ml-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GripVertical size={14} className="text-muted-foreground" />
-          </div>
-          
-          {/* Move Icon - show if full or read_write_delete access */}
-          {((folder as any).permissionLevel === 'full' || (folder as any).permissionLevel === 'read_write_delete') && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onShowMoveModal(folder.id);
-              }}
-              title="Move folder"
-              className="p-1 h-auto"
-            >
-              <Move size={14} />
-            </Button>
-          )}
-          
           <button
             onClick={() => onToggleExpanded(folder.id)}
             className="flex items-center gap-2 flex-1 text-left min-w-0"
@@ -957,9 +1000,40 @@ function FolderSection({
             </span>
           </button>
         </div>
-        <div className="flex items-center gap-1">
-          {/* ACL button - only show if full access */}
-          {(folder as any).permissionLevel === 'full' && (
+        <div 
+          ref={setNodeRef}
+          className="flex items-center gap-1"
+        >
+          {/* Drag Handle - show only if can move */}
+          {canMove && (
+            <div
+              {...attributes}
+              {...listeners}
+              className="cursor-grab active:cursor-grabbing p-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripVertical size={14} className="text-muted-foreground" />
+            </div>
+          )}
+          
+          {/* Move Icon - show if full or read_write_delete access */}
+          {canMove && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowMoveModal(folder.id);
+              }}
+              title="Move folder"
+              className="p-1 h-auto"
+            >
+              <Move size={14} />
+            </Button>
+          )}
+          
+          {/* ACL button - only show if full access AND not a personal folder AND is a root folder */}
+          {(folder as any).permissionLevel === 'full' && folderScope !== 'personal' && !folder.parentId && (
             <Button 
               variant="ghost" 
               size="sm" 
@@ -1215,6 +1289,27 @@ function ItemRow({
       </div>
 
       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {/* URL launch button - show if item has a URL */}
+        {item.url && (
+          <Button
+            variant="ghost"
+            size="sm"
+            title={`Open ${item.url} in new tab`}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Ensure URL has protocol, default to https if missing
+              let urlToOpen = item.url || '';
+              if (urlToOpen && !urlToOpen.match(/^https?:\/\//i)) {
+                urlToOpen = `https://${urlToOpen}`;
+              }
+              if (urlToOpen) {
+                window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+              }
+            }}
+          >
+            <ExternalLink size={16} className="text-blue-500" />
+          </Button>
+        )}
         {canUseEmailOtp && (
           <Button
             variant="ghost"

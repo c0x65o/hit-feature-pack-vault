@@ -276,14 +276,15 @@ export async function checkVaultAccess(
 }
 
 /**
- * Get effective ACL permissions for a folder, checking inheritance from parent folders
+ * Get effective ACL permissions for a folder (direct ACLs only, no inheritance)
+ * Only root folders (folders without parentId) can have ACLs
  */
 export async function getEffectiveFolderAcls(
   db: ReturnType<typeof getDb>,
   folderId: string,
   principals: { userId: string; userEmail: string; groupIds: string[]; roles: string[] }
 ): Promise<Array<{ permissions: string[]; inherit: boolean }>> {
-  // Get folder and its path
+  // Get folder
   const [folder] = await db
     .select()
     .from(vaultFolders)
@@ -291,6 +292,11 @@ export async function getEffectiveFolderAcls(
     .limit(1);
 
   if (!folder) {
+    return [];
+  }
+
+  // Only root folders can have ACLs - return empty if folder has a parent
+  if (folder.parentId) {
     return [];
   }
 
@@ -305,7 +311,7 @@ export async function getEffectiveFolderAcls(
     return [];
   }
 
-  // Get direct ACLs on this folder
+  // Get direct ACLs on this folder only (no inheritance)
   const directAclConditions = principalIds.map(id => eq(vaultAcls.principalId, id));
   const directAcls = await db
     .select()
@@ -320,82 +326,12 @@ export async function getEffectiveFolderAcls(
 
   const effectiveAcls: Array<{ permissions: string[]; inherit: boolean }> = [];
 
-  // Add direct ACLs
+  // Add direct ACLs only
   for (const acl of directAcls) {
     effectiveAcls.push({
       permissions: Array.isArray(acl.permissions) ? acl.permissions : [],
-      inherit: acl.inherit,
+      inherit: false, // No inheritance allowed
     });
-  }
-
-  // Check parent folders for inherited ACLs
-  if (folder.parentId) {
-    // Walk up the parent chain
-    const parentFolders: Array<{ id: string }> = [];
-    let currentParentId: string | null = folder.parentId;
-    
-    while (currentParentId) {
-      const [parent] = await db
-        .select({ id: vaultFolders.id, parentId: vaultFolders.parentId })
-        .from(vaultFolders)
-        .where(and(
-          eq(vaultFolders.id, currentParentId),
-          eq(vaultFolders.vaultId, folder.vaultId)
-        ))
-        .limit(1);
-      
-      if (!parent) break;
-      
-      parentFolders.push({ id: parent.id });
-      currentParentId = parent.parentId || null;
-    }
-
-    // Get inherited ACLs from parents
-    if (principalIds.length > 0) {
-      const parentAclConditions = principalIds.map(id => eq(vaultAcls.principalId, id));
-      for (const parentFolder of parentFolders) {
-        const parentAcls = await db
-          .select()
-          .from(vaultAcls)
-          .where(
-            and(
-              eq(vaultAcls.resourceType, 'folder'),
-              eq(vaultAcls.resourceId, parentFolder.id),
-              eq(vaultAcls.inherit, true),
-              or(...parentAclConditions)
-            )
-          );
-
-        for (const acl of parentAcls) {
-          effectiveAcls.push({
-            permissions: Array.isArray(acl.permissions) ? acl.permissions : [],
-            inherit: true,
-          });
-        }
-      }
-    }
-  }
-
-  // Also check vault-level ACLs
-  if (principalIds.length > 0) {
-    const vaultAclConditions = principalIds.map(id => eq(vaultAcls.principalId, id));
-    const vaultAclsList = await db
-      .select()
-      .from(vaultAcls)
-      .where(
-        and(
-          eq(vaultAcls.resourceType, 'vault'),
-          eq(vaultAcls.resourceId, folder.vaultId),
-          or(...vaultAclConditions)
-        )
-      );
-
-    for (const acl of vaultAclsList) {
-      effectiveAcls.push({
-        permissions: Array.isArray(acl.permissions) ? acl.permissions : [],
-        inherit: true,
-      });
-    }
   }
 
   return effectiveAcls;
