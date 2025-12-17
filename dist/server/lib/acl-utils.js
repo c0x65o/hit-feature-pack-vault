@@ -59,7 +59,7 @@ export async function getUserPrincipals(db, user) {
     const userId = user.sub;
     const userEmail = user.email || '';
     const roles = user.roles || [];
-    // Get groups the user belongs to from the vault_group_members table
+    // Get groups the user belongs to from the vault_group_members table (static groups)
     // The userId in vault_group_members can be either the user's sub (ID) or email
     const groupIds = [];
     try {
@@ -79,6 +79,44 @@ export async function getUserPrincipals(db, user) {
     catch (error) {
         // If table doesn't exist or query fails, continue with empty groups
         console.warn('Failed to fetch user group memberships:', error);
+    }
+    // Also fetch dynamic groups from auth module (if user email is available)
+    // Dynamic groups are stored in the auth module's database, not in vault_group_members
+    if (userEmail) {
+        try {
+            const authUrl = process.env.HIT_AUTH_URL || process.env.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth';
+            const serviceToken = process.env.HIT_SERVICE_TOKEN;
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            // Use service token if available, otherwise rely on proxy authentication
+            if (serviceToken) {
+                headers['X-HIT-Service-Token'] = serviceToken;
+            }
+            const response = await fetch(`${authUrl.replace(/\/$/, '')}/admin/users/${encodeURIComponent(userEmail.toLowerCase())}/groups`, {
+                headers,
+            });
+            if (response.ok) {
+                const userGroups = await response.json();
+                if (Array.isArray(userGroups)) {
+                    // Extract group IDs from the response (UserGroupResponse uses group_id field)
+                    for (const userGroup of userGroups) {
+                        if (userGroup.group_id) {
+                            groupIds.push(String(userGroup.group_id));
+                        }
+                    }
+                }
+            }
+            else if (response.status !== 404) {
+                // 404 is expected if user has no groups, but log other errors
+                console.warn(`Failed to fetch dynamic groups from auth module: ${response.status} ${response.statusText}`);
+            }
+        }
+        catch (error) {
+            // If auth module is unavailable, continue with static groups only
+            // This allows the system to work even if auth module is down
+            console.warn('Failed to fetch dynamic groups from auth module:', error);
+        }
     }
     return { userId, userEmail, groupIds, roles };
 }
