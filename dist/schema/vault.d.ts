@@ -903,6 +903,77 @@ export declare const vaultSmsMessages: import("drizzle-orm/pg-core").PgTableWith
     dialect: "pg";
 }>;
 /**
+ * Vault Settings Table
+ * Stores global vault settings (webhook API keys, etc.)
+ */
+export declare const vaultSettings: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "vault_settings";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "vault_settings";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        key: import("drizzle-orm/pg-core").PgColumn<{
+            name: "key";
+            tableName: "vault_settings";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        valueEncrypted: import("drizzle-orm/pg-core").PgColumn<{
+            name: "value_encrypted";
+            tableName: "vault_settings";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "vault_settings";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "vault_settings";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
+/**
  * Webhook Logs Table
  * Logs all incoming webhook requests for debugging
  */
@@ -1270,6 +1341,7 @@ export type VaultWebhookLog = typeof vaultWebhookLogs.$inferSelect;
 export type VaultAuditEvent = typeof vaultAuditEvents.$inferSelect;
 export type VaultStaticGroup = typeof vaultStaticGroups.$inferSelect;
 export type VaultGroupMember = typeof vaultGroupMembers.$inferSelect;
+export type VaultSetting = typeof vaultSettings.$inferSelect;
 export type InsertVaultVault = typeof vaultVaults.$inferInsert;
 export type InsertVaultFolder = typeof vaultFolders.$inferInsert;
 export type InsertVaultItem = typeof vaultItems.$inferInsert;
@@ -1280,6 +1352,7 @@ export type InsertVaultWebhookLog = typeof vaultWebhookLogs.$inferInsert;
 export type InsertVaultAuditEvent = typeof vaultAuditEvents.$inferInsert;
 export type InsertVaultStaticGroup = typeof vaultStaticGroups.$inferInsert;
 export type InsertVaultGroupMember = typeof vaultGroupMembers.$inferInsert;
+export type InsertVaultSetting = typeof vaultSettings.$inferInsert;
 /**
  * Permission Constants
  */

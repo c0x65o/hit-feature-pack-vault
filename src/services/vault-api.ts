@@ -396,6 +396,17 @@ export class VaultApiClient {
     return this.request(`/webhook-logs${query}`);
   }
 
+  // Webhook API Key
+  async getWebhookApiKey(): Promise<{ apiKey: string | null; message?: string }> {
+    return this.request<{ apiKey: string | null; message?: string }>('/webhook/api-key');
+  }
+
+  async generateWebhookApiKey(): Promise<{ apiKey: string; message?: string }> {
+    return this.request<{ apiKey: string; message?: string }>('/webhook/api-key', {
+      method: 'POST',
+    });
+  }
+
   // Static Groups (fallback)
   async getGroups(): Promise<VaultStaticGroup[]> {
     return this.request<VaultStaticGroup[]>('/groups');

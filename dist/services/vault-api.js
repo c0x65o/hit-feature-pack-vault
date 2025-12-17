@@ -294,6 +294,15 @@ export class VaultApiClient {
         const query = params.toString() ? `?${params.toString()}` : '';
         return this.request(`/webhook-logs${query}`);
     }
+    // Webhook API Key
+    async getWebhookApiKey() {
+        return this.request('/webhook/api-key');
+    }
+    async generateWebhookApiKey() {
+        return this.request('/webhook/api-key', {
+            method: 'POST',
+        });
+    }
     // Static Groups (fallback)
     async getGroups() {
         return this.request('/groups');

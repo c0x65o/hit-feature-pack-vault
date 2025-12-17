@@ -20,6 +20,7 @@ export {
   vaultSmsMessages,
   vaultWebhookLogs,
   vaultAuditEvents,
+  vaultSettings,
   type VaultVault,
   type VaultFolder,
   type VaultItem,
@@ -30,6 +31,7 @@ export {
   type VaultAuditEvent,
   type VaultStaticGroup,
   type VaultGroupMember,
+  type VaultSetting,
   type InsertVaultVault,
   type InsertVaultFolder,
   type InsertVaultItem,
@@ -40,5 +42,6 @@ export {
   type InsertVaultAuditEvent,
   type InsertVaultStaticGroup,
   type InsertVaultGroupMember,
+  type InsertVaultSetting,
 } from '../schema/vault';
 

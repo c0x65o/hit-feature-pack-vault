@@ -216,6 +216,19 @@ export const vaultSmsMessages = pgTable("vault_sms_messages", {
     retentionIdx: index("vault_sms_messages_retention_idx").on(table.retentionExpiresAt),
 }));
 /**
+ * Vault Settings Table
+ * Stores global vault settings (webhook API keys, etc.)
+ */
+export const vaultSettings = pgTable("vault_settings", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: varchar("key", { length: 100 }).notNull().unique(),
+    valueEncrypted: text("value_encrypted").notNull(), // Encrypted setting value
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+    keyIdx: index("vault_settings_key_idx").on(table.key),
+}));
+/**
  * Webhook Logs Table
  * Logs all incoming webhook requests for debugging
  */

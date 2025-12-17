@@ -51,6 +51,7 @@ export {
   vaultAuditEvents,
   vaultStaticGroups,
   vaultGroupMembers,
+  vaultSettings,
   vaultTypeEnum,
   itemTypeEnum,
   principalTypeEnum,
@@ -65,6 +66,7 @@ export {
   type VaultAuditEvent,
   type VaultStaticGroup,
   type VaultGroupMember,
+  type VaultSetting,
   type InsertVaultVault,
   type InsertVaultFolder,
   type InsertVaultItem,
@@ -74,6 +76,7 @@ export {
   type InsertVaultAuditEvent,
   type InsertVaultStaticGroup,
   type InsertVaultGroupMember,
+  type InsertVaultSetting,
   VAULT_PERMISSIONS,
   type VaultPermission,
 } from './schema/vault';

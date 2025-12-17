@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Save, Trash2, AlertCircle, Mail, Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
+import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
 import { extractOtpCode } from '../utils/otp-extractor';
@@ -12,12 +12,9 @@ interface Props {
 }
 
 export function VaultSetup({ onNavigate }: Props) {
-  const { Page, Card, Button, Input, Alert } = useUi();
+  const { Page, Card, Button, Alert } = useUi();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [currentPhoneNumber, setCurrentPhoneNumber] = useState<string | null>(null);
   const [smsNumbers, setSmsNumbers] = useState<VaultSmsNumber[]>([]);
   const [selectedSmsNumberId, setSelectedSmsNumberId] = useState<string | null>(null);
   const [messages, setMessages] = useState<VaultSmsMessage[]>([]);
@@ -25,6 +22,8 @@ export function VaultSetup({ onNavigate }: Props) {
   const [revealedMessages, setRevealedMessages] = useState<Map<string, string>>(new Map());
   const [webhookLogs, setWebhookLogs] = useState<VaultWebhookLog[]>([]);
   const [loadingWebhookLogs, setLoadingWebhookLogs] = useState(false);
+  const [webhookApiKey, setWebhookApiKey] = useState<string | null>(null);
+  const [generatingApiKey, setGeneratingApiKey] = useState(false);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -34,6 +33,7 @@ export function VaultSetup({ onNavigate }: Props) {
   useEffect(() => {
     loadData();
     loadWebhookLogs();
+    loadWebhookApiKey();
   }, []);
 
   useEffect(() => {
@@ -54,12 +54,7 @@ export function VaultSetup({ onNavigate }: Props) {
   async function loadData() {
     try {
       setLoading(true);
-      const [phoneResult, numbers] = await Promise.all([
-        vaultApi.getGlobalPhoneNumber(),
-        vaultApi.getSmsNumbers(),
-      ]);
-      setCurrentPhoneNumber(phoneResult.phoneNumber);
-      setPhoneNumber(phoneResult.phoneNumber || '');
+      const numbers = await vaultApi.getSmsNumbers();
       setSmsNumbers(numbers);
       if (numbers.length > 0) {
         setSelectedSmsNumberId(numbers[0].id);
@@ -126,48 +121,29 @@ export function VaultSetup({ onNavigate }: Props) {
     }
   }
 
-  async function handleSave() {
-    if (!phoneNumber.trim()) {
-      setError(new Error('Phone number is required'));
-      return;
-    }
-
-    // Basic phone number validation (E.164 format)
-    const phoneRegex = /^\+[1-9]\d{1,14}$/;
-    if (!phoneRegex.test(phoneNumber.trim())) {
-      setError(new Error('Phone number must be in E.164 format (e.g., +1234567890)'));
-      return;
-    }
-
+  async function loadWebhookApiKey() {
     try {
-      setSaving(true);
-      setError(null);
-      await vaultApi.setGlobalPhoneNumber(phoneNumber.trim());
-      setCurrentPhoneNumber(phoneNumber.trim());
-      await loadData(); // Reload to refresh SMS numbers
+      const result = await vaultApi.getWebhookApiKey();
+      setWebhookApiKey(result.apiKey);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to save phone number'));
-    } finally {
-      setSaving(false);
+      console.error('Failed to load webhook API key:', err);
     }
   }
 
-  async function handleDelete() {
-    if (!confirm('Are you sure you want to delete the phone number? This will disable SMS 2FA for all vault items.')) {
+  async function handleGenerateApiKey() {
+    if (!confirm('Generate a new API key? The old key will be invalidated and you will need to update F-Droid and Power Automate configurations.')) {
       return;
     }
 
     try {
-      setSaving(true);
+      setGeneratingApiKey(true);
       setError(null);
-      await vaultApi.deleteGlobalPhoneNumber();
-      setCurrentPhoneNumber(null);
-      setPhoneNumber('');
-      await loadData();
+      const result = await vaultApi.generateWebhookApiKey();
+      setWebhookApiKey(result.apiKey);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to delete phone number'));
+      setError(err instanceof Error ? err : new Error('Failed to generate API key'));
     } finally {
-      setSaving(false);
+      setGeneratingApiKey(false);
     }
   }
 
@@ -184,11 +160,6 @@ export function VaultSetup({ onNavigate }: Props) {
     }
   }
 
-  async function handleCopyPhoneNumber() {
-    if (currentPhoneNumber) {
-      await navigator.clipboard.writeText(currentPhoneNumber);
-    }
-  }
 
   if (loading) {
     return (
@@ -208,7 +179,7 @@ export function VaultSetup({ onNavigate }: Props) {
       title="Setup"
       breadcrumbs={breadcrumbs}
       onNavigate={navigate}
-      description="Configure project SMS 2FA phone number and view inbox for debugging"
+      description="Configure webhooks for SMS (F-Droid) and Email (Power Automate) forwarding"
     >
       {error && (
         <Alert variant="error" title="Error">
@@ -217,84 +188,159 @@ export function VaultSetup({ onNavigate }: Props) {
       )}
 
       <div className="space-y-6">
-        {/* Phone Number Configuration */}
+        {/* Webhook Configuration */}
         <Card>
-          <div className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold">Project SMS 2FA Number</h2>
-            
+          <div className="p-6 space-y-6">
             <div>
-              <label className="text-sm font-medium">Phone Number</label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                Enter the phone number in E.164 format (e.g., +1234567890).
-                This number will be used for receiving 2FA codes for all vault items.
-                Supports F-Droid (Android phone) or Twilio integrations.
+              <h2 className="text-lg font-semibold mb-2">Webhook Configuration</h2>
+              <p className="text-sm text-muted-foreground">
+                Configure F-Droid (SMS) or Power Automate (Email) to forward messages to these webhooks.
+                Phone numbers and email addresses don't need to be pre-configured - any message sent to the webhook will be stored.
               </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={phoneNumber}
-                  onChange={(value: string) => setPhoneNumber(value)}
-                  placeholder="+1234567890"
-                  className="flex-1"
-                />
-                {currentPhoneNumber && (
-                  <Button
-                    variant="secondary"
-                    onClick={handleCopyPhoneNumber}
-                    title="Copy phone number"
-                  >
-                    <Copy size={16} />
-                  </Button>
-                )}
+            </div>
+
+            {/* SMS Webhook */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-md font-semibold">SMS Webhook (F-Droid)</h3>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const url = typeof window !== 'undefined' 
+                      ? `${window.location.origin}/api/vault/sms/webhook/inbound`
+                      : '/api/vault/sms/webhook/inbound';
+                    navigator.clipboard.writeText(url);
+                  }}
+                >
+                  <Copy size={16} className="mr-2" />
+                  Copy URL
+                </Button>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border">
+                <code className="text-sm font-mono break-all">
+                  {typeof window !== 'undefined' 
+                    ? `${window.location.origin}/api/vault/sms/webhook/inbound`
+                    : '/api/vault/sms/webhook/inbound'}
+                </code>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-sm font-medium">F-Droid Setup Instructions:</p>
+                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Install an SMS forwarding app from F-Droid (e.g., "SMS Forwarder")</li>
+                  <li>Configure the app to POST JSON to the webhook URL above</li>
+                  <li>Set the Authorization header: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Bearer {'<SHARED_API_KEY>'}</code> or use <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-API-Key</code> header (use the shared API key shown below)</li>
+                  <li>Use the following JSON format:</li>
+                </ol>
+                <pre className="text-xs bg-gray-900 dark:bg-gray-950 text-gray-100 p-3 rounded overflow-x-auto">
+{`{
+  "from": "+1234567890",
+  "to": "+0987654321",
+  "body": "Your OTP code is 123456",
+  "timestamp": "2024-01-01T12:00:00Z"
+}`}
+                </pre>
               </div>
             </div>
 
-            {currentPhoneNumber && (
-              <Alert variant="info" title="Current Configuration">
-                <p className="text-sm mt-2">
-                  Current phone number: <code className="font-mono">{currentPhoneNumber}</code>
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Configure F-Droid or Twilio to send webhooks to:{' '}
-                  <code className="font-mono text-xs">
-                    {typeof window !== 'undefined' 
-                      ? `${window.location.origin}/api/vault/sms/webhook/inbound`
-                      : '/api/vault/sms/webhook/inbound'}
-                  </code>
-                  <br />
-                  <span className="mt-1 block">
-                    For F-Droid: Set Authorization header to <code className="font-mono">Bearer {'<API_KEY>'}</code> or use X-API-Key header.
-                  </span>
-                </p>
-              </Alert>
-            )}
-
-            {!currentPhoneNumber && (
-              <Alert variant="warning" title="No Phone Number Configured">
-                <p className="text-sm mt-2">
-                  No phone number is currently configured. Users will not be able to use SMS 2FA until a phone number is set up.
-                </p>
-              </Alert>
-            )}
-
-            <div className="flex justify-end gap-2">
-              {currentPhoneNumber && (
+            {/* Email Webhook */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-md font-semibold">Email Webhook (Power Automate)</h3>
                 <Button
                   variant="secondary"
-                  onClick={handleDelete}
-                  disabled={saving}
+                  size="sm"
+                  onClick={() => {
+                    const url = typeof window !== 'undefined' 
+                      ? `${window.location.origin}/api/vault/email/webhook/inbound`
+                      : '/api/vault/email/webhook/inbound';
+                    navigator.clipboard.writeText(url);
+                  }}
                 >
-                  <Trash2 size={16} className="mr-2" />
-                  Delete
+                  <Copy size={16} className="mr-2" />
+                  Copy URL
                 </Button>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border">
+                <code className="text-sm font-mono break-all">
+                  {typeof window !== 'undefined' 
+                    ? `${window.location.origin}/api/vault/email/webhook/inbound`
+                    : '/api/vault/email/webhook/inbound'}
+                </code>
+              </div>
+              
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Power Automate Setup Instructions:</p>
+                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Create a Power Automate flow triggered by "When a new email arrives"</li>
+                  <li>Add an HTTP action to POST to the webhook URL above</li>
+                  <li>Set the Authorization header: <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Bearer {'<SHARED_API_KEY>'}</code> or use <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-API-Key</code> header (use the shared API key shown below)</li>
+                  <li>Set Content-Type to <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">application/json</code></li>
+                  <li>Use the following JSON format in the body:</li>
+                </ol>
+                <pre className="text-xs bg-gray-900 dark:bg-gray-950 text-gray-100 p-3 rounded overflow-x-auto">
+{`{
+  "from": "sender@example.com",
+  "to": "recipient@example.com",
+  "subject": "Email Subject",
+  "body": "Email body text or HTML",
+  "timestamp": "2024-01-01T12:00:00Z"
+}`}
+                </pre>
+                <p className="text-xs text-muted-foreground mt-2">
+                  <strong>Note:</strong> Map Power Automate email fields:
+                  <br />• <code className="font-mono">from</code> = From (Email Address)
+                  <br />• <code className="font-mono">to</code> = To (Email Address)
+                  <br />• <code className="font-mono">subject</code> = Subject
+                  <br />• <code className="font-mono">body</code> = Body (or Body HTML)
+                </p>
+              </div>
+            </div>
+
+            {/* API Key Configuration */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-md font-semibold">Shared API Key</h3>
+                <div className="flex gap-2">
+                  {webhookApiKey && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(webhookApiKey);
+                      }}
+                    >
+                      <Copy size={16} className="mr-2" />
+                      Copy Key
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleGenerateApiKey}
+                    disabled={generatingApiKey}
+                  >
+                    {generatingApiKey ? 'Generating...' : webhookApiKey ? 'Regenerate' : 'Generate'}
+                  </Button>
+                </div>
+              </div>
+              
+              {webhookApiKey ? (
+                <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border">
+                  <code className="text-sm font-mono break-all">{webhookApiKey}</code>
+                </div>
+              ) : (
+                <Alert variant="warning" title="No API Key Configured">
+                  <p className="text-sm mt-2">
+                    Generate an API key to secure your webhooks. This key is shared between F-Droid (SMS) and Power Automate (Email) webhooks.
+                  </p>
+                </Alert>
               )}
-              <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={saving || !phoneNumber.trim()}
-              >
-                <Save size={16} className="mr-2" />
-                {saving ? 'Saving...' : 'Save'}
-              </Button>
+              
+              <p className="text-xs text-muted-foreground">
+                Use this API key in the <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">Authorization: Bearer {'<API_KEY>'}</code> header or <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-API-Key</code> header for both webhooks.
+              </p>
             </div>
           </div>
         </Card>

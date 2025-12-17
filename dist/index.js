@@ -15,6 +15,6 @@ export * from './hooks/index';
 // Navigation config
 export { navContributions as nav } from './nav';
 // Schema exports - for projects to import into their schema
-export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, vaultStaticGroups, vaultGroupMembers, vaultTypeEnum, itemTypeEnum, principalTypeEnum, smsStatusEnum, auditActionEnum, VAULT_PERMISSIONS, } from './schema/vault';
+export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, vaultStaticGroups, vaultGroupMembers, vaultSettings, vaultTypeEnum, itemTypeEnum, principalTypeEnum, smsStatusEnum, auditActionEnum, VAULT_PERMISSIONS, } from './schema/vault';
 // Services
 export { VaultApiClient, vaultApi } from './services/vault-api';

@@ -195,7 +195,11 @@ api:
     - path: /api/vault/sms/webhook/inbound
       methods: [POST]
       handler: "@hit/feature-pack-vault/server/api/sms-webhook-inbound"
-      description: "Inbound SMS webhook (Twilio/etc)"
+      description: "Inbound SMS webhook (F-Droid/Twilio/Custom)"
+    - path: /api/vault/email/webhook/inbound
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/email-webhook-inbound"
+      description: "Inbound Email webhook (Power Automate/Custom)"
     - path: /api/vault/sms/numbers/[id]/messages
       methods: [GET]
       handler: "@hit/feature-pack-vault/server/api/sms-numbers-messages"
@@ -208,6 +212,10 @@ api:
       methods: [GET]
       handler: "@hit/feature-pack-vault/server/api/webhook-logs"
       description: "List webhook logs (admin only)"
+    - path: /api/vault/webhook/api-key
+      methods: [GET, POST]
+      handler: "@hit/feature-pack-vault/server/api/webhook-api-key"
+      description: "Get or generate webhook API key (GUID)"
     # Import
     - path: /api/vault/import/csv/preview
       methods: [POST]

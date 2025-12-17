@@ -285,6 +285,24 @@ export const vaultSmsMessages = pgTable(
 );
 
 /**
+ * Vault Settings Table
+ * Stores global vault settings (webhook API keys, etc.)
+ */
+export const vaultSettings = pgTable(
+  "vault_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: varchar("key", { length: 100 }).notNull().unique(),
+    valueEncrypted: text("value_encrypted").notNull(), // Encrypted setting value
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    keyIdx: index("vault_settings_key_idx").on(table.key),
+  })
+);
+
+/**
  * Webhook Logs Table
  * Logs all incoming webhook requests for debugging
  */
@@ -423,6 +441,7 @@ export type VaultWebhookLog = typeof vaultWebhookLogs.$inferSelect;
 export type VaultAuditEvent = typeof vaultAuditEvents.$inferSelect;
 export type VaultStaticGroup = typeof vaultStaticGroups.$inferSelect;
 export type VaultGroupMember = typeof vaultGroupMembers.$inferSelect;
+export type VaultSetting = typeof vaultSettings.$inferSelect;
 
 export type InsertVaultVault = typeof vaultVaults.$inferInsert;
 export type InsertVaultFolder = typeof vaultFolders.$inferInsert;
@@ -434,6 +453,7 @@ export type InsertVaultWebhookLog = typeof vaultWebhookLogs.$inferInsert;
 export type InsertVaultAuditEvent = typeof vaultAuditEvents.$inferInsert;
 export type InsertVaultStaticGroup = typeof vaultStaticGroups.$inferInsert;
 export type InsertVaultGroupMember = typeof vaultGroupMembers.$inferInsert;
+export type InsertVaultSetting = typeof vaultSettings.$inferInsert;
 
 /**
  * Permission Constants

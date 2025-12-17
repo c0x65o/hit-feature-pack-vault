@@ -115,6 +115,14 @@ export declare class VaultApiClient {
             offset: number;
         };
     }>;
+    getWebhookApiKey(): Promise<{
+        apiKey: string | null;
+        message?: string;
+    }>;
+    generateWebhookApiKey(): Promise<{
+        apiKey: string;
+        message?: string;
+    }>;
     getGroups(): Promise<VaultStaticGroup[]>;
     createGroup(name: string, description?: string): Promise<VaultStaticGroup>;
     updateGroup(id: string, data: Partial<VaultStaticGroup>): Promise<VaultStaticGroup>;

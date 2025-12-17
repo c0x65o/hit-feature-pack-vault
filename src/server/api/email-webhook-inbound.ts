@@ -1,44 +1,12 @@
-// src/server/api/sms-webhook-inbound.ts
+// src/server/api/email-webhook-inbound.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { vaultSmsMessages, vaultSmsNumbers, vaultWebhookLogs, vaultSettings } from '@/lib/feature-pack-schemas';
 import { eq, isNull, and } from 'drizzle-orm';
-import * as crypto from 'crypto';
+import { encrypt, decrypt } from '../utils/encryption';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-/**
- * Verify Twilio webhook signature
- * See: https://www.twilio.com/docs/usage/webhooks/webhooks-security
- */
-function verifyTwilioSignature(
-  url: string,
-  params: Record<string, string>,
-  signature: string,
-  authToken: string
-): boolean {
-  // Create the signature string
-  const data = Object.keys(params)
-    .sort()
-    .reduce((acc, key) => {
-      return acc + key + params[key];
-    }, url);
-
-  // Create HMAC SHA1 hash
-  const hash = crypto
-    .createHmac('sha1', authToken)
-    .update(Buffer.from(data, 'utf-8'))
-    .digest('base64');
-
-  // Compare signatures (use constant-time comparison)
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(hash)
-  );
-}
-
-import { encrypt, decrypt } from '../utils/encryption';
 
 /**
  * Get client IP from request headers
@@ -81,7 +49,7 @@ async function getWebhookApiKey(): Promise<string | null> {
 }
 
 /**
- * Verify API key authentication for F-Droid/custom webhooks
+ * Verify API key authentication for Power Automate/custom webhooks
  */
 async function verifyApiKey(request: NextRequest): Promise<boolean> {
   const apiKey = await getWebhookApiKey();
@@ -109,23 +77,16 @@ async function verifyApiKey(request: NextRequest): Promise<boolean> {
 }
 
 /**
- * POST /api/vault/sms/webhook/inbound
- * Inbound SMS webhook (Twilio/F-Droid/Custom)
+ * POST /api/vault/email/webhook/inbound
+ * Inbound Email webhook (Power Automate/Custom)
  * 
- * Supports multiple formats:
+ * Supports Power Automate and custom email forwarding:
  * 
- * 1. Twilio format (form-encoded):
- *    - From: sender phone number
- *    - To: recipient phone number (our provisioned number)
- *    - Body: message text
- *    - MessageSid: unique message ID
- *    - AccountSid: Twilio account SID
- *    - Authenticated via X-Twilio-Signature header
- * 
- * 2. F-Droid/Custom format (JSON):
- *    - from: sender phone number
- *    - to: recipient phone number (our provisioned number)
- *    - body: message text
+ * Power Automate/Custom format (JSON):
+ *    - from: sender email address
+ *    - to: recipient email address
+ *    - subject: email subject
+ *    - body: email body (text or HTML)
  *    - timestamp: optional timestamp (ISO string or Unix timestamp)
  *    - Authenticated via Authorization: Bearer <token> or X-API-Key header
  */
@@ -142,7 +103,6 @@ export async function POST(request: NextRequest) {
   request.headers.forEach((value, key) => {
     // Sanitize sensitive headers
     if (key.toLowerCase() === 'authorization' || 
-        key.toLowerCase() === 'x-twilio-signature' ||
         key.toLowerCase() === 'x-api-key') {
       headers[key] = '[REDACTED]';
     } else {
@@ -151,31 +111,23 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    // Determine format: Twilio uses form-encoded, F-Droid uses JSON
-    let body: Record<string, any>;
-    const contentType = request.headers.get('content-type') || '';
-    
-    if (contentType.includes('application/x-www-form-urlencoded')) {
-      // Parse form data (Twilio format)
-      const formData = await request.formData();
-      body = Object.fromEntries(formData.entries()) as Record<string, any>;
-    } else {
-      // Try JSON (F-Droid/Custom format)
-      body = await request.json();
-    }
+    // Parse JSON body
+    const body = await request.json();
 
-    // Extract fields - support both Twilio and F-Droid formats
-    const fromNumber = body.From || body.from;
-    const toNumber = body.To || body.to;
-    const messageBody = body.Body || body.body || '';
-    const messageSid = body.MessageSid || body.messageSid;
-    const accountSid = body.AccountSid || body.accountSid;
-    const timestamp = body.timestamp || body.Timestamp;
+    // Extract fields - support various formats
+    const fromEmail = body.from || body.From || body.sender || body.Sender;
+    const toEmail = body.to || body.To || body.recipient || body.Recipient;
+    const subject = body.subject || body.Subject || body.title || '';
+    const emailBody = body.body || body.Body || body.text || body.html || body.content || '';
+    const timestamp = body.timestamp || body.Timestamp || body.date || body.Date;
 
-    // Sanitize body for logging (don't log full message body)
+    // Sanitize body for logging (don't log full email body)
     const sanitizedBody: Record<string, any> = { ...body };
-    if (sanitizedBody.Body) sanitizedBody.Body = '[REDACTED]';
     if (sanitizedBody.body) sanitizedBody.body = '[REDACTED]';
+    if (sanitizedBody.Body) sanitizedBody.Body = '[REDACTED]';
+    if (sanitizedBody.text) sanitizedBody.text = '[REDACTED]';
+    if (sanitizedBody.html) sanitizedBody.html = '[REDACTED]';
+    if (sanitizedBody.content) sanitizedBody.content = '[REDACTED]';
 
     // Log webhook request
     const [logEntry] = await db.insert(vaultWebhookLogs).values({
@@ -184,63 +136,33 @@ export async function POST(request: NextRequest) {
       headers,
       body: sanitizedBody,
       ip: clientIP,
-      messageSid: messageSid || undefined,
-      fromNumber: fromNumber || undefined,
-      toNumber: toNumber || undefined,
+      fromNumber: fromEmail || undefined, // Reuse fromNumber field for email
+      toNumber: toEmail || undefined, // Reuse toNumber field for email
       success: false, // Will update on success
     }).returning({ id: vaultWebhookLogs.id });
     webhookLogId = logEntry.id;
 
-    // Check for Twilio signature (if present, verify it)
-    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-    const twilioSignature = request.headers.get('x-twilio-signature');
-    
-    if (twilioSignature && twilioAuthToken) {
-      // Twilio webhook - verify signature
-      const urlWithoutQuery = request.url.split('?')[0];
-      const isValid = verifyTwilioSignature(urlWithoutQuery, body, twilioSignature, twilioAuthToken);
-      
-      if (!isValid) {
-        console.error('[vault] Invalid Twilio signature');
-        const processingTime = Date.now() - startTime;
-        if (webhookLogId) {
-          await db.update(vaultWebhookLogs)
-            .set({
-              statusCode: 403,
-              success: false,
-              error: 'Invalid Twilio signature',
-              processingTimeMs: processingTime,
-            })
-            .where(eq(vaultWebhookLogs.id, webhookLogId));
-        }
-        return NextResponse.json(
-          { error: 'Invalid signature' },
-          { status: 403 }
-        );
+    // Verify API key
+    if (!(await verifyApiKey(request))) {
+      console.error('[vault] Invalid or missing API key for email webhook');
+      const processingTime = Date.now() - startTime;
+      if (webhookLogId) {
+        await db.update(vaultWebhookLogs)
+          .set({
+            statusCode: 401,
+            success: false,
+            error: 'Invalid or missing API key',
+            processingTimeMs: processingTime,
+          })
+          .where(eq(vaultWebhookLogs.id, webhookLogId));
       }
-    } else {
-      // F-Droid/Custom webhook - verify API key
-      if (!(await verifyApiKey(request))) {
-        console.error('[vault] Invalid or missing API key');
-        const processingTime = Date.now() - startTime;
-        if (webhookLogId) {
-          await db.update(vaultWebhookLogs)
-            .set({
-              statusCode: 401,
-              success: false,
-              error: 'Invalid or missing API key',
-              processingTimeMs: processingTime,
-            })
-            .where(eq(vaultWebhookLogs.id, webhookLogId));
-        }
-        return NextResponse.json(
-          { error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
-    if (!fromNumber || !toNumber || !messageBody) {
+    if (!fromEmail || !emailBody) {
       const processingTime = Date.now() - startTime;
       if (webhookLogId) {
         await db.update(vaultWebhookLogs)
@@ -254,12 +176,12 @@ export async function POST(request: NextRequest) {
       }
       
       return NextResponse.json(
-        { error: 'Missing required fields: from, to, and body are required' },
+        { error: 'Missing required fields: from and body are required' },
         { status: 400 }
       );
     }
 
-    // Find or create global SMS number (phone number doesn't matter, we use a global inbox)
+    // Find or create global SMS number (reuse SMS inbox structure for emails)
     // Look for a global SMS number (no vaultId or itemId)
     let [smsNumber] = await db
       .select()
@@ -275,22 +197,25 @@ export async function POST(request: NextRequest) {
     // If no global number exists, create one with a placeholder
     if (!smsNumber) {
       const [newSmsNumber] = await db.insert(vaultSmsNumbers).values({
-        phoneNumber: toNumber || '[global-inbox]',
-        provider: 'fdroid',
+        phoneNumber: '[email-inbox]',
+        provider: 'power-automate',
         status: 'active',
       }).returning();
       smsNumber = newSmsNumber;
     }
 
+    // Combine subject and body for storage
+    const fullMessage = subject ? `Subject: ${subject}\n\n${emailBody}` : emailBody;
+
     // Encrypt the message body
-    const encryptedBody = encrypt(messageBody);
+    const encryptedBody = encrypt(fullMessage);
 
     // Calculate retention expiry (default 30 days)
     const retentionDays = parseInt(process.env.VAULT_SMS_RETENTION_DAYS || '30', 10);
     const retentionExpiresAt = new Date();
     retentionExpiresAt.setDate(retentionExpiresAt.getDate() + retentionDays);
 
-    // Parse timestamp if provided (F-Droid format), otherwise use current time
+    // Parse timestamp if provided, otherwise use current time
     let receivedAt: Date;
     if (timestamp) {
       // Try parsing as ISO string or Unix timestamp
@@ -311,23 +236,23 @@ export async function POST(request: NextRequest) {
       receivedAt = new Date();
     }
 
-    // Store the encrypted message
+    // Store the encrypted message (reuse SMS messages table structure)
     await db.insert(vaultSmsMessages).values({
       smsNumberId: smsNumber.id,
-      fromNumber: fromNumber,
-      toNumber: toNumber,
+      fromNumber: fromEmail,
+      toNumber: toEmail || '[email-inbox]',
       bodyEncrypted: encryptedBody,
       receivedAt: receivedAt,
       metadataEncrypted: {
-        messageSid: messageSid,
-        accountSid: accountSid,
-        provider: smsNumber.provider,
+        type: 'email',
+        subject: subject,
+        provider: 'power-automate',
         receivedAt: receivedAt.toISOString(),
       },
       retentionExpiresAt: retentionExpiresAt,
     });
 
-    console.log(`[vault] Stored SMS message from ${fromNumber} to ${toNumber}`);
+    console.log(`[vault] Stored email message from ${fromEmail}`);
 
     // Update webhook log with success
     const processingTime = Date.now() - startTime;
@@ -343,7 +268,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[vault] SMS webhook error:', error);
+    console.error('[vault] Email webhook error:', error);
     const processingTime = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
@@ -376,7 +301,7 @@ export async function POST(request: NextRequest) {
     }
     
     return NextResponse.json(
-      { error: 'Failed to process SMS webhook' },
+      { error: 'Failed to process email webhook' },
       { status: 500 }
     );
   }
