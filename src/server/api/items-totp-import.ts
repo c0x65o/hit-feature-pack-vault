@@ -1,9 +1,10 @@
 // src/server/api/items-totp-import.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultItems } from '@/lib/feature-pack-schemas';
+import { eq } from 'drizzle-orm';
+import { getUserId, extractUserFromRequest } from '../auth';
+import { checkItemAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -54,18 +55,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Verify user owns the vault or has ACL access
-    const [vault] = await db
-      .select()
-      .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, item.vaultId),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
-      .limit(1);
-
-    if (!vault) {
-      // TODO: Check ACL for shared vault access
+    // Verify user has READ_WRITE access via ACL check (importing TOTP modifies the item)
+    const user = extractUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+    if (!accessCheck.hasAccess) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

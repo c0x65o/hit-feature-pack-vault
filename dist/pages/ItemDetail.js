@@ -1,12 +1,15 @@
 'use client';
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { useState, useEffect, useRef } from 'react';
-import { useUi } from '@hit/ui-kit';
-import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useUi, useAlertDialog } from '@hit/ui-kit';
+import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail, Trash2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { isCurrentUserAdmin } from '../utils/user';
 export function ItemDetail({ itemId, onNavigate }) {
-    const { Page, Card, Button, Alert } = useUi();
+    const { Page, Card, Button, Alert, AlertDialog } = useUi();
+    const alertDialog = useAlertDialog();
+    const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
     const [item, setItem] = useState(null);
     const [revealed, setRevealed] = useState(null);
     const [showPassword, setShowPassword] = useState(false);
@@ -45,6 +48,14 @@ export function ItemDetail({ itemId, onNavigate }) {
         };
     }, [itemId]);
     useEffect(() => {
+        // Auto-reveal notes when item is loaded
+        if (item && !revealed) {
+            handleReveal().catch(err => {
+                console.error('Failed to auto-reveal item:', err);
+            });
+        }
+    }, [item, revealed]);
+    useEffect(() => {
         // Auto-refresh TOTP code every 30 seconds
         if (revealed?.totpSecret) {
             generateTotpCode();
@@ -57,6 +68,7 @@ export function ItemDetail({ itemId, onNavigate }) {
     async function loadItem() {
         try {
             setLoading(true);
+            setRevealed(null); // Reset revealed state when loading new item
             const itemData = await vaultApi.getItem(itemId);
             setItem(itemData);
         }
@@ -212,6 +224,26 @@ export function ItemDetail({ itemId, onNavigate }) {
             setError(err instanceof Error ? err : new Error('Failed to copy'));
         }
     }
+    async function handleDelete() {
+        if (!item)
+            return;
+        const confirmed = await alertDialog.showConfirm(`Are you sure you want to delete "${item.title}"? This action cannot be undone.`, {
+            title: 'Delete Item',
+            variant: 'error',
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+        });
+        if (!confirmed) {
+            return;
+        }
+        try {
+            await vaultApi.deleteItem(item.id);
+            navigate('/vault');
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to delete item'));
+        }
+    }
     function getItemIcon() {
         if (!item)
             return _jsx(Lock, { size: 20 });
@@ -232,7 +264,7 @@ export function ItemDetail({ itemId, onNavigate }) {
         ...(item?.folderId ? [{ label: 'Folder', href: '/vault' }] : []),
         { label: item?.title || 'Item' },
     ];
-    return (_jsxs(Page, { title: item?.title || 'Item not found', description: item?.url || '', breadcrumbs: breadcrumbs, onNavigate: navigate, actions: item ? (_jsxs(Button, { variant: "primary", onClick: () => navigate(`/vault/items/${item.id}/edit`), children: [_jsx(Edit, { size: 16, className: "mr-2" }), "Edit"] })) : undefined, children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), !item && (_jsx(Card, { children: _jsx("div", { className: "p-6 text-center text-muted-foreground", children: "Item not found" }) })), item && (_jsx("div", { className: "space-y-4", children: _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center gap-3", children: [getItemIcon(), _jsx("div", { className: "flex-1", children: _jsx("h2", { className: "text-xl font-semibold", children: item.title }) })] }), item.url && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "URL" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("a", { href: item.url, target: "_blank", rel: "noopener noreferrer", className: "text-sm text-blue-600 hover:underline flex-1", children: item.url }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('url', item.url), children: copied.url ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })), item.username && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Username" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1", children: item.username }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('username', item.username), children: copied.username ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })), item.type === 'credential' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Password" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1", children: revealed?.password && showPassword ? revealed.password : '••••••••' }), _jsx(Button, { variant: "ghost", size: "sm", onClick: async () => {
+    return (_jsxs(Page, { title: item?.title || 'Item not found', description: item?.url || '', breadcrumbs: breadcrumbs, onNavigate: navigate, actions: item ? (_jsxs("div", { className: "flex gap-2", children: [_jsxs(Button, { variant: "primary", onClick: () => navigate(`/vault/items/${item.id}/edit`), children: [_jsx(Edit, { size: 16, className: "mr-2" }), "Edit"] }), isAdmin && (_jsxs(Button, { variant: "danger", onClick: handleDelete, children: [_jsx(Trash2, { size: 16, className: "mr-2" }), "Delete"] }))] })) : undefined, children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), !item && (_jsx(Card, { children: _jsx("div", { className: "p-6 text-center text-muted-foreground", children: "Item not found" }) })), item && (_jsx("div", { className: "space-y-4", children: _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center gap-3", children: [getItemIcon(), _jsx("div", { className: "flex-1", children: _jsx("h2", { className: "text-xl font-semibold", children: item.title }) })] }), item.url && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "URL" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("a", { href: item.url, target: "_blank", rel: "noopener noreferrer", className: "text-sm text-blue-600 hover:underline flex-1", children: item.url }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('url', item.url), children: copied.url ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })), item.username && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Username" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1", children: item.username }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('username', item.username), children: copied.username ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })), item.type === 'credential' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Password" }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1", children: revealed?.password && showPassword ? revealed.password : '••••••••' }), _jsx(Button, { variant: "ghost", size: "sm", onClick: async () => {
                                                     if (!revealed?.password) {
                                                         await handleReveal();
                                                         setShowPassword(true);
@@ -253,6 +285,6 @@ export function ItemDetail({ itemId, onNavigate }) {
                                                             ? 'text-green-600'
                                                             : emailOtpConfidence === 'medium'
                                                                 ? 'text-yellow-600'
-                                                                : 'text-gray-600'}`, children: ["OTP Code Received (", emailOtpConfidence, " confidence)"] }), _jsxs("div", { className: "flex items-center gap-2 mt-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: emailOtpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('emailOtp', emailOtpCode), children: copied.emailOtp ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), emailOtpConfidence !== 'high' && emailOtpFullMessage && (_jsxs("div", { className: "mt-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setShowFullEmailMessage(!showFullEmailMessage), children: showFullEmailMessage ? 'Hide Full Message' : 'Show Full Message' }), showFullEmailMessage && (_jsx("div", { className: "mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto", children: emailOtpFullMessage }))] })), latestEmailMessageTime && (_jsxs("p", { className: "text-xs text-muted-foreground mt-2", children: ["Received ", formatTimeAgo(latestEmailMessageTime)] }))] }))] })] })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: item.type === 'secure_note' ? 'Content' : 'Notes' }), revealed ? (_jsx("div", { className: "mt-1 p-3 border rounded text-sm whitespace-pre-wrap", children: revealed.notes || _jsx("span", { className: "text-muted-foreground italic", children: "No notes" }) })) : (_jsx("div", { className: "mt-1", children: _jsxs(Button, { variant: "secondary", onClick: handleReveal, children: [_jsx(Eye, { size: 16, className: "mr-2" }), "Reveal ", item.type === 'secure_note' ? 'Content' : 'Notes'] }) }))] }), item.tags && item.tags.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Tags" }), _jsx("div", { className: "flex flex-wrap gap-2 mt-1", children: item.tags.map(tag => (_jsx("span", { className: "px-2 py-1 bg-secondary rounded-md text-sm", children: tag }, tag))) })] }))] }) }) }))] }));
+                                                                : 'text-gray-600'}`, children: ["OTP Code Received (", emailOtpConfidence, " confidence)"] }), _jsxs("div", { className: "flex items-center gap-2 mt-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: emailOtpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('emailOtp', emailOtpCode), children: copied.emailOtp ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), emailOtpConfidence !== 'high' && emailOtpFullMessage && (_jsxs("div", { className: "mt-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setShowFullEmailMessage(!showFullEmailMessage), children: showFullEmailMessage ? 'Hide Full Message' : 'Show Full Message' }), showFullEmailMessage && (_jsx("div", { className: "mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto", children: emailOtpFullMessage }))] })), latestEmailMessageTime && (_jsxs("p", { className: "text-xs text-muted-foreground mt-2", children: ["Received ", formatTimeAgo(latestEmailMessageTime)] }))] }))] })] })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: item.type === 'secure_note' ? 'Content' : 'Notes' }), _jsx("div", { className: "mt-1 p-3 border rounded text-sm whitespace-pre-wrap", children: revealed?.notes || _jsx("span", { className: "text-muted-foreground italic", children: "No notes" }) })] }), item.tags && item.tags.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Tags" }), _jsx("div", { className: "flex flex-wrap gap-2 mt-1", children: item.tags.map(tag => (_jsx("span", { className: "px-2 py-1 bg-secondary rounded-md text-sm", children: tag }, tag))) })] }))] }) }) })), _jsx(AlertDialog, { ...alertDialog.props })] }));
 }
 export default ItemDetail;

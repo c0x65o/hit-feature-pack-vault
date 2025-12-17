@@ -21,9 +21,12 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
     const [groups, setGroups] = useState([]);
     const [roles, setRoles] = useState([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
+    // Principal name lookup maps (for displaying names instead of IDs)
+    const [principalNameMap, setPrincipalNameMap] = useState({});
     useEffect(() => {
         if (isOpen && folderId) {
             loadAcls();
+            loadAllPrincipalsForDisplay();
         }
     }, [isOpen, folderId]);
     // Load principal options when principal type changes
@@ -203,6 +206,99 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setLoadingOptions(false);
         }
     }
+    async function loadAllPrincipalsForDisplay() {
+        // Load all principals to build name lookup map for display
+        const nameMap = {};
+        try {
+            // Load users
+            const authUrl = typeof window !== 'undefined'
+                ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+                : '/api/proxy/auth';
+            const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            // Load users
+            try {
+                const userResponse = await fetch(`${authUrl}/users`, {
+                    credentials: 'include',
+                    headers,
+                });
+                if (userResponse.ok) {
+                    const authUsers = await userResponse.json();
+                    if (Array.isArray(authUsers)) {
+                        authUsers.forEach((user) => {
+                            const firstName = user.profile_fields?.first_name || null;
+                            const lastName = user.profile_fields?.last_name || null;
+                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
+                            nameMap[`user:${user.email}`] = displayName || user.email;
+                        });
+                    }
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load users for display:', err);
+            }
+            // Load groups (both dynamic and static)
+            try {
+                // Dynamic groups from auth module
+                const authGroupResponse = await fetch(`${authUrl}/admin/groups`, { headers });
+                if (authGroupResponse.ok) {
+                    const authGroups = await authGroupResponse.json();
+                    if (Array.isArray(authGroups)) {
+                        authGroups.forEach((group) => {
+                            nameMap[`group:${group.id}`] = group.description ? `${group.name} - ${group.description}` : group.name;
+                        });
+                    }
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load dynamic groups for display:', err);
+            }
+            // Static groups from vault API
+            try {
+                const vaultGroupsData = await vaultApi.getGroups();
+                if (Array.isArray(vaultGroupsData)) {
+                    vaultGroupsData.forEach((group) => {
+                        const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
+                        nameMap[`group:${group.id}`] = displayName;
+                    });
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load static groups for display:', err);
+            }
+            // Load roles
+            try {
+                const roleResponse = await fetch(`${authUrl}/features`, { headers });
+                if (roleResponse.ok) {
+                    const data = await roleResponse.json();
+                    const availableRoles = data.features?.available_roles || ['admin', 'user'];
+                    availableRoles.forEach((role) => {
+                        nameMap[`role:${role}`] = role.charAt(0).toUpperCase() + role.slice(1);
+                    });
+                }
+                else {
+                    // Fallback roles
+                    nameMap['role:admin'] = 'Admin';
+                    nameMap['role:user'] = 'User';
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load roles for display:', err);
+                // Fallback roles
+                nameMap['role:admin'] = 'Admin';
+                nameMap['role:user'] = 'User';
+            }
+            setPrincipalNameMap(nameMap);
+        }
+        catch (err) {
+            console.error('Failed to load principals for display:', err);
+        }
+    }
     async function loadAcls() {
         try {
             setLoading(true);
@@ -293,6 +389,11 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         READ_WRITE: 'Read & Write (add/edit items)',
         DELETE: 'Delete (remove items)',
     };
+    // Get display name for a principal (name if available, otherwise ID)
+    function getPrincipalDisplayName(principalType, principalId) {
+        const key = `${principalType}:${principalId}`;
+        return principalNameMap[key] || principalId;
+    }
     return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), loading ? (_jsx("div", { className: "flex justify-center py-8", children: _jsx(Spinner, {}) })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "flex justify-between items-center", children: [_jsx("h3", { className: "text-lg font-semibold", children: "Access Permissions" }), _jsx(Button, { onClick: () => setShowAddForm(!showAddForm), variant: "secondary", size: "sm", children: showAddForm ? 'Cancel' : 'Add Access' })] }), showAddForm && (_jsxs("div", { className: "border rounded-lg p-4 space-y-4 bg-muted/30", children: [_jsx("h4", { className: "font-medium", children: "Add New Access" }), _jsxs("div", { className: "grid grid-cols-2 gap-4", children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Principal Type" }), _jsx(Select, { value: newPrincipalType, onChange: (value) => {
                                                         setNewPrincipalType(value);
                                                         setNewPrincipalId(''); // Reset when type changes
@@ -325,5 +426,5 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                                                 setUsers([]);
                                                 setGroups([]);
                                                 setRoles([]);
-                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: acl.principalId }), acl.inherit && (_jsx(Badge, { variant: "info", className: "text-xs", children: "Inherits" }))] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
+                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: getPrincipalDisplayName(acl.principalType, acl.principalId) }), acl.inherit && (_jsx(Badge, { variant: "info", className: "text-xs", children: "Inherits" }))] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
 }

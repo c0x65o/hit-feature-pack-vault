@@ -358,12 +358,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
     }
 
-    // Check if user owns the vault
-    const isOwner = vault.ownerUserId === userId;
+    // Check if user owns a PERSONAL vault (only personal vault owners have automatic access)
+    const isPersonalVaultOwner = vault.ownerUserId === userId && vault.type === 'personal';
     
-    // Check if user has ACL access (for shared vaults)
+    // For shared vaults, check ACL access (admins get access via checkFolderAccess/checkVaultAccess)
     let hasAclAccess = false;
-    if (!isOwner && user) {
+    if (!isPersonalVaultOwner && user) {
       // If folderId is provided, check folder access; otherwise check vault access
       if (body.folderId) {
         const { checkFolderAccess } = await import('../lib/acl-utils');
@@ -379,10 +379,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Admins have access to shared vaults
-    const isAdminWithSharedAccess = isAdmin && vault.type === 'shared';
-
-    if (!isOwner && !hasAclAccess && !isAdminWithSharedAccess) {
+    if (!isPersonalVaultOwner && !hasAclAccess) {
       return NextResponse.json({ error: 'Forbidden: You do not have access to create items in this vault' }, { status: 403 });
     }
 
@@ -414,17 +411,16 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
         }
         
-        // Re-check access for the correct vault
-        const isCorrectVaultOwner = correctVault.ownerUserId === userId;
+        // Re-check access for the correct vault (only personal vault owners get automatic access)
+        const isCorrectPersonalVaultOwner = correctVault.ownerUserId === userId && correctVault.type === 'personal';
         let hasCorrectVaultAclAccess = false;
-        if (!isCorrectVaultOwner && user) {
+        if (!isCorrectPersonalVaultOwner && user) {
           const { checkVaultAccess } = await import('../lib/acl-utils');
           const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['READ_WRITE']);
           hasCorrectVaultAclAccess = accessCheck.hasAccess;
         }
-        const isCorrectVaultAdminAccess = isAdmin && correctVault.type === 'shared';
         
-        if (!isCorrectVaultOwner && !hasCorrectVaultAclAccess && !isCorrectVaultAdminAccess) {
+        if (!isCorrectPersonalVaultOwner && !hasCorrectVaultAclAccess) {
           return NextResponse.json({ error: 'Forbidden: No access to folder vault' }, { status: 403 });
         }
       }

@@ -2,8 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { eq } from 'drizzle-orm';
+import { getUserId, extractUserFromRequest } from '../auth';
+import { checkVaultAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,18 +29,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check access via ACL
+    const accessCheck = await checkVaultAccess(db, id, user);
+    if (!accessCheck.hasAccess) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
     const result = await db
       .select()
       .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, id),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
+      .where(eq(vaultVaults.id, id))
       .limit(1);
 
     const item = result[0];
@@ -68,21 +72,23 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
 
-    // Verify item exists and user owns it
+    // Verify user has READ_WRITE access via ACL
+    const accessCheck = await checkVaultAccess(db, id, user, ['READ_WRITE']);
+    if (!accessCheck.hasAccess) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const existing = await db
       .select()
       .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, id),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
+      .where(eq(vaultVaults.id, id))
       .limit(1);
 
     if (!existing[0]) {
@@ -101,10 +107,7 @@ export async function PUT(request: NextRequest) {
     const result = await db
       .update(vaultVaults)
       .set(updateData)
-      .where(and(
-        eq(vaultVaults.id, id),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
+      .where(eq(vaultVaults.id, id))
       .returning();
 
     return NextResponse.json(result[0]);
@@ -128,19 +131,21 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify item exists and user owns it
+    // Verify user has DELETE access via ACL
+    const accessCheck = await checkVaultAccess(db, id, user, ['DELETE']);
+    if (!accessCheck.hasAccess) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const existing = await db
       .select()
       .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, id),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
+      .where(eq(vaultVaults.id, id))
       .limit(1);
 
     if (!existing[0]) {
@@ -149,10 +154,7 @@ export async function DELETE(request: NextRequest) {
 
     await db
       .delete(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, id),
-        eq(vaultVaults.ownerUserId, userId)
-      ));
+      .where(eq(vaultVaults.id, id));
 
     return NextResponse.json({ success: true });
   } catch (error) {

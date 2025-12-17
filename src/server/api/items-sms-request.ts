@@ -1,10 +1,11 @@
 // src/server/api/items-sms-request.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultVaults, vaultSmsNumbers, vaultAuditEvents } from '@/lib/feature-pack-schemas';
+import { vaultItems, vaultSmsNumbers, vaultAuditEvents } from '@/lib/feature-pack-schemas';
 import { eq, and, isNull } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { getUserId, extractUserFromRequest } from '../auth';
 import { sendSms } from '../utils/twilio-sms';
+import { checkItemAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -48,18 +49,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Verify user owns the vault or has ACL access
-    const [vault] = await db
-      .select()
-      .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, item.vaultId),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
-      .limit(1);
-
-    if (!vault) {
-      // TODO: Check ACL for shared vault access
+    // Verify user has access via ACL check
+    const user = extractUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_ONLY'] });
+    if (!accessCheck.hasAccess) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

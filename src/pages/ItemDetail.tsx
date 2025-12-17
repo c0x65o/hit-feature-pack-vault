@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
+import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail, MessageSquare, Trash2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultItem } from '../schema/vault';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { isCurrentUserAdmin } from '../utils/user';
 
 interface Props {
   itemId: string;
@@ -13,7 +14,9 @@ interface Props {
 }
 
 export function ItemDetail({ itemId, onNavigate }: Props) {
-  const { Page, Card, Button, Alert } = useUi();
+  const { Page, Card, Button, Alert, AlertDialog } = useUi();
+  const alertDialog = useAlertDialog();
+  const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
   const [item, setItem] = useState<VaultItem | null>(null);
   const [revealed, setRevealed] = useState<{ password?: string; secret?: string; notes?: string; totpSecret?: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -55,6 +58,15 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
   }, [itemId]);
 
   useEffect(() => {
+    // Auto-reveal notes when item is loaded
+    if (item && !revealed) {
+      handleReveal().catch(err => {
+        console.error('Failed to auto-reveal item:', err);
+      });
+    }
+  }, [item, revealed]);
+
+  useEffect(() => {
     // Auto-refresh TOTP code every 30 seconds
     if (revealed?.totpSecret) {
       generateTotpCode();
@@ -68,6 +80,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
   async function loadItem() {
     try {
       setLoading(true);
+      setRevealed(null); // Reset revealed state when loading new item
       const itemData = await vaultApi.getItem(itemId);
       setItem(itemData);
     } catch (err) {
@@ -222,6 +235,31 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     }
   }
 
+  async function handleDelete() {
+    if (!item) return;
+    
+    const confirmed = await alertDialog.showConfirm(
+      `Are you sure you want to delete "${item.title}"? This action cannot be undone.`,
+      {
+        title: 'Delete Item',
+        variant: 'error',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+      }
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await vaultApi.deleteItem(item.id);
+      navigate('/vault');
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to delete item'));
+    }
+  }
+
   function getItemIcon() {
     if (!item) return <Lock size={20} />;
     switch (item.type) {
@@ -256,10 +294,18 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
       onNavigate={navigate}
       actions={
         item ? (
-          <Button variant="primary" onClick={() => navigate(`/vault/items/${item.id}/edit`)}>
-            <Edit size={16} className="mr-2" />
-            Edit
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => navigate(`/vault/items/${item.id}/edit`)}>
+              <Edit size={16} className="mr-2" />
+              Edit
+            </Button>
+            {isAdmin && (
+              <Button variant="danger" onClick={handleDelete}>
+                <Trash2 size={16} className="mr-2" />
+                Delete
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
     >
@@ -603,18 +649,9 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                 <label className="text-sm font-medium text-muted-foreground">
                   {item.type === 'secure_note' ? 'Content' : 'Notes'}
                 </label>
-                {revealed ? (
-                  <div className="mt-1 p-3 border rounded text-sm whitespace-pre-wrap">
-                    {revealed.notes || <span className="text-muted-foreground italic">No notes</span>}
-                  </div>
-                ) : (
-                  <div className="mt-1">
-                    <Button variant="secondary" onClick={handleReveal}>
-                      <Eye size={16} className="mr-2" />
-                      Reveal {item.type === 'secure_note' ? 'Content' : 'Notes'}
-                    </Button>
-                  </div>
-                )}
+                <div className="mt-1 p-3 border rounded text-sm whitespace-pre-wrap">
+                  {revealed?.notes || <span className="text-muted-foreground italic">No notes</span>}
+                </div>
               </div>
 
               {item.tags && item.tags.length > 0 && (
@@ -633,6 +670,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
           </Card>
         </div>
       )}
+      <AlertDialog {...alertDialog.props} />
     </Page>
   );
 }

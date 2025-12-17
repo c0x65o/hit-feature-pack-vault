@@ -1,6 +1,6 @@
 // src/server/lib/acl-utils.ts
 import { getDb } from '@/lib/db';
-import { vaultAcls, vaultFolders, vaultVaults, vaultItems } from '@/lib/feature-pack-schemas';
+import { vaultAcls, vaultFolders, vaultVaults, vaultItems, vaultGroupMembers } from '@/lib/feature-pack-schemas';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import type { User } from '../auth';
 
@@ -145,8 +145,8 @@ export async function checkVaultAccess(
     return { hasAccess: false, reason: 'Vault not found' };
   }
 
-  // Owner has full access
-  if (vault.ownerUserId === user.sub) {
+  // Personal vault owner has full access
+  if (vault.ownerUserId === user.sub && vault.type === 'personal') {
     return { hasAccess: true };
   }
 
@@ -156,6 +156,7 @@ export async function checkVaultAccess(
     return { hasAccess: true };
   }
 
+  // For shared vaults, even owners need explicit ACLs
   // Check ACL permissions
   const principals = await getUserPrincipals(db, user);
   const principalIds = [
@@ -374,8 +375,8 @@ export async function checkFolderAccess(
   }
   
   // For shared vaults: admins have full access (can see everything)
-  // Owners of shared vaults also have full access
-  if ((isOwner || isAdmin) && vault.type === 'shared') {
+  // But shared vault owners need explicit ACLs (they don't get automatic access)
+  if (isAdmin && vault.type === 'shared') {
     return { hasAccess: true };
   }
 
@@ -385,9 +386,10 @@ export async function checkFolderAccess(
 
   if (effectiveAcls.length === 0) {
     // No ACLs found for this user
-    // But if user is admin/owner, they still have access (just no specific permission level)
-    if ((isOwner || isAdmin) && vault.type === 'shared') {
-      // Admin/owner can access but without specific permissions from ACL
+    // Admins still have access to shared vaults (just no specific permission level)
+    // But shared vault owners need explicit ACLs like everyone else
+    if (isAdmin && vault.type === 'shared') {
+      // Admin can access but without specific permissions from ACL
       // Return true for basic access, but no specific permissions
       if (requiredPermissions.length === 0) {
         return { hasAccess: true };
@@ -447,8 +449,8 @@ export async function checkItemAccess(
     return { hasAccess: false, reason: 'Vault not found' };
   }
 
-  // Vault owner has full access
-  if (vault.ownerUserId === user.sub) {
+  // Personal vault owner has full access to their own vault
+  if (vault.ownerUserId === user.sub && vault.type === 'personal') {
     return { hasAccess: true };
   }
 
@@ -458,6 +460,7 @@ export async function checkItemAccess(
     return { hasAccess: true };
   }
 
+  // For shared vaults, even owners need explicit ACLs
   // Check item-level ACLs
   const principals = await getUserPrincipals(db, user);
   const principalIds = [

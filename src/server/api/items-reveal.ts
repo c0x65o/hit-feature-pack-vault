@@ -56,20 +56,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Check if user owns the vault
-    const isOwner = vault.ownerUserId === userId;
+    // Check if user owns a PERSONAL vault (only personal vault owners have automatic access)
+    const isPersonalVaultOwner = vault.ownerUserId === userId && vault.type === 'personal';
     
-    // Check if user has ACL access (for shared vaults)
+    // For shared vaults, everyone (including "owners") needs ACL access
     let hasAclAccess = false;
-    if (!isOwner) {
+    if (!isPersonalVaultOwner) {
       const user = extractUserFromRequest(request);
       if (user) {
-        const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_ONLY', 'READ_WRITE'] });
+        // checkItemAccess handles admin access internally
+        const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_ONLY'] });
         hasAclAccess = accessCheck.hasAccess;
       }
     }
 
-    if (!isOwner && !hasAclAccess) {
+    if (!isPersonalVaultOwner && !hasAclAccess) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

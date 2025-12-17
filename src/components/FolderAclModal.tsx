@@ -33,9 +33,13 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [roles, setRoles] = useState<Array<{ value: string; label: string }>>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
+  // Principal name lookup maps (for displaying names instead of IDs)
+  const [principalNameMap, setPrincipalNameMap] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (isOpen && folderId) {
       loadAcls();
+      loadAllPrincipalsForDisplay();
     }
   }, [isOpen, folderId]);
 
@@ -217,6 +221,103 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     }
   }
 
+  async function loadAllPrincipalsForDisplay() {
+    // Load all principals to build name lookup map for display
+    const nameMap: Record<string, string> = {};
+
+    try {
+      // Load users
+      const authUrl = typeof window !== 'undefined' 
+        ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+        : '/api/proxy/auth';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Load users
+      try {
+        const userResponse = await fetch(`${authUrl}/users`, {
+          credentials: 'include',
+          headers,
+        });
+        if (userResponse.ok) {
+          const authUsers = await userResponse.json();
+          if (Array.isArray(authUsers)) {
+            authUsers.forEach((user: { 
+              email: string; 
+              profile_fields?: { first_name?: string | null; last_name?: string | null } | null;
+            }) => {
+              const firstName = user.profile_fields?.first_name || null;
+              const lastName = user.profile_fields?.last_name || null;
+              const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
+              nameMap[`user:${user.email}`] = displayName || user.email;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load users for display:', err);
+      }
+
+      // Load groups (both dynamic and static)
+      try {
+        // Dynamic groups from auth module
+        const authGroupResponse = await fetch(`${authUrl}/admin/groups`, { headers });
+        if (authGroupResponse.ok) {
+          const authGroups = await authGroupResponse.json();
+          if (Array.isArray(authGroups)) {
+            authGroups.forEach((group: { id: string; name: string; description?: string | null }) => {
+              nameMap[`group:${group.id}`] = group.description ? `${group.name} - ${group.description}` : group.name;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load dynamic groups for display:', err);
+      }
+
+      // Static groups from vault API
+      try {
+        const vaultGroupsData = await vaultApi.getGroups();
+        if (Array.isArray(vaultGroupsData)) {
+          vaultGroupsData.forEach((group: { id: string; name: string; description?: string | null }) => {
+            const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
+            nameMap[`group:${group.id}`] = displayName;
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load static groups for display:', err);
+      }
+
+      // Load roles
+      try {
+        const roleResponse = await fetch(`${authUrl}/features`, { headers });
+        if (roleResponse.ok) {
+          const data = await roleResponse.json();
+          const availableRoles = data.features?.available_roles || ['admin', 'user'];
+          availableRoles.forEach((role: string) => {
+            nameMap[`role:${role}`] = role.charAt(0).toUpperCase() + role.slice(1);
+          });
+        } else {
+          // Fallback roles
+          nameMap['role:admin'] = 'Admin';
+          nameMap['role:user'] = 'User';
+        }
+      } catch (err) {
+        console.warn('Failed to load roles for display:', err);
+        // Fallback roles
+        nameMap['role:admin'] = 'Admin';
+        nameMap['role:user'] = 'User';
+      }
+
+      setPrincipalNameMap(nameMap);
+    } catch (err) {
+      console.error('Failed to load principals for display:', err);
+    }
+  }
+
   async function loadAcls() {
     try {
       setLoading(true);
@@ -311,6 +412,12 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     READ_WRITE: 'Read & Write (add/edit items)',
     DELETE: 'Delete (remove items)',
   };
+
+  // Get display name for a principal (name if available, otherwise ID)
+  function getPrincipalDisplayName(principalType: string, principalId: string): string {
+    const key = `${principalType}:${principalId}`;
+    return principalNameMap[key] || principalId;
+  }
 
   return (
     <Modal
@@ -468,7 +575,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant="default">{acl.principalType}</Badge>
-                        <span className="font-medium">{acl.principalId}</span>
+                        <span className="font-medium">{getPrincipalDisplayName(acl.principalType, acl.principalId)}</span>
                         {acl.inherit && (
                           <Badge variant="info" className="text-xs">Inherits</Badge>
                         )}
