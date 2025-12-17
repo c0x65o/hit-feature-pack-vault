@@ -218,10 +218,14 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                         </Button>
                       </>
                     ) : (
-                      <Button variant="secondary" onClick={handleReveal}>
-                        <Eye size={16} className="mr-2" />
-                        Reveal Password
-                      </Button>
+                      <button
+                        type="button"
+                        onClick={handleReveal}
+                        className="flex items-center gap-2 px-3 py-2 bg-secondary rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary/80 transition-colors w-full text-left"
+                      >
+                        <Eye size={16} />
+                        <span>Reveal Password</span>
+                      </button>
                     )}
                   </div>
                 </div>

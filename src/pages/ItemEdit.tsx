@@ -430,7 +430,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
               </div>
 
               {twoFactorType === 'phone' && (
-                <div className="p-4 bg-secondary rounded-md space-y-3">
+                <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
                   {globalPhoneNumber ? (
                     <>
                       <div>
@@ -553,7 +553,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
               )}
 
               {twoFactorType === 'qr' && (
-                <div className="p-4 bg-secondary rounded-md space-y-3">
+                <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
                   <div>
                     <label className="text-sm font-medium">QR Code / TOTP Secret</label>
                     <p className="text-sm text-muted-foreground mt-1 mb-2">

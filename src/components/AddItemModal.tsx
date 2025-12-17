@@ -250,7 +250,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
             </div>
 
             {twoFactorType === 'phone' && (
-              <div className="p-4 bg-secondary rounded-md space-y-3">
+              <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
                 {globalPhoneNumber ? (
                   <>
                     <div>
