@@ -137,6 +137,7 @@ export function useOtpSubscription(options = {}) {
     const subscriptionRef = useRef(null);
     const lastPollTimeRef = useRef(null);
     const usingWebSocketRef = useRef(false);
+    const processedMessageIdsRef = useRef(new Set());
     // Subscribe to global WebSocket status changes
     useEffect(() => {
         const handleStatusChange = (status) => {
@@ -147,10 +148,10 @@ export function useOtpSubscription(options = {}) {
                     setConnectionType('websocket');
                 }
                 else if (status === 'error' || status === 'disconnected') {
-                    // WebSocket failed, fall back to polling if we're still listening
-                    if (isListening && subscriptionRef.current) {
-                        console.log('[useOtpSubscription] WebSocket disconnected/error, falling back to polling');
-                        // Don't change connectionType here - let the reconnect logic handle it
+                    // WebSocket failed/disconnected, show polling status if polling is active
+                    if (isListening && pollingIntervalRef.current) {
+                        console.log('[useOtpSubscription] WebSocket disconnected/error, showing polling status');
+                        setConnectionType('polling');
                     }
                 }
             }
@@ -182,6 +183,8 @@ export function useOtpSubscription(options = {}) {
             clearTimeout(pollingTimeoutRef.current);
             pollingTimeoutRef.current = null;
         }
+        // Clear processed message IDs
+        processedMessageIdsRef.current.clear();
         setIsListening(false);
         setConnectionType('disconnected');
     }, []);
@@ -288,15 +291,23 @@ export function useOtpSubscription(options = {}) {
         }
     }, [handleOtpNotification]);
     const startListeningPolling = useCallback(() => {
-        // Initialize with current time, but we'll update it after processing messages
-        const initialTime = new Date();
+        // Initialize with current time minus a buffer for clock skew between client and server
+        // This ensures we don't miss messages if server clock is behind client clock
+        const CLOCK_SKEW_BUFFER_MS = 30000; // 30 seconds buffer
+        const initialTime = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS);
         lastPollTimeRef.current = initialTime;
+        // Clear processed IDs on start
+        processedMessageIdsRef.current.clear();
         pollingIntervalRef.current = setInterval(async () => {
             try {
                 // Poll for new messages based on type
-                // Use the last poll time to avoid re-processing old messages
+                // Use the last poll time with buffer to avoid missing messages due to clock skew
                 let messages = [];
-                const since = lastPollTimeRef.current?.toISOString();
+                // Apply buffer to since time to account for clock skew
+                const sinceTime = lastPollTimeRef.current
+                    ? new Date(lastPollTimeRef.current.getTime() - CLOCK_SKEW_BUFFER_MS)
+                    : null;
+                const since = sinceTime?.toISOString();
                 // Update poll time BEFORE fetching to ensure we don't miss messages
                 // that arrive during processing
                 const pollStartTime = new Date();
@@ -314,8 +325,15 @@ export function useOtpSubscription(options = {}) {
                         type: 'sms',
                     })));
                 }
-                // Process each message
-                for (const msg of messages) {
+                // Filter out already-processed messages (prevents duplicates from clock skew buffer)
+                const newMessages = messages.filter(msg => !processedMessageIdsRef.current.has(msg.id));
+                if (newMessages.length > 0) {
+                    console.log(`[useOtpSubscription] Found ${newMessages.length} new messages to process`);
+                }
+                // Process each NEW message
+                for (const msg of newMessages) {
+                    // Mark as processed immediately to avoid duplicates
+                    processedMessageIdsRef.current.add(msg.id);
                     await handleOtpNotification({
                         messageId: msg.id,
                         type: msg.type,
@@ -357,12 +375,18 @@ export function useOtpSubscription(options = {}) {
         setIsListening(true);
         setError(null);
         clearOtp();
-        console.log('[useOtpSubscription] Starting to listen, attempting WebSocket first...');
-        // Try WebSocket first, fall back to polling
+        console.log('[useOtpSubscription] Starting to listen...');
+        // Always start polling as the reliable fallback
+        // This ensures updates even if WebSocket fails
+        startListeningPolling();
+        // Also try WebSocket for instant updates (enhancement on top of polling)
+        // WebSocket will override connectionType to 'websocket' if successful
         const websocketSuccess = await startListeningWebSocket();
-        if (!websocketSuccess) {
-            console.log('[useOtpSubscription] WebSocket attempt failed, falling back to polling');
-            startListeningPolling();
+        if (websocketSuccess) {
+            console.log('[useOtpSubscription] WebSocket subscription active (polling still running as fallback)');
+        }
+        else {
+            console.log('[useOtpSubscription] WebSocket unavailable, polling only');
         }
     }, [isListening, clearOtp, startListeningWebSocket, startListeningPolling]);
     const stopListening = useCallback(() => {
