@@ -193,18 +193,45 @@ export async function POST(request: NextRequest) {
     }
   });
 
+  // Capture raw body for debugging (declare outside try block for error handling)
+  let rawBodyText: string | null = null;
+  
   try {
     // Determine format: Twilio uses form-encoded, F-Droid uses JSON
     let body: Record<string, any>;
     const contentType = request.headers.get('content-type') || '';
     
-    if (contentType.includes('application/x-www-form-urlencoded')) {
-      // Parse form data (Twilio format)
-      const formData = await request.formData();
-      body = Object.fromEntries(formData.entries()) as Record<string, any>;
-    } else {
-      // Try JSON (F-Droid/Custom format)
-      body = await request.json();
+    // Capture raw body for debugging (before parsing)
+    try {
+      const rawBody = await request.text();
+      rawBodyText = rawBody || null;
+      
+      // Clone the request for parsing (since we consumed the body)
+      const clonedRequest = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: rawBody,
+      });
+      
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        // Parse form data (Twilio format)
+        const formData = await clonedRequest.formData();
+        body = Object.fromEntries(formData.entries()) as Record<string, any>;
+      } else {
+        // Try JSON (F-Droid/Custom format)
+        try {
+          body = await clonedRequest.json();
+        } catch (jsonError) {
+          // If JSON parsing fails, we already have rawBodyText, just rethrow
+          throw jsonError;
+        }
+      }
+    } catch (bodyError) {
+      // If we can't read the body, set rawBodyText to indicate error
+      if (!rawBodyText) {
+        rawBodyText = bodyError instanceof Error ? `Error reading body: ${bodyError.message}` : 'Error reading body';
+      }
+      throw bodyError;
     }
 
     // Extract fields - support both Twilio and F-Droid formats
@@ -226,6 +253,7 @@ export async function POST(request: NextRequest) {
       url,
       headers,
       body: sanitizedBody,
+      rawBody: rawBodyText,
       ip: clientIP,
       messageSid: messageSid || undefined,
       fromNumber: fromNumber || undefined,
@@ -437,12 +465,23 @@ export async function POST(request: NextRequest) {
         .where(eq(vaultWebhookLogs.id, webhookLogId));
     } else {
       // Log even if we failed before creating the log entry
+      // Try to capture raw body if we haven't already
+      if (!rawBodyText) {
+        try {
+          const rawBody = await request.text();
+          rawBodyText = rawBody || null;
+        } catch {
+          // Ignore errors reading body (may already be consumed)
+        }
+      }
+      
       try {
         await db.insert(vaultWebhookLogs).values({
           method,
           url,
           headers,
           body: {},
+          rawBody: rawBodyText,
           ip: clientIP,
           statusCode: 500,
           success: false,

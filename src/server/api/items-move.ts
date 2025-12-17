@@ -1,7 +1,7 @@
 // src/server/api/items-move.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultFolders } from '@/lib/feature-pack-schemas';
+import { vaultItems, vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
 import { eq } from 'drizzle-orm';
 import { extractUserFromRequest } from '../auth';
 import { checkItemAccess, checkFolderAccess } from '../lib/acl-utils';
@@ -47,10 +47,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Check if user has EDIT permission on the item (via ACL)
-    const itemAccessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['EDIT'] });
+    // Check if user has READ_WRITE permission on the item (via ACL)
+    const itemAccessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
     if (!itemAccessCheck.hasAccess) {
       return NextResponse.json({ error: 'Forbidden: ' + (itemAccessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+    }
+
+    // Get source vault to check type
+    const [sourceVault] = await db
+      .select()
+      .from(vaultVaults)
+      .where(eq(vaultVaults.id, existing.vaultId))
+      .limit(1);
+
+    if (!sourceVault) {
+      return NextResponse.json({ error: 'Source vault not found' }, { status: 404 });
     }
 
     // Determine target vault ID and folder
@@ -68,14 +79,41 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
       }
 
-      // Check if user has access to the target folder (via ACL)
-      const folderAccessCheck = await checkFolderAccess(db, folderId, user);
+      // Check if user has READ_WRITE access to the target folder (via ACL)
+      const folderAccessCheck = await checkFolderAccess(db, folderId, user, { requiredPermissions: ['READ_WRITE'] });
       if (!folderAccessCheck.hasAccess) {
-        return NextResponse.json({ error: 'Forbidden: No access to target folder' }, { status: 403 });
+        return NextResponse.json({ error: 'Forbidden: No write access to target folder' }, { status: 403 });
+      }
+
+      // Get target vault
+      const [targetVault] = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.id, folder.vaultId))
+        .limit(1);
+
+      if (!targetVault) {
+        return NextResponse.json({ error: 'Target vault not found' }, { status: 404 });
+      }
+
+      // CRITICAL: Prevent moving items from shared vault to personal vault
+      // Users should not be able to move shared items to their personal vault
+      if (sourceVault.type === 'shared' && targetVault.type === 'personal') {
+        return NextResponse.json({ error: 'Forbidden: Cannot move items from shared vault to personal vault' }, { status: 403 });
       }
 
       // When moving to a folder in a different vault, update the item's vaultId
       targetVaultId = folder.vaultId;
+    } else {
+      // Moving to root - check if user has access to root of target vault
+      // For now, allow if user owns the vault or has vault-level ACL
+      // But still prevent moving from shared to personal
+      if (sourceVault.type === 'shared') {
+        // Check if target vault is personal - if so, prevent
+        // For root moves within same vault, this is fine
+        // But we need to check if moving to a different vault's root
+        // Since folderId is null, we're moving to root of existing vault, which is fine
+      }
     }
 
     const [item] = await db

@@ -2,7 +2,7 @@
 import { jsxs as _jsxs, Fragment as _Fragment, jsx as _jsx } from "react/jsx-runtime";
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
@@ -27,6 +27,7 @@ export function VaultLanding({ onNavigate }) {
     const [expandedFolderIds, setExpandedFolderIds] = useState(new Set());
     const [totpCopiedFor, setTotpCopiedFor] = useState(null);
     const [activeFolderId, setActiveFolderId] = useState(null);
+    const [activeItemId, setActiveItemId] = useState(null);
     const [showMoveFolderModal, setShowMoveFolderModal] = useState(null);
     const [showMoveItemModal, setShowMoveItemModal] = useState(null);
     const [showAclModalFolderId, setShowAclModalFolderId] = useState(null);
@@ -175,36 +176,43 @@ export function VaultLanding({ onNavigate }) {
     }
     async function handleCreateItem(itemData) {
         try {
-            // Use personal vault by default (vaults are ensured by loadData)
-            const personalVault = vaults.find(v => v.type === 'personal');
-            if (!personalVault) {
-                // Reload to ensure vaults exist
-                await loadData();
-                const updatedVaults = await vaultApi.getVaults();
-                const fallbackVault = updatedVaults.find(v => v.type === 'personal');
-                if (!fallbackVault) {
-                    throw new Error('Personal vault not available');
-                }
-                // Use folderId from itemData if provided, otherwise use selectedFolderId
-                const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
-                const createdItem = await vaultApi.createItem({
-                    ...itemData,
-                    vaultId: fallbackVault.id,
-                    folderId: folderId || null,
-                });
-                if (itemData.totpSecret && createdItem.id) {
-                    await vaultApi.importTotp(createdItem.id, itemData.totpSecret);
-                }
-                await loadData();
-                setShowAddItemModal(false);
-                return;
-            }
-            // Backend will set createdBy from authenticated user
-            // Use folderId from itemData if provided, otherwise use selectedFolderId
+            // Determine which vault to use:
+            // - If folderId is provided, look up the folder to get its vaultId
+            // - Otherwise, use personal vault as default
             const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
+            let targetVaultId;
+            if (folderId) {
+                // Get the folder to determine which vault it belongs to
+                const folder = folders.find(f => f.id === folderId);
+                if (folder) {
+                    targetVaultId = folder.vaultId;
+                }
+                else {
+                    // Folder not found in local state, fetch it
+                    const folderData = await vaultApi.getFolder(folderId);
+                    targetVaultId = folderData.vaultId;
+                }
+            }
+            else {
+                // No folder specified - use personal vault
+                const personalVault = vaults.find(v => v.type === 'personal');
+                if (!personalVault) {
+                    // Reload to ensure vaults exist
+                    await loadData();
+                    const updatedVaults = await vaultApi.getVaults();
+                    const fallbackVault = updatedVaults.find(v => v.type === 'personal');
+                    if (!fallbackVault) {
+                        throw new Error('Personal vault not available');
+                    }
+                    targetVaultId = fallbackVault.id;
+                }
+                else {
+                    targetVaultId = personalVault.id;
+                }
+            }
             const createdItem = await vaultApi.createItem({
                 ...itemData,
-                vaultId: personalVault.id,
+                vaultId: targetVaultId,
                 folderId: folderId || null,
             });
             // If TOTP secret was provided, import it after creating the item
@@ -338,37 +346,70 @@ export function VaultLanding({ onNavigate }) {
     const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor));
     const handleDragStart = (event) => {
         const { active } = event;
-        if (typeof active.id === 'string' && active.id.startsWith('folder:')) {
-            setActiveFolderId(active.id.replace('folder:', ''));
+        if (typeof active.id === 'string') {
+            if (active.id.startsWith('folder:')) {
+                setActiveFolderId(active.id.replace('folder:', ''));
+            }
+            else if (active.id.startsWith('item:')) {
+                setActiveItemId(active.id.replace('item:', ''));
+            }
         }
     };
     const handleDragEnd = async (event) => {
         const { active, over } = event;
         setActiveFolderId(null);
+        setActiveItemId(null);
         if (!over || active.id === over.id) {
             return;
         }
-        const activeId = typeof active.id === 'string' ? active.id.replace('folder:', '') : null;
-        const overId = typeof over.id === 'string' ? over.id.replace('folder:', '') : null;
+        const activeId = typeof active.id === 'string' ? active.id : null;
+        const overId = typeof over.id === 'string' ? over.id : null;
         if (!activeId)
             return;
-        // Prevent moving folder into itself or its descendants
-        const isDescendant = (folderId, potentialParentId) => {
-            const folder = folders.find(f => f.id === folderId);
-            if (!folder || !folder.parentId)
-                return false;
-            if (folder.parentId === potentialParentId)
-                return true;
-            return isDescendant(folder.parentId, potentialParentId);
-        };
-        if (overId && isDescendant(overId, activeId)) {
-            setError(new Error('Cannot move folder into its own subfolder'));
-            return;
+        // Handle folder drag and drop
+        if (activeId.startsWith('folder:')) {
+            const folderId = activeId.replace('folder:', '');
+            const targetFolderId = overId?.startsWith('folder:') ? overId.replace('folder:', '') : null;
+            // Prevent moving folder into itself or its descendants
+            const isDescendant = (folderId, potentialParentId) => {
+                const folder = folders.find(f => f.id === folderId);
+                if (!folder || !folder.parentId)
+                    return false;
+                if (folder.parentId === potentialParentId)
+                    return true;
+                return isDescendant(folder.parentId, potentialParentId);
+            };
+            if (targetFolderId && isDescendant(targetFolderId, folderId)) {
+                setError(new Error('Cannot move folder into its own subfolder'));
+                return;
+            }
+            // If dropping on root (no overId or root drop zone), move to root
+            // If dropping on another folder, move into that folder
+            const newParentId = targetFolderId || null;
+            await handleMoveFolder(folderId, newParentId);
         }
-        // If dropping on root (no overId), move to root
-        // If dropping on another folder, move into that folder
-        const newParentId = overId || null;
-        await handleMoveFolder(activeId, newParentId);
+        // Handle item drag and drop
+        else if (activeId.startsWith('item:')) {
+            const itemId = activeId.replace('item:', '');
+            let targetFolderId = null;
+            if (overId?.startsWith('folder:')) {
+                // Dropping on a folder
+                targetFolderId = overId.replace('folder:', '');
+            }
+            else if (overId === 'root') {
+                // Dropping on root drop zone
+                targetFolderId = null;
+            }
+            else {
+                // Dropping elsewhere, don't move
+                return;
+            }
+            // Only move if the folder actually changed
+            const item = items.find(i => i.id === itemId);
+            if (item && item.folderId !== targetFolderId) {
+                await handleMoveItem(itemId, targetFolderId);
+            }
+        }
     };
     if (loading) {
         return (_jsx(Page, { title: "Vault", description: "Loading...", children: _jsx("div", { className: "text-center py-8 text-muted-foreground", children: "Loading..." }) }));
@@ -381,10 +422,25 @@ export function VaultLanding({ onNavigate }) {
                             { value: 'personal', label: 'Personal Only' },
                             // Only show shared option if user has access to a shared vault
                             ...(vaults.some(v => v.type === 'shared') ? [{ value: 'shared', label: 'Shared Only' }] : []),
-                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => loadData(), disabled: loading, title: "Refresh", children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loading ? 'animate-spin' : ''}` }), "Refresh"] }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs(DndContext, { sensors: sensors, onDragStart: handleDragStart, onDragEnd: handleDragEnd, children: [_jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders, onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id }, item.id))) })] })), _jsx(RootDropZone, {}), rootFolders.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
+                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => loadData(), disabled: loading, title: "Refresh", children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loading ? 'animate-spin' : ''}` }), "Refresh"] }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs(DndContext, { sensors: sensors, onDragStart: handleDragStart, onDragEnd: handleDragEnd, children: [_jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders, onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin }, item.id))) })] })), _jsx(RootDropZone, {}), rootFolders.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
                                     setSelectedFolderId(folderId);
                                     setShowAddItemModal(true);
-                                }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor }, folder.id))), rootFolders.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), _jsx(DragOverlay, { children: activeFolderId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folders.find(f => f.id === activeFolderId)?.name || '' })] }) })) : null })] }), showAddItemModal && (_jsx(AddItemModal, { onClose: () => {
+                                }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin }, folder.id))), rootFolders.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), _jsx(DragOverlay, { children: activeFolderId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folders.find(f => f.id === activeFolderId)?.name || '' })] }) })) : activeItemId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsx("div", { className: "flex items-center gap-2", children: (() => {
+                                    const item = items.find(i => i.id === activeItemId);
+                                    if (!item)
+                                        return null;
+                                    const getItemIcon = () => {
+                                        switch (item.type) {
+                                            case 'api_key':
+                                                return _jsx(Key, { size: 14 });
+                                            case 'secure_note':
+                                                return _jsx(FileText, { size: 14 });
+                                            default:
+                                                return _jsx(Lock, { size: 14 });
+                                        }
+                                    };
+                                    return (_jsxs(_Fragment, { children: [getItemIcon(), _jsx("span", { className: "font-medium text-sm", children: item.title })] }));
+                                })() }) })) : null })] }), showAddItemModal && (_jsx(AddItemModal, { onClose: () => {
                     setShowAddItemModal(false);
                     setSelectedFolderId(null);
                 }, onSave: handleCreateItem, folderId: selectedFolderId })), showAddFolderModal && (_jsx(FolderModal, { onClose: () => setShowAddFolderModal(false), onSave: handleCreateFolder, vaults: vaults, folders: folders, isAdmin: isAdmin })), showAclModalFolderId && (_jsx(FolderAclModal, { folderId: showAclModalFolderId, isOpen: !!showAclModalFolderId, onClose: () => setShowAclModalFolderId(null), onUpdate: () => {
@@ -394,11 +450,11 @@ export function VaultLanding({ onNavigate }) {
 function RootDropZone() {
     const { setNodeRef, isOver } = useDroppable({
         id: 'root',
-        data: { type: 'folder-drop-zone' },
+        data: { type: 'drop-zone' },
     });
     return (_jsx("div", { ref: setNodeRef, className: isOver ? 'min-h-[20px] border-2 border-dashed border-primary rounded mb-2' : 'min-h-[4px] mb-2' }));
 }
-function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, onMoveFolder, showMoveModal, onShowMoveModal, onDeleteItem, showMoveItemModal, onShowMoveItemModal, onShowAclModal, globalEmailAddress, onQuickEmailOtp, emailOtpPollingFor, emailOtpCopiedFor, level = 0, }) {
+function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, onMoveFolder, showMoveModal, onShowMoveModal, onDeleteItem, showMoveItemModal, onShowMoveItemModal, onShowAclModal, globalEmailAddress, onQuickEmailOtp, emailOtpPollingFor, emailOtpCopiedFor, isAdmin = false, level = 0, }) {
     const { Button, Select } = useUi();
     const expanded = expandedFolderIds.has(folder.id);
     const subfolders = allFolders.filter(f => f.parentId === folder.id);
@@ -476,18 +532,45 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
         };
         return countRecursive(folder.id);
     }, [folder.id, allItems, allFolders]);
-    return (_jsxs("div", { ref: setDroppableRef, className: `border rounded-lg ${isOver ? 'border-primary border-2' : ''}`, style: style, children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", style: { paddingLeft: `${12 + indentLevel * 24}px` }, children: [_jsxs("div", { className: "flex items-center gap-1 flex-1 min-w-0", children: [_jsx("div", { ref: setNodeRef, ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+    return (_jsxs("div", { ref: setDroppableRef, className: `border rounded-lg ${isOver ? 'border-primary border-2' : ''}`, style: style, children: [_jsxs("div", { className: "px-3 py-2 bg-secondary/40 flex items-center justify-between", style: { paddingLeft: `${12 + indentLevel * 24}px` }, children: [_jsxs("div", { className: "flex items-center gap-1 flex-1 min-w-0", children: [_jsx("div", { ref: setNodeRef, ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) }), folder.permissionLevel === 'full' && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                                     e.stopPropagation();
                                     onShowMoveModal(folder.id);
-                                }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) }), _jsxs("button", { onClick: () => onToggleExpanded(folder.id), className: "flex items-center gap-2 flex-1 text-left min-w-0", children: [expanded ? _jsx(ChevronDown, { className: "h-4 w-4" }) : _jsx(ChevronRight, { className: "h-4 w-4" }), _jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm truncate", children: folder.name }), folderScope && (_jsx("span", { className: [
+                                }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) })), _jsxs("button", { onClick: () => onToggleExpanded(folder.id), className: "flex items-center gap-2 flex-1 text-left min-w-0", children: [expanded ? _jsx(ChevronDown, { className: "h-4 w-4" }) : _jsx(ChevronRight, { className: "h-4 w-4" }), _jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm truncate", children: folder.name }), folderScope && (_jsx("span", { className: [
                                             'text-[11px] px-2 py-0.5 rounded border flex-shrink-0',
                                             folderScope === 'personal'
                                                 ? 'bg-blue-50 border-blue-200 text-blue-800'
                                                 : 'bg-violet-50 border-violet-200 text-violet-800',
-                                        ].join(' '), title: folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault', children: folderScope === 'personal' ? 'Personal' : 'Shared' })), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] })] }), _jsxs("div", { className: "flex items-center gap-1", children: [folder.canShare !== false && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                                        ].join(' '), title: folderScope === 'personal' ? 'Personal Vault' : 'Shared Vault', children: folderScope === 'personal' ? 'Personal' : 'Shared' })), folder.permissionLevel && folder.permissionLevel !== 'none' && ((() => {
+                                        const permissionLevel = folder.permissionLevel;
+                                        const permissionConfig = {
+                                            full: {
+                                                icon: _jsx(Shield, { className: "h-3.5 w-3.5" }),
+                                                label: 'Full',
+                                                className: 'bg-green-50 border-green-200 text-green-800',
+                                                title: 'Full Access (Read, Write, Delete)',
+                                            },
+                                            read_write: {
+                                                icon: _jsx(Edit, { className: "h-3.5 w-3.5" }),
+                                                label: 'Read/Write',
+                                                className: 'bg-blue-50 border-blue-200 text-blue-800',
+                                                title: 'Read & Write Access',
+                                            },
+                                            read_only: {
+                                                icon: _jsx(Eye, { className: "h-3.5 w-3.5" }),
+                                                label: 'Read Only',
+                                                className: 'bg-gray-50 border-gray-200 text-gray-800',
+                                                title: 'Read Only Access',
+                                            },
+                                        };
+                                        const config = permissionConfig[permissionLevel];
+                                        return (_jsxs("span", { className: [
+                                                'text-[11px] px-2 py-0.5 rounded border flex-shrink-0 flex items-center gap-1',
+                                                config.className,
+                                            ].join(' '), title: config.title, children: [config.icon, config.label] }));
+                                    })()), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] })] }), _jsxs("div", { className: "flex items-center gap-1", children: [folder.permissionLevel === 'full' && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                                     e.stopPropagation();
                                     onShowAclModal(folder.id);
-                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), folder.canEdit !== false && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) })), folder.canDelete !== false && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) }))] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
+                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), (folder.permissionLevel === 'read_write' || folder.permissionLevel === 'full') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) }))] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
                                 // Explicitly handle empty string as root (null parentId)
                                 const newParentId = value === '' ? null : value;
                                 // Only move if the value actually changed
@@ -497,10 +580,20 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                                 }
                             }, options: folderOptions }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onShowMoveModal(null), children: "Cancel" })] })), expanded && (_jsxs("div", { className: "border-t bg-background", children: [subfolders.map(subfolder => (_jsx(FolderSection, { folder: subfolder, allFolders: allFolders, allItems: allItems, vaultTypeById: vaultTypeById, onNavigate: onNavigate, onDelete: onDelete, onSelectFolder: onSelectFolder, onAddItem: (folderId) => {
                             onAddItem(folderId);
-                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, onShowAclModal: onShowAclModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, level: level + 1 }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders, onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
+                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, onShowAclModal: onShowAclModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, level: level + 1 }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders, onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
 }
-function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, globalEmailAddress, onQuickEmailOtp, emailOtpPolling, emailOtpCopied, }) {
+function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, globalEmailAddress, onQuickEmailOtp, emailOtpPolling, emailOtpCopied, isAdmin = false, }) {
     const { Button, Select } = useUi();
+    // Drag and drop setup for items
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: `item:${item.id}`,
+        data: { type: 'item', itemId: item.id },
+        disabled: !(item.canMove === true || item.canEdit === true),
+    });
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        opacity: isDragging ? 0.5 : 1,
+    };
     const getItemIcon = () => {
         switch (item.type) {
             case 'api_key':
@@ -532,22 +625,23 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
     // Check if item's username matches the global 2FA email address
     const canUseEmailOtp = globalEmailAddress && item.username &&
         item.username.toLowerCase() === globalEmailAddress.toLowerCase();
-    return (_jsxs("div", { className: [
+    const canMove = item.canMove === true || item.canEdit === true;
+    return (_jsxs("div", { ref: setNodeRef, style: { ...style, paddingLeft: `${12 + indentLevel * 24}px` }, className: [
             'px-3 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors border-b border-border/50 last:border-b-0',
             isEven ? 'bg-background' : 'bg-muted/30',
             'hover:bg-muted/60',
-        ].join(' '), style: { paddingLeft: `${12 + indentLevel * 24}px` }, onClick: (e) => {
+        ].join(' '), onClick: (e) => {
             const target = e.target;
             if (!target.closest('button') && !target.closest('select')) {
                 onNavigate(`/vault/items/${item.id}`);
             }
-        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2", onClick: (e) => e.stopPropagation(), children: [canUseEmailOtp && (_jsx(Button, { variant: "ghost", size: "sm", disabled: emailOtpPolling, title: emailOtpPolling ? 'Waiting for email OTP...' : 'Get email OTP code', onClick: () => onQuickEmailOtp(item), children: emailOtpCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : emailOtpPolling ? (_jsx(Loader2, { size: 16, className: "animate-spin text-blue-500" })) : (_jsx(Mail, { size: 16, className: "text-blue-500" })) })), _jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [canMove && (_jsx("div", { ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) })), getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2", onClick: (e) => e.stopPropagation(), children: [canUseEmailOtp && (_jsx(Button, { variant: "ghost", size: "sm", disabled: emailOtpPolling, title: emailOtpPolling ? 'Waiting for email OTP...' : 'Get email OTP code', onClick: () => onQuickEmailOtp(item), children: emailOtpCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : emailOtpPolling ? (_jsx(Loader2, { size: 16, className: "animate-spin text-blue-500" })) : (_jsx(Mail, { size: 16, className: "text-blue-500" })) })), _jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), canMove && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                             e.stopPropagation();
                             onShowMoveItemModal(item.id);
-                        }, title: "Move item to folder", children: _jsx(Move, { size: 14 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                        }, title: "Move item to folder", children: _jsx(Move, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                             e.stopPropagation();
                             onDeleteItem(item);
-                        }, title: "Delete item", children: _jsx(Trash2, { size: 14 }) })] }), showMoveItemModal === item.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: item.folderId || '', onChange: (value) => {
+                        }, title: "Delete item", children: _jsx(Trash2, { size: 14 }) }))] }), showMoveItemModal === item.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: item.folderId || '', onChange: (value) => {
                                 // Explicitly handle empty string as root (null folderId)
                                 const newFolderId = value === '' ? null : value;
                                 // Only move if the value actually changed

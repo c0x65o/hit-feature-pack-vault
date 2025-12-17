@@ -1,7 +1,7 @@
 // src/server/api/folders-id.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultFolders } from '@/lib/feature-pack-schemas';
+import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
 import { eq } from 'drizzle-orm';
 import { extractUserFromRequest } from '../auth';
 import { checkFolderAccess } from '../lib/acl-utils';
@@ -49,7 +49,53 @@ export async function GET(request) {
         if (!folder) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        return NextResponse.json(folder);
+        // Add permission flags for UI conditional rendering
+        const { getEffectiveFolderAcls, getUserPrincipals, mergePermissions } = await import('../lib/acl-utils');
+        // Get vault to check ownership
+        const [vault] = await db
+            .select()
+            .from(vaultVaults)
+            .where(eq(vaultVaults.id, folder.vaultId))
+            .limit(1);
+        const isAdmin = user.roles?.includes('admin') || false;
+        const isOwner = vault?.ownerUserId === user.sub;
+        // Check ACL permissions to determine actual permission level
+        let permissionLevel = 'none';
+        const principals = await getUserPrincipals(db, user);
+        const effectiveAcls = await getEffectiveFolderAcls(db, id, principals);
+        if (effectiveAcls.length > 0) {
+            // Merge permissions from all ACLs
+            const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
+            const mergedPermissions = mergePermissions(allPermissionSets);
+            // Determine permission level based on merged permissions
+            if (mergedPermissions.includes('DELETE')) {
+                permissionLevel = 'full';
+            }
+            else if (mergedPermissions.includes('READ_WRITE')) {
+                permissionLevel = 'read_write';
+            }
+            else if (mergedPermissions.includes('READ_ONLY')) {
+                permissionLevel = 'read_only';
+            }
+        }
+        else if (isOwner && vault?.type === 'personal') {
+            // Personal vault owner has full access (no ACL needed - it's their vault)
+            permissionLevel = 'full';
+        }
+        else if (isAdmin && vault?.type === 'shared') {
+            // Admins get full access to shared vaults by default (even without explicit ACLs)
+            permissionLevel = 'full';
+        }
+        // Use checkFolderAccess for the boolean flags (for backward compatibility)
+        const deleteCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] });
+        const writeCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+        return NextResponse.json({
+            ...folder,
+            canDelete: deleteCheck.hasAccess,
+            canShare: writeCheck.hasAccess, // Sharing requires READ_WRITE permission
+            canEdit: writeCheck.hasAccess,
+            permissionLevel, // User's permission level for this folder (based on ACLs first, then owner/admin)
+        });
     }
     catch (error) {
         console.error('[vault] Get folder error:', error);
@@ -72,8 +118,8 @@ export async function PUT(request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const body = await request.json();
-        // Check if user has EDIT permission
-        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['EDIT'] });
+        // Check if user has READ_WRITE permission
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
         if (!accessCheck.hasAccess) {
             return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }

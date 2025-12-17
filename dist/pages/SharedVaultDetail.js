@@ -42,8 +42,8 @@ export function SharedVaultDetail({ vaultId, onNavigate }) {
         }
     }
     const breadcrumbs = [
-        { label: 'Vault', href: '/vault/personal', icon: _jsx(LockIcon, { size: 14 }) },
-        { label: 'Shared Vaults', href: '/vault/shared', icon: _jsx(Users, { size: 14 }) },
+        { label: 'Vault', href: '/vault', icon: _jsx(LockIcon, { size: 14 }) },
+        { label: 'Shared Vaults', href: '/vault', icon: _jsx(Users, { size: 14 }) },
         ...(vault ? [{ label: vault.name, icon: _jsx(Folder, { size: 14 }) }] : []),
     ];
     if (loading) {

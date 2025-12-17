@@ -49,8 +49,8 @@ export function SharedVaultDetail({ vaultId, onNavigate }: Props) {
   }
 
   const breadcrumbs: BreadcrumbItem[] = [
-    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
-    { label: 'Shared Vaults', href: '/vault/shared', icon: <Users size={14} /> },
+    { label: 'Vault', href: '/vault', icon: <LockIcon size={14} /> },
+    { label: 'Shared Vaults', href: '/vault', icon: <Users size={14} /> },
     ...(vault ? [{ label: vault.name, icon: <Folder size={14} /> }] : []),
   ];
 

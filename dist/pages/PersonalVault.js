@@ -43,7 +43,7 @@ export function PersonalVault({ onNavigate }) {
         }
     }
     const breadcrumbs = [
-        { label: 'Vault', href: '/vault/personal', icon: _jsx(LockIcon, { size: 14 }) },
+        { label: 'Vault', href: '/vault', icon: _jsx(LockIcon, { size: 14 }) },
         { label: 'Personal Vault', icon: _jsx(User, { size: 14 }) },
     ];
     if (loading) {

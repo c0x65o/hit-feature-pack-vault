@@ -36,15 +36,15 @@ export async function DELETE(request) {
         if (!acl) {
             return NextResponse.json({ error: 'ACL not found' }, { status: 404 });
         }
-        // Verify user has SHARE permission on the resource
+        // Verify user has READ_WRITE permission on the resource (required to manage ACLs)
         if (acl.resourceType === 'folder') {
-            const accessCheck = await checkFolderAccess(db, acl.resourceId, user, { requiredPermissions: ['SHARE'] });
+            const accessCheck = await checkFolderAccess(db, acl.resourceId, user, { requiredPermissions: ['READ_WRITE'] });
             if (!accessCheck.hasAccess) {
                 return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
             }
         }
         else if (acl.resourceType === 'vault') {
-            const accessCheck = await checkVaultAccess(db, acl.resourceId, user, ['SHARE']);
+            const accessCheck = await checkVaultAccess(db, acl.resourceId, user, ['READ_WRITE']);
             if (!accessCheck.hasAccess) {
                 return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
             }

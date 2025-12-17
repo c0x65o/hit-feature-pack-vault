@@ -31,27 +31,28 @@ export async function GET(request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const isAdmin = user.roles?.includes('admin') || false;
-        // Get vaults the user owns
-        const userVaults = await db
+        // Get PERSONAL vaults the user owns (personal vaults only - owner has full access)
+        const userPersonalVaults = await db
             .select({ id: vaultVaults.id })
             .from(vaultVaults)
-            .where(eq(vaultVaults.ownerUserId, user.sub));
-        const userVaultIds = userVaults.map((v) => v.id);
-        // Build principal IDs for ACL matching
+            .where(and(eq(vaultVaults.ownerUserId, user.sub), eq(vaultVaults.type, 'personal')));
+        const userPersonalVaultIds = userPersonalVaults.map((v) => v.id);
+        // Build principal IDs for ACL matching (user ID, email, roles)
         const userPrincipalIds = [
             user.sub,
             user.email,
             ...(user.roles || []),
         ].filter(Boolean);
-        // Build accessible vault IDs (for owners/admins) and folder IDs (for ACL users)
-        // Vault owners and admins see all folders in their vaults
-        // Non-admin users see folders they have explicit folder-level ACL on OR vault-level ACL on
-        const accessibleVaultIds = new Set(userVaultIds);
+        // Build accessible vault IDs and folder IDs
+        // - Personal vault owners: see all folders in their personal vault
+        // - Admins: see all folders in all shared vaults
+        // - Non-admin users: see folders they have explicit ACL on (vault-level or folder-level)
+        const accessibleVaultIds = new Set(userPersonalVaultIds);
         const accessibleFolderIds = new Set();
         // Track if user has any vault-level ACLs (separate from folder-level)
-        let hasVaultLevelAcl = false;
+        let hasVaultLevelAcl = userPersonalVaultIds.length > 0;
         if (isAdmin) {
-            // Admins get access to all folders in shared vaults
+            // Admins get access to all folders in shared vaults (can see everything)
             const sharedVaults = await db
                 .select({ id: vaultVaults.id })
                 .from(vaultVaults)
@@ -59,9 +60,10 @@ export async function GET(request) {
             for (const vault of sharedVaults) {
                 accessibleVaultIds.add(vault.id);
             }
-            hasVaultLevelAcl = true; // Admins effectively have vault-level access
+            hasVaultLevelAcl = true;
         }
         else if (userPrincipalIds.length > 0) {
+            // Non-admins: Check ACLs for shared vault access
             // Check vault-level ACLs FIRST - users with vault ACL see all folders in that vault
             const vaultAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
             const vaultAclsList = await db
@@ -168,16 +170,53 @@ export async function GET(request) {
             .limit(pageSize)
             .offset(offset);
         // Add permission flags to each folder for UI conditional rendering
-        const { checkFolderAccess } = await import('../lib/acl-utils');
+        const { checkFolderAccess, getEffectiveFolderAcls, getUserPrincipals, mergePermissions } = await import('../lib/acl-utils');
         const itemsWithPermissions = await Promise.all(items.map(async (folder) => {
+            // Get vault to check ownership
+            const [vault] = await db
+                .select()
+                .from(vaultVaults)
+                .where(eq(vaultVaults.id, folder.vaultId))
+                .limit(1);
+            const isAdmin = user.roles?.includes('admin') || false;
+            const isOwner = vault?.ownerUserId === user.sub;
+            // Check ACL permissions to determine actual permission level
+            // This shows what permissions the user has via ACLs, not owner/admin status
+            let permissionLevel = 'none';
+            const principals = await getUserPrincipals(db, user);
+            const effectiveAcls = await getEffectiveFolderAcls(db, folder.id, principals);
+            if (effectiveAcls.length > 0) {
+                // Merge permissions from all ACLs
+                const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
+                const mergedPermissions = mergePermissions(allPermissionSets);
+                // Determine permission level based on merged permissions
+                if (mergedPermissions.includes('DELETE')) {
+                    permissionLevel = 'full';
+                }
+                else if (mergedPermissions.includes('READ_WRITE')) {
+                    permissionLevel = 'read_write';
+                }
+                else if (mergedPermissions.includes('READ_ONLY')) {
+                    permissionLevel = 'read_only';
+                }
+            }
+            else if (isOwner && vault?.type === 'personal') {
+                // Personal vault owner has full access (no ACL needed - it's their vault)
+                permissionLevel = 'full';
+            }
+            else if (isAdmin && vault?.type === 'shared') {
+                // Admins get full access to shared vaults by default (even without explicit ACLs)
+                permissionLevel = 'full';
+            }
+            // Use checkFolderAccess for the boolean flags (for backward compatibility)
             const deleteCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['DELETE'] });
-            const shareCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['SHARE'] });
-            const editCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['EDIT', 'READ_WRITE'] });
+            const writeCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['READ_WRITE'] });
             return {
                 ...folder,
                 canDelete: deleteCheck.hasAccess,
-                canShare: shareCheck.hasAccess,
-                canEdit: editCheck.hasAccess,
+                canShare: writeCheck.hasAccess, // Sharing requires READ_WRITE permission
+                canEdit: writeCheck.hasAccess,
+                permissionLevel, // User's permission level for this folder (based on ACLs first, then owner/admin)
             };
         }));
         return NextResponse.json({

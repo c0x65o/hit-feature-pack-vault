@@ -56,7 +56,7 @@ export function FolderView({ folderId, onNavigate }: Props) {
   }
 
   const breadcrumbs: BreadcrumbItem[] = [
-    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Vault', href: '/vault', icon: <LockIcon size={14} /> },
     ...(folder ? [{ label: folder.name, icon: <Folder size={14} /> }] : []),
   ];
 
@@ -67,7 +67,7 @@ export function FolderView({ folderId, onNavigate }: Props) {
         description={folder ? `${folder.path} • ${items.length} items` : ''}
         breadcrumbs={breadcrumbs}
         onNavigate={navigate}
-        actions={folder ? (
+        actions={folder && (folder as any).canShare ? (
           <Button
             onClick={() => setAclModalOpen(true)}
             variant="secondary"

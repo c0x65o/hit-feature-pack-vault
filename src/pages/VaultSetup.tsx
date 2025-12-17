@@ -1047,6 +1047,39 @@ export function VaultSetup({ onNavigate }: Props) {
                           </div>
                         );
                       })()}
+                      {log.rawBody && (() => {
+                        const rawBodyKey = `${log.id}-raw-body`;
+                        const isExpanded = expandedLogSections.has(rawBodyKey);
+                        return (
+                          <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                            <button
+                              onClick={() => {
+                                const newSet = new Set(expandedLogSections);
+                                if (isExpanded) {
+                                  newSet.delete(rawBodyKey);
+                                } else {
+                                  newSet.add(rawBodyKey);
+                                }
+                                setExpandedLogSections(newSet);
+                              }}
+                              className="flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <ChevronDown 
+                                size={14} 
+                                className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                              View raw request data
+                            </button>
+                            {isExpanded && (
+                              <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                <pre className="text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto font-mono whitespace-pre-wrap break-words">
+                                  {log.rawBody}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}

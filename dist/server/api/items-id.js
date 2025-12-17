@@ -1,9 +1,10 @@
 // src/server/api/items-id.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, and, inArray } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultItems, vaultFolders } from '@/lib/feature-pack-schemas';
+import { eq } from 'drizzle-orm';
+import { extractUserFromRequest } from '../auth';
+import { checkItemAccess } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -12,22 +13,21 @@ function extractId(request) {
     return parts[parts.length - 1] || null;
 }
 /**
- * Check if user has access to an item (via vault ownership)
+ * Get item if user has access (via ACL check)
  */
-async function verifyItemAccess(db, itemId, userId) {
-    // Get user's vault IDs
-    const userVaults = await db
-        .select({ id: vaultVaults.id })
-        .from(vaultVaults)
-        .where(eq(vaultVaults.ownerUserId, userId));
-    const userVaultIds = userVaults.map((v) => v.id);
-    if (userVaultIds.length === 0)
+async function getItemIfAccessible(db, itemId, user) {
+    if (!user)
         return null;
-    // Check if item is in user's vaults
+    // Check ACL access
+    const accessCheck = await checkItemAccess(db, itemId, user);
+    if (!accessCheck.hasAccess) {
+        return null;
+    }
+    // Get item if access is granted
     const [item] = await db
         .select()
         .from(vaultItems)
-        .where(and(eq(vaultItems.id, itemId), inArray(vaultItems.vaultId, userVaultIds)))
+        .where(eq(vaultItems.id, itemId))
         .limit(1);
     return item;
 }
@@ -42,11 +42,11 @@ export async function GET(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const item = await verifyItemAccess(db, id, userId);
+        const item = await getItemIfAccessible(db, id, user);
         if (!item) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -70,12 +70,17 @@ export async function PUT(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const body = await request.json();
-        const existing = await verifyItemAccess(db, id, userId);
+        // Check if user has READ_WRITE permission
+        const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+        if (!accessCheck.hasAccess) {
+            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        }
+        const existing = await getItemIfAccessible(db, id, user);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -86,7 +91,7 @@ export async function PUT(request) {
         }
         const updateData = {
             updatedAt: new Date(),
-            updatedBy: userId,
+            updatedBy: user.sub,
         };
         // Update metadata fields
         if (body.title !== undefined)
@@ -97,8 +102,25 @@ export async function PUT(request) {
             updateData.url = body.url;
         if (body.tags !== undefined)
             updateData.tags = body.tags;
-        if (body.folderId !== undefined)
+        if (body.folderId !== undefined) {
             updateData.folderId = body.folderId;
+            // CRITICAL: If folderId changes, ensure vaultId matches the folder's vault
+            // Items must always be in the same vault as their folder
+            if (body.folderId) {
+                const [folder] = await db
+                    .select({ vaultId: vaultFolders.vaultId })
+                    .from(vaultFolders)
+                    .where(eq(vaultFolders.id, body.folderId))
+                    .limit(1);
+                if (folder && folder.vaultId !== existing.vaultId) {
+                    // Update vaultId to match folder's vault
+                    updateData.vaultId = folder.vaultId;
+                }
+            }
+            else {
+                // Moving to root - keep existing vaultId (root items stay in their vault)
+            }
+        }
         // Update secret if provided (re-encrypt)
         if (body.password !== undefined || body.notes !== undefined) {
             const secretData = {
@@ -132,11 +154,16 @@ export async function DELETE(request) {
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
-        const userId = getUserId(request);
-        if (!userId) {
+        const user = extractUserFromRequest(request);
+        if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const existing = await verifyItemAccess(db, id, userId);
+        // Check if user has DELETE permission
+        const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['DELETE'] });
+        if (!accessCheck.hasAccess) {
+            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        }
+        const existing = await getItemIfAccessible(db, id, user);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }

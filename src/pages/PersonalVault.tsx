@@ -50,7 +50,7 @@ export function PersonalVault({ onNavigate }: Props) {
   }
 
   const breadcrumbs: BreadcrumbItem[] = [
-    { label: 'Vault', href: '/vault/personal', icon: <LockIcon size={14} /> },
+    { label: 'Vault', href: '/vault', icon: <LockIcon size={14} /> },
     { label: 'Personal Vault', icon: <User size={14} /> },
   ];
 

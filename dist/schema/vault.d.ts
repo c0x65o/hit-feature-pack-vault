@@ -1053,6 +1053,18 @@ export declare const vaultWebhookLogs: import("drizzle-orm/pg-core").PgTableWith
             enumValues: undefined;
             baseColumn: never;
         }, {}, {}>;
+        rawBody: import("drizzle-orm/pg-core").PgColumn<{
+            name: "raw_body";
+            tableName: "vault_webhook_logs";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, {}, {}>;
         ip: import("drizzle-orm/pg-core").PgColumn<{
             name: "ip";
             tableName: "vault_webhook_logs";

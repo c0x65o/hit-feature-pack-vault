@@ -370,6 +370,19 @@ export function VaultSetup({ onNavigate }) {
                                                                         }
                                                                         setExpandedLogSections(newSet);
                                                                     }, className: "flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors", children: [_jsx(ChevronDown, { size: 14, className: `transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}` }), "View request body"] }), isExpanded && (_jsx("div", { className: "mt-2 animate-in slide-in-from-top-2 duration-200", children: _jsx("pre", { className: "text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto", children: JSON.stringify(log.body, null, 2) }) }))] }));
+                                                    })(), log.rawBody && (() => {
+                                                        const rawBodyKey = `${log.id}-raw-body`;
+                                                        const isExpanded = expandedLogSections.has(rawBodyKey);
+                                                        return (_jsxs("div", { className: "border-t border-gray-200 dark:border-gray-700 pt-2", children: [_jsxs("button", { onClick: () => {
+                                                                        const newSet = new Set(expandedLogSections);
+                                                                        if (isExpanded) {
+                                                                            newSet.delete(rawBodyKey);
+                                                                        }
+                                                                        else {
+                                                                            newSet.add(rawBodyKey);
+                                                                        }
+                                                                        setExpandedLogSections(newSet);
+                                                                    }, className: "flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors", children: [_jsx(ChevronDown, { size: 14, className: `transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}` }), "View raw request data"] }), isExpanded && (_jsx("div", { className: "mt-2 animate-in slide-in-from-top-2 duration-200", children: _jsx("pre", { className: "text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto font-mono whitespace-pre-wrap break-words", children: log.rawBody }) }))] }));
                                                     })()] })] }, log.id))) }))] }) })] })] }));
 }
 export default VaultSetup;

@@ -315,6 +315,7 @@ export const vaultWebhookLogs = pgTable(
     url: text("url").notNull(),
     headers: jsonb("headers").$type<Record<string, string>>(), // Request headers
     body: jsonb("body").$type<Record<string, any>>(), // Request body (sanitized)
+    rawBody: text("raw_body"), // Raw request body text (for debugging)
     ip: varchar("ip", { length: 45 }), // Client IP
     statusCode: integer("status_code"), // Response status code
     success: boolean("success").notNull().default(true),

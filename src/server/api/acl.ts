@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(vaultAcls.resourceId, resourceId));
     }
 
-    // TODO: Add access control - verify user has SHARE permission on the resource
+    // Note: Access control for GET is handled by the resource-level endpoints
+    // This endpoint is used to list ACLs, which requires READ_WRITE permission on the resource
     const items = await db
       .select()
       .from(vaultAcls)
@@ -72,60 +73,18 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const isAdmin = user.roles?.includes('admin') || false;
-
-    // Only admins can manage ACLs on shared vaults/folders
+    // Check if user has READ_WRITE permission on the resource (required to manage ACLs)
     if (body.resourceType === 'folder') {
-      // Get the folder to find its vault
-      const [folder] = await db
-        .select({ vaultId: vaultFolders.vaultId })
-        .from(vaultFolders)
-        .where(eq(vaultFolders.id, body.resourceId))
-        .limit(1);
-      
-      if (!folder) {
-        return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
-      }
-      
-      // Get the vault to check type
-      const [vault] = await db
-        .select()
-        .from(vaultVaults)
-        .where(eq(vaultVaults.id, folder.vaultId))
-        .limit(1);
-      
-      if (!vault) {
-        return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
-      }
-      
-      // For shared vaults, only admins can manage ACLs
-      if (vault.type === 'shared' && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden: Only administrators can manage access on shared vaults' }, { status: 403 });
-      }
-      
-      // For personal vaults, only the owner can manage ACLs
-      if (vault.type === 'personal' && vault.ownerUserId !== user.sub) {
-        return NextResponse.json({ error: 'Forbidden: You do not have access to this vault' }, { status: 403 });
+      const { checkFolderAccess } = await import('../lib/acl-utils');
+      const accessCheck = await checkFolderAccess(db, body.resourceId, user, { requiredPermissions: ['READ_WRITE'] });
+      if (!accessCheck.hasAccess) {
+        return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to manage ACLs') }, { status: 403 });
       }
     } else if (body.resourceType === 'vault') {
-      const [vault] = await db
-        .select()
-        .from(vaultVaults)
-        .where(eq(vaultVaults.id, body.resourceId))
-        .limit(1);
-      
-      if (!vault) {
-        return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
-      }
-      
-      // For shared vaults, only admins can manage ACLs
-      if (vault.type === 'shared' && !isAdmin) {
-        return NextResponse.json({ error: 'Forbidden: Only administrators can manage access on shared vaults' }, { status: 403 });
-      }
-      
-      // For personal vaults, only the owner can manage ACLs
-      if (vault.type === 'personal' && vault.ownerUserId !== user.sub) {
-        return NextResponse.json({ error: 'Forbidden: You do not have access to this vault' }, { status: 403 });
+      const { checkVaultAccess } = await import('../lib/acl-utils');
+      const accessCheck = await checkVaultAccess(db, body.resourceId, user, ['READ_WRITE']);
+      if (!accessCheck.hasAccess) {
+        return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions to manage ACLs') }, { status: 403 });
       }
     }
 

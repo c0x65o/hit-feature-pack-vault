@@ -36,7 +36,10 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         setLoadingOptions(true);
         try {
             if (newPrincipalType === 'user') {
-                // Get auth token from localStorage
+                // Use auth module directly (same approach as auth admin feature pack)
+                const authUrl = typeof window !== 'undefined'
+                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+                    : '/api/proxy/auth';
                 const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
                 const headers = {
                     'Content-Type': 'application/json',
@@ -44,41 +47,39 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
                 }
-                // Fetch users from user directory API
-                const response = await fetch('/api/user-directory?limit=10000', {
+                // Fetch users directly from auth module (requires admin permissions)
+                const response = await fetch(`${authUrl}/users`, {
                     credentials: 'include',
                     headers,
                 });
                 if (response.ok) {
-                    const data = await response.json();
-                    if (data.enabled) {
-                        if (data.users && Array.isArray(data.users) && data.users.length > 0) {
-                            const userOptions = data.users.map((user) => ({
+                    const authUsers = await response.json();
+                    if (Array.isArray(authUsers) && authUsers.length > 0) {
+                        const userOptions = authUsers.map((user) => {
+                            const firstName = user.profile_fields?.first_name || null;
+                            const lastName = user.profile_fields?.last_name || null;
+                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
+                            return {
                                 value: user.email,
-                                label: user.displayName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
-                            }));
-                            setUsers(userOptions);
-                        }
-                        else if (data.error) {
-                            console.error('[FolderAclModal] User directory error:', data.error);
-                            setError(new Error(`Failed to load users: ${data.error}`));
-                            setUsers([]);
-                        }
-                        else {
-                            console.warn('[FolderAclModal] User directory returned no users');
-                            setUsers([]);
-                        }
+                                label: displayName || user.email,
+                            };
+                        });
+                        setUsers(userOptions);
                     }
                     else {
-                        console.error('[FolderAclModal] User directory not enabled:', data.error);
-                        setError(new Error(data.error || 'User directory not available'));
+                        console.warn('[FolderAclModal] Auth module returned no users');
                         setUsers([]);
                     }
                 }
                 else {
                     const errorText = await response.text();
+                    let errorMessage = `Failed to load users: ${response.status} ${response.statusText}`;
+                    // Provide helpful error message for permission issues
+                    if (response.status === 403 || response.status === 401) {
+                        errorMessage = 'You do not have permission to view all users. Admin role required.';
+                    }
                     console.error('[FolderAclModal] Failed to fetch users:', response.status, errorText);
-                    setError(new Error(`Failed to load users: ${response.status} ${response.statusText}`));
+                    setError(new Error(errorMessage));
                     setUsers([]);
                 }
             }
@@ -154,7 +155,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                         setRoles(roleOptions);
                     }
                     else {
-                        // Fallback: try to extract roles from users
+                        // Fallback: try to extract roles from users (use auth module directly)
                         const fallbackToken = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
                         const fallbackHeaders = {
                             'Content-Type': 'application/json',
@@ -162,15 +163,15 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                         if (fallbackToken) {
                             fallbackHeaders['Authorization'] = `Bearer ${fallbackToken}`;
                         }
-                        const userResponse = await fetch('/api/user-directory?limit=1000', {
+                        const userResponse = await fetch(`${authUrl}/users`, {
                             credentials: 'include',
                             headers: fallbackHeaders,
                         });
                         if (userResponse.ok) {
-                            const userData = await userResponse.json();
-                            if (userData.enabled && userData.users) {
+                            const authUsers = await userResponse.json();
+                            if (Array.isArray(authUsers) && authUsers.length > 0) {
                                 const roleSet = new Set();
-                                userData.users.forEach((user) => {
+                                authUsers.forEach((user) => {
                                     const role = user.role || 'user';
                                     roleSet.add(role);
                                 });

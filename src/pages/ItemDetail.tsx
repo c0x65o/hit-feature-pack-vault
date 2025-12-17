@@ -243,8 +243,8 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
   }
 
   const breadcrumbs: BreadcrumbItem[] = [
-    { label: 'Vault', href: '/vault/personal', icon: <Lock size={14} /> },
-    ...(item?.folderId ? [{ label: 'Folder', href: `/vault/folders/${item.folderId}` }] : []),
+    { label: 'Vault', href: '/vault', icon: <Lock size={14} /> },
+    ...(item?.folderId ? [{ label: 'Folder', href: '/vault' }] : []),
     { label: item?.title || 'Item' },
   ];
 
@@ -384,7 +384,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                         <textarea
                           value={showPassword ? (revealed.secret || revealed.password) : '•'.repeat(Math.max((revealed.secret || revealed.password || '').length, 50))}
                           readOnly
-                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm bg-secondary"
+                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm"
                           style={{
                             ...(showPassword ? {} : { 
                               caretColor: 'transparent',
@@ -419,7 +419,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                         <textarea
                           value="••••••••"
                           readOnly
-                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm bg-secondary"
+                          className="w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm"
                         />
                         <div className="absolute top-2 right-2">
                           <Button
@@ -599,23 +599,23 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                 </div>
               )}
 
-              {(revealed?.notes || item.type === 'secure_note') && (
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">
-                    {item.type === 'secure_note' ? 'Content' : 'Notes'}
-                  </label>
-                  {revealed?.notes ? (
-                    <div className="mt-1 p-3 bg-secondary rounded text-sm whitespace-pre-wrap">
-                      {revealed.notes}
-                    </div>
-                  ) : (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">
+                  {item.type === 'secure_note' ? 'Content' : 'Notes'}
+                </label>
+                {revealed ? (
+                  <div className="mt-1 p-3 border rounded text-sm whitespace-pre-wrap">
+                    {revealed.notes || <span className="text-muted-foreground italic">No notes</span>}
+                  </div>
+                ) : (
+                  <div className="mt-1">
                     <Button variant="secondary" onClick={handleReveal}>
                       <Eye size={16} className="mr-2" />
-                      Reveal Note
+                      Reveal {item.type === 'secure_note' ? 'Content' : 'Notes'}
                     </Button>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
               {item.tags && item.tags.length > 0 && (
                 <div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
@@ -48,6 +48,7 @@ export function VaultLanding({ onNavigate }: Props) {
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [totpCopiedFor, setTotpCopiedFor] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [showMoveFolderModal, setShowMoveFolderModal] = useState<string | null>(null);
   const [showMoveItemModal, setShowMoveItemModal] = useState<string | null>(null);
   const [showAclModalFolderId, setShowAclModalFolderId] = useState<string | null>(null);
@@ -217,39 +218,42 @@ export function VaultLanding({ onNavigate }: Props) {
 
   async function handleCreateItem(itemData: any) {
     try {
-      // Use personal vault by default (vaults are ensured by loadData)
-      const personalVault = vaults.find(v => v.type === 'personal');
-      if (!personalVault) {
-        // Reload to ensure vaults exist
-        await loadData();
-        const updatedVaults = await vaultApi.getVaults();
-        const fallbackVault = updatedVaults.find(v => v.type === 'personal');
-        if (!fallbackVault) {
-          throw new Error('Personal vault not available');
-        }
-        // Use folderId from itemData if provided, otherwise use selectedFolderId
-        const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
-        const createdItem = await vaultApi.createItem({
-          ...itemData,
-          vaultId: fallbackVault.id,
-          folderId: folderId || null,
-        });
-        
-        if (itemData.totpSecret && createdItem.id) {
-          await vaultApi.importTotp(createdItem.id, itemData.totpSecret);
-        }
-        
-        await loadData();
-        setShowAddItemModal(false);
-        return;
-      }
-
-      // Backend will set createdBy from authenticated user
-      // Use folderId from itemData if provided, otherwise use selectedFolderId
+      // Determine which vault to use:
+      // - If folderId is provided, look up the folder to get its vaultId
+      // - Otherwise, use personal vault as default
       const folderId = itemData.folderId !== undefined ? itemData.folderId : selectedFolderId;
+      let targetVaultId: string;
+      
+      if (folderId) {
+        // Get the folder to determine which vault it belongs to
+        const folder = folders.find(f => f.id === folderId);
+        if (folder) {
+          targetVaultId = folder.vaultId;
+        } else {
+          // Folder not found in local state, fetch it
+          const folderData = await vaultApi.getFolder(folderId);
+          targetVaultId = folderData.vaultId;
+        }
+      } else {
+        // No folder specified - use personal vault
+        const personalVault = vaults.find(v => v.type === 'personal');
+        if (!personalVault) {
+          // Reload to ensure vaults exist
+          await loadData();
+          const updatedVaults = await vaultApi.getVaults();
+          const fallbackVault = updatedVaults.find(v => v.type === 'personal');
+          if (!fallbackVault) {
+            throw new Error('Personal vault not available');
+          }
+          targetVaultId = fallbackVault.id;
+        } else {
+          targetVaultId = personalVault.id;
+        }
+      }
+      
       const createdItem = await vaultApi.createItem({
         ...itemData,
-        vaultId: personalVault.id,
+        vaultId: targetVaultId,
         folderId: folderId || null,
       });
       
@@ -398,42 +402,75 @@ export function VaultLanding({ onNavigate }: Props) {
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    if (typeof active.id === 'string' && active.id.startsWith('folder:')) {
-      setActiveFolderId(active.id.replace('folder:', ''));
+    if (typeof active.id === 'string') {
+      if (active.id.startsWith('folder:')) {
+        setActiveFolderId(active.id.replace('folder:', ''));
+      } else if (active.id.startsWith('item:')) {
+        setActiveItemId(active.id.replace('item:', ''));
+      }
     }
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveFolderId(null);
+    setActiveItemId(null);
 
     if (!over || active.id === over.id) {
       return;
     }
 
-    const activeId = typeof active.id === 'string' ? active.id.replace('folder:', '') : null;
-    const overId = typeof over.id === 'string' ? over.id.replace('folder:', '') : null;
+    const activeId = typeof active.id === 'string' ? active.id : null;
+    const overId = typeof over.id === 'string' ? over.id : null;
 
     if (!activeId) return;
 
-    // Prevent moving folder into itself or its descendants
-    const isDescendant = (folderId: string, potentialParentId: string): boolean => {
-      const folder = folders.find(f => f.id === folderId);
-      if (!folder || !folder.parentId) return false;
-      if (folder.parentId === potentialParentId) return true;
-      return isDescendant(folder.parentId, potentialParentId);
-    };
+    // Handle folder drag and drop
+    if (activeId.startsWith('folder:')) {
+      const folderId = activeId.replace('folder:', '');
+      const targetFolderId = overId?.startsWith('folder:') ? overId.replace('folder:', '') : null;
 
-    if (overId && isDescendant(overId, activeId)) {
-      setError(new Error('Cannot move folder into its own subfolder'));
-      return;
+      // Prevent moving folder into itself or its descendants
+      const isDescendant = (folderId: string, potentialParentId: string): boolean => {
+        const folder = folders.find(f => f.id === folderId);
+        if (!folder || !folder.parentId) return false;
+        if (folder.parentId === potentialParentId) return true;
+        return isDescendant(folder.parentId, potentialParentId);
+      };
+
+      if (targetFolderId && isDescendant(targetFolderId, folderId)) {
+        setError(new Error('Cannot move folder into its own subfolder'));
+        return;
+      }
+
+      // If dropping on root (no overId or root drop zone), move to root
+      // If dropping on another folder, move into that folder
+      const newParentId = targetFolderId || null;
+      
+      await handleMoveFolder(folderId, newParentId);
     }
+    // Handle item drag and drop
+    else if (activeId.startsWith('item:')) {
+      const itemId = activeId.replace('item:', '');
+      let targetFolderId: string | null = null;
 
-    // If dropping on root (no overId), move to root
-    // If dropping on another folder, move into that folder
-    const newParentId = overId || null;
-    
-    await handleMoveFolder(activeId, newParentId);
+      if (overId?.startsWith('folder:')) {
+        // Dropping on a folder
+        targetFolderId = overId.replace('folder:', '');
+      } else if (overId === 'root') {
+        // Dropping on root drop zone
+        targetFolderId = null;
+      } else {
+        // Dropping elsewhere, don't move
+        return;
+      }
+
+      // Only move if the folder actually changed
+      const item = items.find(i => i.id === itemId);
+      if (item && item.folderId !== targetFolderId) {
+        await handleMoveItem(itemId, targetFolderId);
+      }
+    }
   };
 
   if (loading) {
@@ -513,6 +550,7 @@ export function VaultLanding({ onNavigate }: Props) {
                     onQuickEmailOtp={handleQuickEmailOtp}
                     emailOtpPolling={emailOtpPollingFor === item.id}
                     emailOtpCopied={emailOtpCopiedFor === item.id}
+                    isAdmin={isAdmin}
                   />
                 ))}
               </div>
@@ -553,6 +591,7 @@ export function VaultLanding({ onNavigate }: Props) {
               onQuickEmailOtp={handleQuickEmailOtp}
               emailOtpPollingFor={emailOtpPollingFor}
               emailOtpCopiedFor={emailOtpCopiedFor}
+              isAdmin={isAdmin}
             />
           ))}
 
@@ -586,6 +625,31 @@ export function VaultLanding({ onNavigate }: Props) {
                 <span className="font-medium text-sm">
                   {folders.find(f => f.id === activeFolderId)?.name || ''}
                 </span>
+              </div>
+            </div>
+          ) : activeItemId ? (
+            <div className="border rounded-lg px-3 py-2 bg-secondary/40 opacity-50">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const item = items.find(i => i.id === activeItemId);
+                  if (!item) return null;
+                  const getItemIcon = () => {
+                    switch (item.type) {
+                      case 'api_key':
+                        return <Key size={14} />;
+                      case 'secure_note':
+                        return <FileText size={14} />;
+                      default:
+                        return <Lock size={14} />;
+                    }
+                  };
+                  return (
+                    <>
+                      {getItemIcon()}
+                      <span className="font-medium text-sm">{item.title}</span>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           ) : null}
@@ -632,7 +696,7 @@ export function VaultLanding({ onNavigate }: Props) {
 function RootDropZone() {
   const { setNodeRef, isOver } = useDroppable({
     id: 'root',
-    data: { type: 'folder-drop-zone' },
+    data: { type: 'drop-zone' },
   });
 
   return (
@@ -668,6 +732,7 @@ function FolderSection({
   onQuickEmailOtp,
   emailOtpPollingFor,
   emailOtpCopiedFor,
+  isAdmin = false,
   level = 0,
 }: {
   folder: VaultFolder;
@@ -694,6 +759,7 @@ function FolderSection({
   onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
   emailOtpPollingFor: string | null;
   emailOtpCopiedFor: string | null;
+  isAdmin?: boolean;
   level?: number;
 }) {
   const { Button, Select } = useUi();
@@ -806,19 +872,21 @@ function FolderSection({
             <GripVertical size={14} className="text-muted-foreground" />
           </div>
           
-          {/* Move Icon */}
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onShowMoveModal(folder.id);
-            }}
-            title="Move folder"
-            className="p-1 h-auto"
-          >
-            <Move size={14} />
-          </Button>
+          {/* Move Icon - only show if full access */}
+          {(folder as any).permissionLevel === 'full' && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowMoveModal(folder.id);
+              }}
+              title="Move folder"
+              className="p-1 h-auto"
+            >
+              <Move size={14} />
+            </Button>
+          )}
           
           <button
             onClick={() => onToggleExpanded(folder.id)}
@@ -840,13 +908,52 @@ function FolderSection({
                 {folderScope === 'personal' ? 'Personal' : 'Shared'}
               </span>
             )}
+            {(folder as any).permissionLevel && (folder as any).permissionLevel !== 'none' && (
+              (() => {
+                const permissionLevel = (folder as any).permissionLevel as 'full' | 'read_write' | 'read_only';
+                const permissionConfig = {
+                  full: {
+                    icon: <Shield className="h-3.5 w-3.5" />,
+                    label: 'Full',
+                    className: 'bg-green-50 border-green-200 text-green-800',
+                    title: 'Full Access (Read, Write, Delete)',
+                  },
+                  read_write: {
+                    icon: <Edit className="h-3.5 w-3.5" />,
+                    label: 'Read/Write',
+                    className: 'bg-blue-50 border-blue-200 text-blue-800',
+                    title: 'Read & Write Access',
+                  },
+                  read_only: {
+                    icon: <Eye className="h-3.5 w-3.5" />,
+                    label: 'Read Only',
+                    className: 'bg-gray-50 border-gray-200 text-gray-800',
+                    title: 'Read Only Access',
+                  },
+                };
+                const config = permissionConfig[permissionLevel];
+                return (
+                  <span
+                    className={[
+                      'text-[11px] px-2 py-0.5 rounded border flex-shrink-0 flex items-center gap-1',
+                      config.className,
+                    ].join(' ')}
+                    title={config.title}
+                  >
+                    {config.icon}
+                    {config.label}
+                  </span>
+                );
+              })()
+            )}
             <span className="text-sm text-muted-foreground flex-shrink-0">
               ({totalItems} item{totalItems !== 1 ? 's' : ''})
             </span>
           </button>
         </div>
         <div className="flex items-center gap-1">
-          {(folder as any).canShare !== false && (
+          {/* ACL button - only show if full access */}
+          {(folder as any).permissionLevel === 'full' && (
             <Button 
               variant="ghost" 
               size="sm" 
@@ -859,12 +966,14 @@ function FolderSection({
               <Users size={14} />
             </Button>
           )}
-          {(folder as any).canEdit !== false && (
+          {/* Add button - show if read_write or full (not read_only) */}
+          {((folder as any).permissionLevel === 'read_write' || (folder as any).permissionLevel === 'full') && (
             <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
               <Plus size={14} />
             </Button>
           )}
-          {(folder as any).canDelete !== false && (
+          {/* Delete button - only show if admin (regardless of permission level) */}
+          {isAdmin && (
             <Button variant="ghost" size="sm" onClick={() => onDelete(folder)}>
               <Trash2 size={14} />
             </Button>
@@ -931,6 +1040,7 @@ function FolderSection({
               onQuickEmailOtp={onQuickEmailOtp}
               emailOtpPollingFor={emailOtpPollingFor}
               emailOtpCopiedFor={emailOtpCopiedFor}
+              isAdmin={isAdmin}
               level={level + 1}
             />
           ))}
@@ -955,6 +1065,7 @@ function FolderSection({
               onQuickEmailOtp={onQuickEmailOtp}
               emailOtpPolling={emailOtpPollingFor === item.id}
               emailOtpCopied={emailOtpCopiedFor === item.id}
+              isAdmin={isAdmin}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
@@ -984,6 +1095,7 @@ function ItemRow({
   onQuickEmailOtp,
   emailOtpPolling,
   emailOtpCopied,
+  isAdmin = false,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -1000,8 +1112,21 @@ function ItemRow({
   onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
   emailOtpPolling: boolean;
   emailOtpCopied: boolean;
+  isAdmin?: boolean;
 }) {
   const { Button, Select } = useUi();
+  
+  // Drag and drop setup for items
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `item:${item.id}`,
+    data: { type: 'item', itemId: item.id },
+    disabled: !((item as any).canMove === true || (item as any).canEdit === true),
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
   
   const getItemIcon = () => {
     switch (item.type) {
@@ -1039,14 +1164,17 @@ function ItemRow({
   const canUseEmailOtp = globalEmailAddress && item.username && 
     item.username.toLowerCase() === globalEmailAddress.toLowerCase();
   
+  const canMove = (item as any).canMove === true || (item as any).canEdit === true;
+  
   return (
     <div
+      ref={setNodeRef}
+      style={{ ...style, paddingLeft: `${12 + indentLevel * 24}px` }}
       className={[
         'px-3 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors border-b border-border/50 last:border-b-0',
         isEven ? 'bg-background' : 'bg-muted/30',
         'hover:bg-muted/60',
       ].join(' ')}
-      style={{ paddingLeft: `${12 + indentLevel * 24}px` }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (!target.closest('button') && !target.closest('select')) {
@@ -1055,6 +1183,18 @@ function ItemRow({
       }}
     >
       <div className="flex items-center gap-2 flex-1 min-w-0">
+        {/* Drag Handle */}
+        {canMove && (
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing p-1 -ml-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={14} className="text-muted-foreground" />
+          </div>
+        )}
+        
         {getItemIcon()}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-sm font-medium truncate">{item.title}</span>
@@ -1094,29 +1234,35 @@ function ItemRow({
           {totpCopied ? <Check size={16} className="text-green-600" /> : <ShieldCheck size={16} />}
         </Button>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onShowMoveItemModal(item.id);
-          }}
-          title="Move item to folder"
-        >
-          <Move size={14} />
-        </Button>
+        {/* Move button - show if user has canMove or canEdit permission */}
+        {canMove && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowMoveItemModal(item.id);
+            }}
+            title="Move item to folder"
+          >
+            <Move size={14} />
+          </Button>
+        )}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDeleteItem(item);
-          }}
-          title="Delete item"
-        >
-          <Trash2 size={14} />
-        </Button>
+        {/* Delete button - only show if admin (regardless of permission level) */}
+        {isAdmin && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteItem(item);
+            }}
+            title="Delete item"
+          >
+            <Trash2 size={14} />
+          </Button>
+        )}
       </div>
 
       {/* Move Item Modal */}

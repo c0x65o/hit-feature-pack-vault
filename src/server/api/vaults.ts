@@ -50,13 +50,27 @@ export async function GET(request: NextRequest) {
       ...(user.roles || []),
     ].filter(Boolean) as string[] : [userId];
     
-    // Get vault IDs the user has folder-level ACL access to
-    // Non-admins ONLY see vaults if they have explicit folder-level ACL on at least one folder
+    // Get vault IDs the user has ACL access to (vault-level or folder-level)
     const aclAccessibleVaultIds = new Set<string>();
     
     if (!isAdmin && userPrincipalIds.length > 0) {
-      // Get folder-level ACLs and find their vault IDs
-      // Vault-level ACLs do NOT grant visibility - must have folder ACL
+      // Check vault-level ACLs first - direct vault access
+      const vaultAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
+      const vaultAcls_list = await db
+        .select({ resourceId: vaultAcls.resourceId })
+        .from(vaultAcls)
+        .where(
+          and(
+            eq(vaultAcls.resourceType, 'vault'),
+            or(...vaultAclConditions)
+          )
+        );
+      
+      for (const acl of vaultAcls_list) {
+        aclAccessibleVaultIds.add(acl.resourceId);
+      }
+      
+      // Check folder-level ACLs and find their vault IDs
       const folderAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
       const folderAcls = await db
         .select({ resourceId: vaultAcls.resourceId })
@@ -82,16 +96,19 @@ export async function GET(request: NextRequest) {
     }
     
     // Build access conditions:
-    // - Owned vaults (all users see their own personal vault)
+    // - Personal vault owners see their own personal vault
     // - Admins see ALL shared vaults automatically
-    // - Non-admins see shared vaults ONLY if they have folder-level ACL access
-    const accessConditions: ReturnType<typeof eq>[] = [eq(vaultVaults.ownerUserId, userId)];
+    // - Non-admins see shared vaults ONLY if they have ACL access (vault-level or folder-level)
+    const accessConditions: ReturnType<typeof eq>[] = [
+      // Personal vault ownership - only show personal vaults the user owns
+      and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal'))!
+    ];
     
     if (isAdmin) {
       // Admins see all shared vaults
       accessConditions.push(eq(vaultVaults.type, 'shared'));
     } else if (aclAccessibleVaultIds.size > 0) {
-      // Non-admins see only vaults containing folders they have ACL access to
+      // Non-admins see only vaults they have ACL access to
       accessConditions.push(inArray(vaultVaults.id, Array.from(aclAccessibleVaultIds)));
     }
     

@@ -10,9 +10,65 @@ export interface AclCheckOptions {
 }
 
 /**
+ * Map legacy permission names to actual permissions
+ * Legacy: EDIT, SHARE, VIEW_METADATA -> Actual: READ_ONLY, READ_WRITE, DELETE
+ */
+function mapLegacyPermission(perm: string): string {
+  const mapping: Record<string, string> = {
+    'EDIT': 'READ_WRITE',
+    'SHARE': 'READ_WRITE',
+    'VIEW_METADATA': 'READ_ONLY',
+    'REVEAL_PASSWORD': 'READ_ONLY',
+    'COPY_PASSWORD': 'READ_ONLY',
+    'GENERATE_TOTP': 'READ_WRITE',
+    'REVEAL_TOTP_SECRET': 'READ_ONLY',
+    'READ_SMS': 'READ_ONLY',
+    'MANAGE_SMS': 'READ_WRITE',
+    'IMPORT': 'READ_WRITE',
+  };
+  return mapping[perm] || perm;
+}
+
+/**
+ * Normalize permissions array - map legacy permissions and ensure valid ones
+ */
+function normalizePermissions(permissions: string[]): string[] {
+  const validPermissions = ['READ_ONLY', 'READ_WRITE', 'DELETE'];
+  const normalized = permissions.map(mapLegacyPermission);
+  return normalized.filter(p => validPermissions.includes(p));
+}
+
+/**
+ * Merge permissions from multiple ACLs and return the most privileged set
+ * Priority: DELETE > READ_WRITE > READ_ONLY
+ */
+export function mergePermissions(permissionSets: string[][]): string[] {
+  const merged = new Set<string>();
+  
+  for (const perms of permissionSets) {
+    for (const perm of normalizePermissions(perms)) {
+      merged.add(perm);
+    }
+  }
+  
+  // If user has DELETE, they implicitly have READ_WRITE and READ_ONLY
+  // If user has READ_WRITE, they implicitly have READ_ONLY
+  const result: string[] = [];
+  if (merged.has('DELETE')) {
+    result.push('READ_ONLY', 'READ_WRITE', 'DELETE');
+  } else if (merged.has('READ_WRITE')) {
+    result.push('READ_ONLY', 'READ_WRITE');
+  } else if (merged.has('READ_ONLY')) {
+    result.push('READ_ONLY');
+  }
+  
+  return result;
+}
+
+/**
  * Get user's groups and roles for ACL checking
  */
-async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User): Promise<{
+export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User): Promise<{
   userId: string;
   userEmail: string;
   groupIds: string[];
@@ -94,13 +150,13 @@ export async function checkVaultAccess(
     return { hasAccess: true };
   }
 
-  // Admins have full access to shared vaults
+  // Admins have full access to shared vaults (can see everything)
   const isAdmin = user.roles?.includes('admin') || false;
   if (isAdmin && vault.type === 'shared') {
     return { hasAccess: true };
   }
 
-  // For non-owners and non-admins, check ACL permissions
+  // Check ACL permissions
   const principals = await getUserPrincipals(db, user);
   const principalIds = [
     principals.userId,
@@ -131,12 +187,16 @@ export async function checkVaultAccess(
     return { hasAccess: false, reason: 'No ACL permissions found' };
   }
 
-  // Check if any ACL has required permissions
+  // Merge all permissions from all ACLs (user may have multiple ACLs via user + group)
+  const allPermissionSets = acls.map((acl: typeof acls[0]) => 
+    Array.isArray(acl.permissions) ? acl.permissions : []
+  );
+  const mergedPermissions = mergePermissions(allPermissionSets);
+
+  // Check if any ACL has required permissions (map legacy permissions)
   if (requiredPermissions && requiredPermissions.length > 0) {
-    const hasRequiredPermissions = acls.some((acl: typeof acls[0]) => {
-      const permissions = Array.isArray(acl.permissions) ? acl.permissions : [];
-      return requiredPermissions.every(perm => permissions.includes(perm));
-    });
+    const normalizedRequired = requiredPermissions.map(mapLegacyPermission);
+    const hasRequiredPermissions = normalizedRequired.every(perm => mergedPermissions.includes(perm));
 
     if (!hasRequiredPermissions) {
       return { hasAccess: false, reason: 'Missing required permissions' };
@@ -149,7 +209,7 @@ export async function checkVaultAccess(
 /**
  * Get effective ACL permissions for a folder, checking inheritance from parent folders
  */
-async function getEffectiveFolderAcls(
+export async function getEffectiveFolderAcls(
   db: ReturnType<typeof getDb>,
   folderId: string,
   principals: { userId: string; userEmail: string; groupIds: string[]; roles: string[] }
@@ -313,35 +373,39 @@ export async function checkFolderAccess(
     return { hasAccess: true };
   }
   
-  // For shared vaults: admins have full access (all permissions) without needing explicit ACLs
+  // For shared vaults: admins have full access (can see everything)
   // Owners of shared vaults also have full access
   if ((isOwner || isAdmin) && vault.type === 'shared') {
     return { hasAccess: true };
   }
 
-  // For non-owners and non-admins, check ACL permissions
+  // Check ACL permissions
   const principals = await getUserPrincipals(db, user);
   const effectiveAcls = await getEffectiveFolderAcls(db, folderId, principals);
 
   if (effectiveAcls.length === 0) {
-    // If user is admin/owner but no ACLs found and permissions required, deny
-    if ((isOwner || (isAdmin && vault.type === 'shared')) && requiredPermissions.length > 0) {
+    // No ACLs found for this user
+    // But if user is admin/owner, they still have access (just no specific permission level)
+    if ((isOwner || isAdmin) && vault.type === 'shared') {
+      // Admin/owner can access but without specific permissions from ACL
+      // Return true for basic access, but no specific permissions
+      if (requiredPermissions.length === 0) {
+        return { hasAccess: true };
+      }
+      // If specific permissions required, deny (admin can see but not modify without ACL)
       return { hasAccess: false, reason: 'No ACL permissions found for required permissions' };
     }
     return { hasAccess: false, reason: 'No ACL permissions found' };
   }
 
-  // Merge all permissions from effective ACLs
-  const allPermissions = new Set<string>();
-  for (const acl of effectiveAcls) {
-    for (const perm of acl.permissions) {
-      allPermissions.add(perm);
-    }
-  }
+  // Merge all permissions from effective ACLs (user may have multiple ACLs via user + group)
+  const allPermissionSets = effectiveAcls.map(acl => acl.permissions);
+  const mergedPermissions = mergePermissions(allPermissionSets);
 
-  // Check required permissions - if specified, user must have them
+  // Check required permissions - if specified, user must have them (map legacy permissions)
   if (requiredPermissions.length > 0) {
-    const hasAllRequired = requiredPermissions.every(perm => allPermissions.has(perm));
+    const normalizedRequired = requiredPermissions.map(mapLegacyPermission);
+    const hasAllRequired = normalizedRequired.every(perm => mergedPermissions.includes(perm));
     if (!hasAllRequired) {
       return { hasAccess: false, reason: 'Missing required permissions' };
     }
@@ -388,7 +452,7 @@ export async function checkItemAccess(
     return { hasAccess: true };
   }
 
-  // Admins have full access to shared vaults
+  // Admins have full access to shared vaults (can see everything)
   const isAdmin = user.roles?.includes('admin') || false;
   if (isAdmin && vault.type === 'shared') {
     return { hasAccess: true };
@@ -448,12 +512,16 @@ export async function checkItemAccess(
     return { hasAccess: false, reason: 'No ACL permissions found' };
   }
 
-  // Check required permissions
+  // Merge all permissions from item and folder ACLs (user may have multiple ACLs via user + group)
+  const allPermissionSets = allAcls.map(acl => 
+    Array.isArray(acl.permissions) ? acl.permissions : []
+  );
+  const mergedPermissions = mergePermissions(allPermissionSets);
+
+  // Check required permissions (map legacy permissions)
   if (requiredPermissions.length > 0) {
-    const hasRequiredPermissions = allAcls.some(acl => {
-      const permissions = Array.isArray(acl.permissions) ? acl.permissions : [];
-      return requiredPermissions.every(perm => permissions.includes(perm));
-    });
+    const normalizedRequired = requiredPermissions.map(mapLegacyPermission);
+    const hasRequiredPermissions = normalizedRequired.every(perm => mergedPermissions.includes(perm));
 
     if (!hasRequiredPermissions) {
       return { hasAccess: false, reason: 'Missing required permissions' };
