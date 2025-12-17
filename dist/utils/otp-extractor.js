@@ -6,18 +6,34 @@
  * Known OTP patterns from common services
  */
 const OTP_PATTERNS = [
-    // Common patterns with explicit OTP keywords
+    // Steam Guard patterns (alphanumeric, 5 chars, e.g., "TF35D")
+    { regex: /steam\s+guard[^a-z0-9]*code[:\s]+([A-Z0-9]{5})/i, name: 'steam-guard', confidence: 'high' },
+    { regex: /(?:here is|is)\s+(?:the\s+)?steam\s+guard\s+code[:\s]+([A-Z0-9]{5})/i, name: 'steam-guard-here-is', confidence: 'high' },
+    { regex: /steam\s+guard[^a-z0-9]*([A-Z0-9]{5})/i, name: 'steam-guard-bare', confidence: 'high' },
+    // Alphanumeric codes with common keywords (4-8 chars)
+    { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+([A-Z0-9]{4,8})/i, name: 'keyword-prefix-alphanumeric', confidence: 'high' },
+    { regex: /([A-Z0-9]{4,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix-alphanumeric', confidence: 'high' },
+    // Common patterns with explicit OTP keywords (numeric)
     { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+(\d{4,8})/i, name: 'keyword-prefix', confidence: 'high' },
     { regex: /(\d{4,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix', confidence: 'high' },
-    // "Your code is X" style
+    // "Your code is X" style (alphanumeric)
+    { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+([A-Z0-9]{4,8})/i, name: 'your-code-is-alphanumeric', confidence: 'high' },
+    // "Your code is X" style (numeric)
     { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+(\d{4,8})/i, name: 'your-code-is', confidence: 'high' },
     { regex: /(?:code|código)[:\s]+(\d{4,8})/i, name: 'code-colon', confidence: 'high' },
-    // "Code: X" or "OTP: X" patterns
+    // "Code: X" or "OTP: X" patterns (alphanumeric)
+    { regex: /\botp[:\s]+([A-Z0-9]{4,8})\b/i, name: 'otp-colon-alphanumeric', confidence: 'high' },
+    { regex: /\bpin[:\s]+([A-Z0-9]{4,8})\b/i, name: 'pin-colon-alphanumeric', confidence: 'high' },
+    // "Code: X" or "OTP: X" patterns (numeric)
     { regex: /\botp[:\s]+(\d{4,8})\b/i, name: 'otp-colon', confidence: 'high' },
     { regex: /\bpin[:\s]+(\d{4,8})\b/i, name: 'pin-colon', confidence: 'high' },
-    // "Use X to verify" patterns
+    // "Use X to verify" patterns (alphanumeric)
+    { regex: /use\s+([A-Z0-9]{4,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify-alphanumeric', confidence: 'high' },
+    // "Use X to verify" patterns (numeric)
     { regex: /use\s+(\d{4,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify', confidence: 'high' },
-    // "Enter X" patterns
+    // "Enter X" patterns (alphanumeric)
+    { regex: /enter[:\s]+([A-Z0-9]{4,8})/i, name: 'enter-code-alphanumeric', confidence: 'high' },
+    // "Enter X" patterns (numeric)
     { regex: /enter[:\s]+(\d{4,8})/i, name: 'enter-code', confidence: 'high' },
     // Codes with dashes/spaces (e.g., "123-456" or "123 456")
     { regex: /code[:\s]+(\d{2,4}[-\s]\d{2,4})/i, name: 'code-with-dash', confidence: 'high' },
@@ -27,6 +43,9 @@ const OTP_PATTERNS = [
     { regex: /microsoft[^0-9]*(\d{6})/i, name: 'microsoft', confidence: 'high' },
     // Generic 6-digit in short message (SMS style)
     { regex: /^[^0-9]*(\d{6})[^0-9]*$/i, name: 'standalone-6-digit', confidence: 'medium' },
+    // Standalone alphanumeric sequences (lower confidence)
+    { regex: /\b([A-Z0-9]{5})\b/, name: 'bare-5-alphanumeric', confidence: 'medium' }, // Common for Steam Guard
+    { regex: /\b([A-Z0-9]{4,8})\b/, name: 'bare-alphanumeric', confidence: 'low' },
     // Standalone digit sequences (lower confidence)
     { regex: /\b(\d{6})\b/, name: 'bare-6-digit', confidence: 'low' },
     { regex: /\b(\d{4})\b/, name: 'bare-4-digit', confidence: 'low' },
@@ -62,6 +81,16 @@ export function extractOtpWithConfidence(messageBody) {
             code: digitMatch[0],
             confidence: 'low',
             pattern: 'fallback-digit-sequence',
+            fullMessage: cleaned,
+        };
+    }
+    // Fallback: look for any 4-8 alphanumeric sequence (uppercase)
+    const alphanumericMatch = cleaned.match(/\b([A-Z0-9]{4,8})\b/);
+    if (alphanumericMatch) {
+        return {
+            code: alphanumericMatch[1],
+            confidence: 'low',
+            pattern: 'fallback-alphanumeric-sequence',
             fullMessage: cleaned,
         };
     }
@@ -122,4 +151,6 @@ export const OTP_KEYWORDS = [
     'login code',
     'sign-in',
     'signin',
+    'steam',
+    'steam guard',
 ];
