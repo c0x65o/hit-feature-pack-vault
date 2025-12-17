@@ -49,13 +49,12 @@ export function VaultSetup({ onNavigate }: Props) {
     type: 'all',
     enabled: true, // Always listen for incoming OTP messages
     onOtpReceived: async (result) => {
-      // When OTP is received via WebSocket, refresh the message lists
+      // When OTP is received via WebSocket, refresh SMS messages if needed
       console.log('[VaultSetup] Real-time OTP received:', result.notification.type, result.code);
-      if (result.notification.type === 'email') {
-        loadEmailMessages();
-      } else if (result.notification.type === 'sms' && selectedSmsNumberId) {
+      if (result.notification.type === 'sms' && selectedSmsNumberId) {
         loadMessages(selectedSmsNumberId);
       }
+      // Note: Email inbox is not auto-refreshed - user can manually refresh if needed
     },
   });
   
@@ -83,13 +82,6 @@ export function VaultSetup({ onNavigate }: Props) {
     // Load email messages when global email is configured
     if (globalEmailAddress) {
       loadEmailMessages();
-      
-      // Auto-refresh email messages every 5 seconds
-      const interval = setInterval(() => {
-        loadEmailMessages();
-      }, 5000);
-      
-      return () => clearInterval(interval);
     } else {
       setEmailMessages([]);
     }
@@ -674,15 +666,13 @@ export function VaultSetup({ onNavigate }: Props) {
                         
                         {isRevealed && (
                           <div className="space-y-2">
-                            {(!otpResult || !otpResult.code || otpResult.confidence !== 'high') && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setExpandedEmailId(showFullMessage ? null : msg.id)}
-                              >
-                                {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setExpandedEmailId(showFullMessage ? null : msg.id)}
+                            >
+                              {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                            </Button>
                             
                             {showFullMessage && (
                               <div className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap">

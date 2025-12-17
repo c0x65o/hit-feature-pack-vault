@@ -86,6 +86,26 @@ export async function POST(request: NextRequest) {
     // Decrypt the secret blob
     try {
       const { decrypt } = await import('../utils/encryption');
+      
+      // Validate that secretBlobEncrypted exists and is not empty
+      if (!item.secretBlobEncrypted || !item.secretBlobEncrypted.trim()) {
+        console.error('[vault] Item has empty secretBlobEncrypted:', item.id);
+        return NextResponse.json(
+          { error: 'Item secret data is missing or corrupted' },
+          { status: 500 }
+        );
+      }
+      
+      // Check if it's in the expected encrypted format (iv:authTag:encrypted)
+      const parts = item.secretBlobEncrypted.split(':');
+      if (parts.length !== 3) {
+        console.error('[vault] Item secretBlobEncrypted is not in encrypted format (expected iv:authTag:encrypted):', item.id, 'Format:', parts.length, 'parts');
+        return NextResponse.json(
+          { error: 'Item secret data is in an invalid format. This may be due to a migration issue.' },
+          { status: 500 }
+        );
+      }
+      
       const secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
       
       return NextResponse.json({
@@ -93,12 +113,14 @@ export async function POST(request: NextRequest) {
         secret: secretBlob.secret || secretBlob.password || null, // For API keys
         notes: secretBlob.notes || null,
         totpSecret: secretBlob.totpSecret || null,
+        twoFactorType: secretBlob.twoFactorType || null,
         // Don't expose recovery codes or other sensitive data
       });
     } catch (error) {
-      console.error('[vault] Decryption error:', error);
+      console.error('[vault] Decryption error for item:', item.id, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return NextResponse.json(
-        { error: 'Failed to decrypt item' },
+        { error: `Failed to decrypt item: ${errorMessage}` },
         { status: 500 }
       );
     }

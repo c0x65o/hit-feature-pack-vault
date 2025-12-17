@@ -31,8 +31,10 @@ export function PhoneNumberSetup({ onNavigate }) {
         try {
             setLoading(true);
             const result = await vaultApi.getGlobalPhoneNumber();
-            setCurrentPhoneNumber(result.phoneNumber);
-            setPhoneNumber(result.phoneNumber || '');
+            // Filter out email placeholder - it's not a real phone number
+            const phoneNumber = result.phoneNumber === '[email-inbox]' ? null : result.phoneNumber;
+            setCurrentPhoneNumber(phoneNumber);
+            setPhoneNumber(phoneNumber || '');
         }
         catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to load phone number'));

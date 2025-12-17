@@ -28,6 +28,8 @@ export interface UseOtpSubscriptionOptions {
     pollingInterval?: number;
     /** Max time to poll in ms (default: 5 minutes) */
     maxPollTime?: number;
+    /** Keep listening after receiving OTP (default: false - stops after first OTP) */
+    keepListening?: boolean;
 }
 export interface UseOtpSubscriptionResult {
     /** Whether actively listening for OTP */

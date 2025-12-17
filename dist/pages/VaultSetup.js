@@ -34,14 +34,12 @@ export function VaultSetup({ onNavigate }) {
         type: 'all',
         enabled: true, // Always listen for incoming OTP messages
         onOtpReceived: async (result) => {
-            // When OTP is received via WebSocket, refresh the message lists
+            // When OTP is received via WebSocket, refresh SMS messages if needed
             console.log('[VaultSetup] Real-time OTP received:', result.notification.type, result.code);
-            if (result.notification.type === 'email') {
-                loadEmailMessages();
-            }
-            else if (result.notification.type === 'sms' && selectedSmsNumberId) {
+            if (result.notification.type === 'sms' && selectedSmsNumberId) {
                 loadMessages(selectedSmsNumberId);
             }
+            // Note: Email inbox is not auto-refreshed - user can manually refresh if needed
         },
     });
     // WebSocket status from the subscription
@@ -67,11 +65,6 @@ export function VaultSetup({ onNavigate }) {
         // Load email messages when global email is configured
         if (globalEmailAddress) {
             loadEmailMessages();
-            // Auto-refresh email messages every 5 seconds
-            const interval = setInterval(() => {
-                loadEmailMessages();
-            }, 5000);
-            return () => clearInterval(interval);
         }
         else {
             setEmailMessages([]);
@@ -317,7 +310,7 @@ export function VaultSetup({ onNavigate }) {
                                                                         ? 'text-green-600 dark:text-green-400'
                                                                         : otpResult.confidence === 'medium'
                                                                             ? 'text-yellow-600 dark:text-yellow-400'
-                                                                            : 'text-gray-600 dark:text-gray-400'}`, children: ["OTP Code Detected (", otpResult.confidence, " confidence)"] }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpResult.code }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpResult.code), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), isRevealed && (_jsxs("div", { className: "space-y-2", children: [(!otpResult || !otpResult.code || otpResult.confidence !== 'high') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setExpandedEmailId(showFullMessage ? null : msg.id), children: showFullMessage ? 'Hide Full Message' : 'Show Full Message' })), showFullMessage && (_jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap", children: revealedBody }))] }))] }, msg.id));
+                                                                            : 'text-gray-600 dark:text-gray-400'}`, children: ["OTP Code Detected (", otpResult.confidence, " confidence)"] }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpResult.code }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpResult.code), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), isRevealed && (_jsxs("div", { className: "space-y-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setExpandedEmailId(showFullMessage ? null : msg.id), children: showFullMessage ? 'Hide Full Message' : 'Show Full Message' }), showFullMessage && (_jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap", children: revealedBody }))] }))] }, msg.id));
                                     }) }))] }) })), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-6", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-2", children: "Webhook Configuration" }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Configure F-Droid (SMS) or Power Automate (Email) to forward messages to these webhooks. Phone numbers and email addresses don't need to be pre-configured - any message sent to the webhook will be stored." })] }), _jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h3", { className: "text-md font-semibold", children: "SMS Webhook (F-Droid)" }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => {
                                                         const url = typeof window !== 'undefined'
                                                             ? `${window.location.origin}/api/vault/sms/webhook/inbound`

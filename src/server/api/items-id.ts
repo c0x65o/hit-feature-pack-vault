@@ -143,12 +143,39 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update secret if provided (re-encrypt)
-    if (body.password !== undefined || body.notes !== undefined) {
-      const secretData = {
-        password: body.password ?? '',
-        notes: body.notes ?? '',
-      };
-      updateData.secretBlobEncrypted = Buffer.from(JSON.stringify(secretData)).toString('base64');
+    if (body.password !== undefined || body.notes !== undefined || body.secret !== undefined || body.twoFactorType !== undefined) {
+      // Get existing secret blob to preserve TOTP secret and other fields
+      const { decrypt, encrypt } = await import('../utils/encryption');
+      let secretData: any = {};
+      
+      // Try to decrypt existing secret blob to preserve TOTP secret and other fields
+      try {
+        if (existing.secretBlobEncrypted) {
+          secretData = JSON.parse(decrypt(existing.secretBlobEncrypted));
+        }
+      } catch (err) {
+        // If decryption fails (e.g., old format), start fresh
+        console.warn('[vault] Failed to decrypt existing secret blob, starting fresh:', err);
+        secretData = {};
+      }
+      
+      // Update fields that were provided
+      if (body.password !== undefined) {
+        secretData.password = body.password;
+      }
+      if (body.notes !== undefined) {
+        secretData.notes = body.notes;
+      }
+      if (body.secret !== undefined) {
+        // For API keys, secret goes in password field
+        secretData.password = body.secret;
+      }
+      if (body.twoFactorType !== undefined) {
+        secretData.twoFactorType = body.twoFactorType;
+      }
+      
+      // Encrypt the updated secret blob
+      updateData.secretBlobEncrypted = encrypt(JSON.stringify(secretData));
       updateData.secretVersion = (existing.secretVersion || 1) + 1;
     }
 

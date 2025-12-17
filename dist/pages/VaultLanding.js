@@ -2,13 +2,13 @@
 import { jsxs as _jsxs, Fragment as _Fragment, jsx as _jsx } from "react/jsx-runtime";
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
 import { FolderAclModal } from '../components/FolderAclModal';
+import { OtpWaitingModal } from '../components/OtpWaitingModal';
 import { isCurrentUserAdmin } from '../utils/user';
-import { extractOtpWithConfidence } from '../utils/otp-extractor';
 import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, useDraggable, useDroppable, } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 export function VaultLanding({ onNavigate }) {
@@ -34,6 +34,9 @@ export function VaultLanding({ onNavigate }) {
     const [globalEmailAddress, setGlobalEmailAddress] = useState(null);
     const [emailOtpPollingFor, setEmailOtpPollingFor] = useState(null);
     const [emailOtpCopiedFor, setEmailOtpCopiedFor] = useState(null);
+    const [otpWaitingModalItem, setOtpWaitingModalItem] = useState(null);
+    const [smsOtpModalItemId, setSmsOtpModalItemId] = useState(null);
+    const [itemsWithSms, setItemsWithSms] = useState(new Set());
     // Check if current user is admin (for UI visibility)
     const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
     // Fetch global email address
@@ -98,7 +101,16 @@ export function VaultLanding({ onNavigate }) {
             const foldersResults = await Promise.all(foldersPromises);
             const itemsResults = await Promise.all(itemsPromises);
             setFolders(foldersResults.flat());
-            setItems(itemsResults.flat());
+            const allItems = itemsResults.flat();
+            setItems(allItems);
+            // Determine which items have SMS 2FA enabled based on twoFactorType preference
+            const itemsWithSmsSet = new Set();
+            allItems.forEach((item) => {
+                if (item.twoFactorType === 'phone') {
+                    itemsWithSmsSet.add(item.id);
+                }
+            });
+            setItemsWithSms(itemsWithSmsSet);
         }
         catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to load vault data'));
@@ -307,64 +319,8 @@ export function VaultLanding({ onNavigate }) {
         }
     }
     async function handleQuickEmailOtp(item) {
-        if (emailOtpPollingFor === item.id)
-            return;
-        setEmailOtpPollingFor(item.id);
-        const startTime = new Date();
-        const pollForOtp = async () => {
-            try {
-                const since = startTime.toISOString();
-                const result = await vaultApi.getLatestEmailMessages({ since });
-                for (const msg of result.messages) {
-                    try {
-                        const revealResult = await vaultApi.revealSmsMessage(msg.id);
-                        const otpResult = extractOtpWithConfidence(revealResult.body);
-                        if (otpResult.code) {
-                            // Try to copy to clipboard, but don't fail if document isn't focused
-                            try {
-                                // Check if document is focused before attempting clipboard write
-                                if (document.hasFocus()) {
-                                    await navigator.clipboard.writeText(otpResult.code);
-                                    setEmailOtpCopiedFor(item.id);
-                                    setTimeout(() => setEmailOtpCopiedFor(null), 2000);
-                                }
-                                else {
-                                    // Document not focused - log but don't error
-                                    console.log('Document not focused, OTP code found but not copied:', otpResult.code);
-                                }
-                            }
-                            catch (clipboardErr) {
-                                // Clipboard write failed (e.g., document not focused, permission denied)
-                                // Log but don't throw - OTP was still found
-                                console.log('Could not copy to clipboard (document may not be focused), OTP code:', otpResult.code);
-                            }
-                            setEmailOtpPollingFor(null);
-                            return true;
-                        }
-                    }
-                    catch (err) {
-                        console.error('Failed to reveal email message:', err);
-                    }
-                }
-                return false;
-            }
-            catch (err) {
-                console.error('Failed to poll email messages:', err);
-                return false;
-            }
-        };
-        // Poll every 2 seconds for up to 5 minutes
-        const interval = setInterval(async () => {
-            const found = await pollForOtp();
-            if (found) {
-                clearInterval(interval);
-            }
-        }, 2000);
-        // Stop after 5 minutes
-        setTimeout(() => {
-            clearInterval(interval);
-            setEmailOtpPollingFor(null);
-        }, 5 * 60 * 1000);
+        // Open the OTP waiting modal instead of silent polling
+        setOtpWaitingModalItem(item);
     }
     async function handleMoveFolder(folderId, newParentId) {
         try {
@@ -455,13 +411,13 @@ export function VaultLanding({ onNavigate }) {
                             { value: 'personal', label: 'Personal Only' },
                             // Only show shared option if user has access to a shared vault
                             ...(vaults.some(v => v.type === 'shared') ? [{ value: 'shared', label: 'Shared Only' }] : []),
-                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => loadData(), disabled: loading, title: "Refresh", children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loading ? 'animate-spin' : ''}` }), "Refresh"] }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs(DndContext, { sensors: sensors, onDragStart: handleDragStart, onDragEnd: handleDragEnd, children: [_jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders, onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin }, item.id))) })] })), _jsx(RootDropZone, {}), groupedFolders.personal.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Personal" }), groupedFolders.personal.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
+                        ] }) }), _jsxs(Button, { variant: "secondary", onClick: () => loadData(), disabled: loading, title: "Refresh", children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loading ? 'animate-spin' : ''}` }), "Refresh"] }), _jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Add Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] }), children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs(DndContext, { sensors: sensors, onDragStart: handleDragStart, onDragEnd: handleDragEnd, children: [_jsxs("div", { className: "space-y-6", children: [rootItems.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Items" }), _jsx("div", { className: "border rounded-lg overflow-hidden", children: rootItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: folders, onNavigate: navigate, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, item.id))) })] })), _jsx(RootDropZone, {}), groupedFolders.personal.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Personal" }), groupedFolders.personal.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
                                             setSelectedFolderId(folderId);
                                             setShowAddItemModal(true);
-                                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin }, folder.id)))] })), groupedFolders.shared.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Shared" }), groupedFolders.shared.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
+                                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, folder.id)))] })), groupedFolders.shared.length > 0 && (_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-3", children: "Shared" }), groupedFolders.shared.map(folder => (_jsx(FolderSection, { folder: folder, allFolders: folders, allItems: items, vaultTypeById: vaultTypeById, onNavigate: navigate, onDelete: handleDeleteFolder, onSelectFolder: setSelectedFolderId, onAddItem: (folderId) => {
                                             setSelectedFolderId(folderId);
                                             setShowAddItemModal(true);
-                                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin }, folder.id)))] })), groupedFolders.personal.length === 0 && groupedFolders.shared.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), _jsx(DragOverlay, { children: activeFolderId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folders.find(f => f.id === activeFolderId)?.name || '' })] }) })) : activeItemId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsx("div", { className: "flex items-center gap-2", children: (() => {
+                                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: toggleFolderExpanded, onMoveItem: handleMoveItem, onQuickTotp: handleQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: handleMoveFolder, showMoveModal: showMoveFolderModal, onShowMoveModal: setShowMoveFolderModal, onDeleteItem: handleDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: setShowMoveItemModal, onShowAclModal: setShowAclModalFolderId, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: handleQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, folder.id)))] })), groupedFolders.personal.length === 0 && groupedFolders.shared.length === 0 && rootItems.length === 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-12 text-center", children: [_jsx(Lock, { className: "h-12 w-12 mx-auto mb-4 text-muted-foreground" }), _jsx("h3", { className: "text-lg font-semibold mb-2", children: "Your vault is empty" }), _jsx("p", { className: "text-sm text-muted-foreground mb-4", children: "Get started by adding your first password, SSH key, or secure note" }), _jsxs("div", { className: "flex justify-center gap-2", children: [_jsxs(Button, { variant: "secondary", onClick: () => setShowAddFolderModal(true), children: [_jsx(FolderPlus, { size: 16, className: "mr-2" }), "Create Folder"] }), _jsxs(Button, { variant: "primary", onClick: () => setShowAddItemModal(true), children: [_jsx(Plus, { size: 16, className: "mr-2" }), "Add Item"] })] })] }) }))] }), _jsx(DragOverlay, { children: activeFolderId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Folder, { className: "h-4 w-4" }), _jsx("span", { className: "font-medium text-sm", children: folders.find(f => f.id === activeFolderId)?.name || '' })] }) })) : activeItemId ? (_jsx("div", { className: "border rounded-lg px-3 py-2 bg-secondary/40 opacity-50", children: _jsx("div", { className: "flex items-center gap-2", children: (() => {
                                     const item = items.find(i => i.id === activeItemId);
                                     if (!item)
                                         return null;
@@ -481,7 +437,7 @@ export function VaultLanding({ onNavigate }) {
                     setSelectedFolderId(null);
                 }, onSave: handleCreateItem, folderId: selectedFolderId })), showAddFolderModal && (_jsx(FolderModal, { onClose: () => setShowAddFolderModal(false), onSave: handleCreateFolder, vaults: vaults, folders: folders, isAdmin: isAdmin })), showAclModalFolderId && (_jsx(FolderAclModal, { folderId: showAclModalFolderId, isOpen: !!showAclModalFolderId, onClose: () => setShowAclModalFolderId(null), onUpdate: () => {
                     loadData();
-                } })), _jsx(AlertDialog, { ...alertDialog.props })] }));
+                } })), _jsx(AlertDialog, { ...alertDialog.props }), otpWaitingModalItem && (_jsx(OtpWaitingModal, { open: !!otpWaitingModalItem, mode: "email", onClose: () => setOtpWaitingModalItem(null), itemTitle: otpWaitingModalItem.title, emailAddress: globalEmailAddress })), smsOtpModalItemId && (_jsx(OtpWaitingModal, { open: true, mode: "sms", onClose: () => setSmsOtpModalItemId(null), itemTitle: items.find(i => i.id === smsOtpModalItemId)?.title }))] }));
 }
 function RootDropZone() {
     const { setNodeRef, isOver } = useDroppable({
@@ -490,7 +446,7 @@ function RootDropZone() {
     });
     return (_jsx("div", { ref: setNodeRef, className: isOver ? 'min-h-[20px] border-2 border-dashed border-primary rounded mb-2' : 'min-h-[4px] mb-2' }));
 }
-function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, onMoveFolder, showMoveModal, onShowMoveModal, onDeleteItem, showMoveItemModal, onShowMoveItemModal, onShowAclModal, globalEmailAddress, onQuickEmailOtp, emailOtpPollingFor, emailOtpCopiedFor, isAdmin = false, level = 0, }) {
+function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate, onDelete, onSelectFolder, onAddItem, expandedFolderIds, onToggleExpanded, onMoveItem, onQuickTotp, totpCopiedFor, onMoveFolder, showMoveModal, onShowMoveModal, onDeleteItem, showMoveItemModal, onShowMoveItemModal, onShowAclModal, globalEmailAddress, onQuickEmailOtp, emailOtpPollingFor, emailOtpCopiedFor, isAdmin = false, level = 0, itemsWithSms, setSmsOtpModalItemId, }) {
     const { Button, Select } = useUi();
     const expanded = expandedFolderIds.has(folder.id);
     const subfolders = allFolders.filter(f => f.parentId === folder.id);
@@ -609,13 +565,13 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                                             'text-[11px] px-2 py-0.5 rounded border flex-shrink-0 flex items-center gap-1',
                                             config.className,
                                         ].join(' '), title: config.title, children: [config.icon, config.label] }));
-                                })()), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] }) }), _jsxs("div", { ref: setNodeRef, className: "flex items-center gap-1", children: [canMove && (_jsx("div", { ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) })), canMove && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
-                                    e.stopPropagation();
-                                    onShowMoveModal(folder.id);
-                                }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) })), folder.permissionLevel === 'full' && folderScope !== 'personal' && !folder.parentId && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                                })()), _jsxs("span", { className: "text-sm text-muted-foreground flex-shrink-0", children: ["(", totalItems, " item", totalItems !== 1 ? 's' : '', ")"] })] }) }), _jsxs("div", { ref: setNodeRef, className: "flex items-center gap-1 ml-auto", children: [folder.permissionLevel === 'full' && folderScope !== 'personal' && !folder.parentId && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                                     e.stopPropagation();
                                     onShowAclModal(folder.id);
-                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), (folder.permissionLevel === 'read_write' ||
+                                }, title: "Manage Access", children: _jsx(Users, { size: 14 }) })), canMove && (_jsx("div", { ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) })), canMove && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                                    e.stopPropagation();
+                                    onShowMoveModal(folder.id);
+                                }, title: "Move folder", className: "p-1 h-auto", children: _jsx(Move, { size: 14 }) })), (folder.permissionLevel === 'read_write' ||
                                 folder.permissionLevel === 'read_write_delete' ||
                                 folder.permissionLevel === 'full') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onAddItem(folder.id), children: _jsx(Plus, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => onDelete(folder), children: _jsx(Trash2, { size: 14 }) }))] })] }), showMoveModal === folder.id && (_jsxs("div", { className: "px-3 py-2 border-t bg-muted/30 flex items-center gap-2", children: [_jsx("span", { className: "text-sm text-muted-foreground", children: "Move to:" }), _jsx("div", { className: "flex-1 min-w-[200px]", children: _jsx(Select, { value: folder.parentId || '', onChange: (value) => {
                                 // Explicitly handle empty string as root (null parentId)
@@ -627,15 +583,15 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                                 }
                             }, options: folderOptions }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => onShowMoveModal(null), children: "Cancel" })] })), expanded && (_jsxs("div", { className: "border-t bg-background", children: [subfolders.map(subfolder => (_jsx(FolderSection, { folder: subfolder, allFolders: allFolders, allItems: allItems, vaultTypeById: vaultTypeById, onNavigate: onNavigate, onDelete: onDelete, onSelectFolder: onSelectFolder, onAddItem: (folderId) => {
                             onAddItem(folderId);
-                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, onShowAclModal: onShowAclModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, level: level + 1 }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders, onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
+                        }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, onShowAclModal: onShowAclModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, level: level + 1, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders, onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
 }
-function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, globalEmailAddress, onQuickEmailOtp, emailOtpPolling, emailOtpCopied, isAdmin = false, }) {
+function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, globalEmailAddress, onQuickEmailOtp, emailOtpPolling, emailOtpCopied, isAdmin = false, itemsWithSms, setSmsOtpModalItemId, }) {
     const { Button, Select } = useUi();
     // Drag and drop setup for items
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: `item:${item.id}`,
         data: { type: 'item', itemId: item.id },
-        disabled: !(item.canMove === true || item.canEdit === true),
+        disabled: !item.canMove, // Only full access users/admins can move items
     });
     const style = {
         transform: CSS.Translate.toString(transform),
@@ -672,7 +628,8 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
     // Check if item's username matches the global 2FA email address
     const canUseEmailOtp = globalEmailAddress && item.username &&
         item.username.toLowerCase() === globalEmailAddress.toLowerCase();
-    const canMove = item.canMove === true || item.canEdit === true;
+    // Only full access users/admins can move items (checked via canMove flag from backend)
+    const canMove = item.canMove === true;
     return (_jsxs("div", { ref: setNodeRef, style: { ...style, paddingLeft: `${12 + indentLevel * 24}px` }, className: [
             'px-3 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors border-b border-border/50 last:border-b-0',
             isEven ? 'bg-background' : 'bg-muted/30',
@@ -682,7 +639,7 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
             if (!target.closest('button') && !target.closest('select')) {
                 onNavigate(`/vault/items/${item.id}`);
             }
-        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [canMove && (_jsx("div", { ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1 -ml-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) })), getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2", onClick: (e) => e.stopPropagation(), children: [item.url && (_jsx(Button, { variant: "ghost", size: "sm", title: `Open ${item.url} in new tab`, onClick: (e) => {
+        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2 ml-auto", onClick: (e) => e.stopPropagation(), children: [item.url && (_jsx(Button, { variant: "ghost", size: "sm", title: `Open ${item.url} in new tab`, onClick: (e) => {
                             e.stopPropagation();
                             // Ensure URL has protocol, default to https if missing
                             let urlToOpen = item.url || '';
@@ -692,7 +649,10 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
                             if (urlToOpen) {
                                 window.open(urlToOpen, '_blank', 'noopener,noreferrer');
                             }
-                        }, children: _jsx(ExternalLink, { size: 16, className: "text-blue-500" }) })), canUseEmailOtp && (_jsx(Button, { variant: "ghost", size: "sm", disabled: emailOtpPolling, title: emailOtpPolling ? 'Waiting for email OTP...' : 'Get email OTP code', onClick: () => onQuickEmailOtp(item), children: emailOtpCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : emailOtpPolling ? (_jsx(Loader2, { size: 16, className: "animate-spin text-blue-500" })) : (_jsx(Mail, { size: 16, className: "text-blue-500" })) })), _jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), canMove && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
+                        }, children: _jsx(ExternalLink, { size: 16, className: "text-blue-500" }) })), canUseEmailOtp && (_jsx(Button, { variant: "ghost", size: "sm", title: "Get email OTP code", onClick: () => onQuickEmailOtp(item), children: emailOtpCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Mail, { size: 16, className: "text-blue-500" })) })), itemsWithSms.has(item.id) && (_jsx(Button, { variant: "ghost", size: "sm", title: "Get SMS OTP code", onClick: (e) => {
+                            e.stopPropagation();
+                            setSmsOtpModalItemId(item.id);
+                        }, children: _jsx(MessageSquare, { size: 16, className: "text-blue-500" }) })), _jsx(Button, { variant: "ghost", size: "sm", disabled: !item.hasTotp, title: item.hasTotp ? 'Copy current 2FA code' : '2FA off', onClick: () => onQuickTotp(item), children: totpCopied ? _jsx(Check, { size: 16, className: "text-green-600" }) : _jsx(ShieldCheck, { size: 16 }) }), canMove && (_jsx("div", { ...attributes, ...listeners, className: "cursor-grab active:cursor-grabbing p-1", onClick: (e) => e.stopPropagation(), children: _jsx(GripVertical, { size: 14, className: "text-muted-foreground" }) })), canMove && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {
                             e.stopPropagation();
                             onShowMoveItemModal(item.id);
                         }, title: "Move item to folder", children: _jsx(Move, { size: 14 }) })), isAdmin && (_jsx(Button, { variant: "ghost", size: "sm", onClick: (e) => {

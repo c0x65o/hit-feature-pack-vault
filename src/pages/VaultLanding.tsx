@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
 import { FolderAclModal } from '../components/FolderAclModal';
+import { OtpWaitingModal } from '../components/OtpWaitingModal';
 import { isCurrentUserAdmin } from '../utils/user';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
 import {
@@ -30,7 +31,7 @@ interface Props {
   onNavigate?: (path: string) => void;
 }
 
-type VaultItemRow = VaultItem & { hasTotp?: boolean };
+type VaultItemRow = VaultItem & { hasTotp?: boolean; twoFactorType?: string | null };
 
 export function VaultLanding({ onNavigate }: Props) {
   const { Page, Card, Button, Select, Alert, AlertDialog } = useUi();
@@ -55,6 +56,9 @@ export function VaultLanding({ onNavigate }: Props) {
   const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
   const [emailOtpPollingFor, setEmailOtpPollingFor] = useState<string | null>(null);
   const [emailOtpCopiedFor, setEmailOtpCopiedFor] = useState<string | null>(null);
+  const [otpWaitingModalItem, setOtpWaitingModalItem] = useState<VaultItemRow | null>(null);
+  const [smsOtpModalItemId, setSmsOtpModalItemId] = useState<string | null>(null);
+  const [itemsWithSms, setItemsWithSms] = useState<Set<string>>(new Set());
   
   // Check if current user is admin (for UI visibility)
   const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
@@ -127,7 +131,17 @@ export function VaultLanding({ onNavigate }: Props) {
       const itemsResults = await Promise.all(itemsPromises);
       
       setFolders(foldersResults.flat());
-      setItems(itemsResults.flat() as any);
+      const allItems = itemsResults.flat() as any;
+      setItems(allItems);
+      
+      // Determine which items have SMS 2FA enabled based on twoFactorType preference
+      const itemsWithSmsSet = new Set<string>();
+      allItems.forEach((item: VaultItemRow) => {
+        if (item.twoFactorType === 'phone') {
+          itemsWithSmsSet.add(item.id);
+        }
+      });
+      setItemsWithSms(itemsWithSmsSet);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load vault data'));
     } finally {
@@ -359,64 +373,8 @@ export function VaultLanding({ onNavigate }: Props) {
   }
 
   async function handleQuickEmailOtp(item: VaultItemRow) {
-    if (emailOtpPollingFor === item.id) return;
-    
-    setEmailOtpPollingFor(item.id);
-    const startTime = new Date();
-    
-    const pollForOtp = async () => {
-      try {
-        const since = startTime.toISOString();
-        const result = await vaultApi.getLatestEmailMessages({ since });
-        
-        for (const msg of result.messages) {
-          try {
-            const revealResult = await vaultApi.revealSmsMessage(msg.id);
-            const otpResult = extractOtpWithConfidence(revealResult.body);
-            if (otpResult.code) {
-              // Try to copy to clipboard, but don't fail if document isn't focused
-              try {
-                // Check if document is focused before attempting clipboard write
-                if (document.hasFocus()) {
-                  await navigator.clipboard.writeText(otpResult.code);
-                  setEmailOtpCopiedFor(item.id);
-                  setTimeout(() => setEmailOtpCopiedFor(null), 2000);
-                } else {
-                  // Document not focused - log but don't error
-                  console.log('Document not focused, OTP code found but not copied:', otpResult.code);
-                }
-              } catch (clipboardErr: any) {
-                // Clipboard write failed (e.g., document not focused, permission denied)
-                // Log but don't throw - OTP was still found
-                console.log('Could not copy to clipboard (document may not be focused), OTP code:', otpResult.code);
-              }
-              setEmailOtpPollingFor(null);
-              return true;
-            }
-          } catch (err) {
-            console.error('Failed to reveal email message:', err);
-          }
-        }
-        return false;
-      } catch (err) {
-        console.error('Failed to poll email messages:', err);
-        return false;
-      }
-    };
-    
-    // Poll every 2 seconds for up to 5 minutes
-    const interval = setInterval(async () => {
-      const found = await pollForOtp();
-      if (found) {
-        clearInterval(interval);
-      }
-    }, 2000);
-    
-    // Stop after 5 minutes
-    setTimeout(() => {
-      clearInterval(interval);
-      setEmailOtpPollingFor(null);
-    }, 5 * 60 * 1000);
+    // Open the OTP waiting modal instead of silent polling
+    setOtpWaitingModalItem(item);
   }
 
   async function handleMoveFolder(folderId: string, newParentId: string | null) {
@@ -585,6 +543,8 @@ export function VaultLanding({ onNavigate }: Props) {
                     emailOtpPolling={emailOtpPollingFor === item.id}
                     emailOtpCopied={emailOtpCopiedFor === item.id}
                     isAdmin={isAdmin}
+                    itemsWithSms={itemsWithSms}
+                    setSmsOtpModalItemId={setSmsOtpModalItemId}
                   />
                 ))}
               </div>
@@ -629,6 +589,8 @@ export function VaultLanding({ onNavigate }: Props) {
                   emailOtpPollingFor={emailOtpPollingFor}
                   emailOtpCopiedFor={emailOtpCopiedFor}
                   isAdmin={isAdmin}
+                  itemsWithSms={itemsWithSms}
+                  setSmsOtpModalItemId={setSmsOtpModalItemId}
                 />
               ))}
             </div>
@@ -669,6 +631,8 @@ export function VaultLanding({ onNavigate }: Props) {
                   emailOtpPollingFor={emailOtpPollingFor}
                   emailOtpCopiedFor={emailOtpCopiedFor}
                   isAdmin={isAdmin}
+                  itemsWithSms={itemsWithSms}
+                  setSmsOtpModalItemId={setSmsOtpModalItemId}
                 />
               ))}
             </div>
@@ -768,6 +732,23 @@ export function VaultLanding({ onNavigate }: Props) {
       )}
 
       <AlertDialog {...alertDialog.props} />
+      {otpWaitingModalItem && (
+        <OtpWaitingModal
+          open={!!otpWaitingModalItem}
+          mode="email"
+          onClose={() => setOtpWaitingModalItem(null)}
+          itemTitle={otpWaitingModalItem.title}
+          emailAddress={globalEmailAddress}
+        />
+      )}
+      {smsOtpModalItemId && (
+        <OtpWaitingModal
+          open={true}
+          mode="sms"
+          onClose={() => setSmsOtpModalItemId(null)}
+          itemTitle={items.find(i => i.id === smsOtpModalItemId)?.title}
+        />
+      )}
     </Page>
   );
 }
@@ -813,6 +794,8 @@ function FolderSection({
   emailOtpCopiedFor,
   isAdmin = false,
   level = 0,
+  itemsWithSms,
+  setSmsOtpModalItemId,
 }: {
   folder: VaultFolder;
   allFolders: VaultFolder[];
@@ -840,6 +823,8 @@ function FolderSection({
   emailOtpCopiedFor: string | null;
   isAdmin?: boolean;
   level?: number;
+  itemsWithSms: Set<string>;
+  setSmsOtpModalItemId: (itemId: string | null) => void;
 }) {
   const { Button, Select } = useUi();
   const expanded = expandedFolderIds.has(folder.id);
@@ -1015,8 +1000,22 @@ function FolderSection({
         </div>
         <div 
           ref={setNodeRef}
-          className="flex items-center gap-1"
+          className="flex items-center gap-1 ml-auto"
         >
+          {/* ACL button - only show if full access AND not a personal folder AND is a root folder */}
+          {(folder as any).permissionLevel === 'full' && folderScope !== 'personal' && !folder.parentId && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowAclModal(folder.id);
+              }}
+              title="Manage Access"
+            >
+              <Users size={14} />
+            </Button>
+          )}
           {/* Drag Handle - show only if can move */}
           {canMove && (
             <div
@@ -1045,20 +1044,6 @@ function FolderSection({
             </Button>
           )}
           
-          {/* ACL button - only show if full access AND not a personal folder AND is a root folder */}
-          {(folder as any).permissionLevel === 'full' && folderScope !== 'personal' && !folder.parentId && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onShowAclModal(folder.id);
-              }}
-              title="Manage Access"
-            >
-              <Users size={14} />
-            </Button>
-          )}
           {/* Add button - show if read_write, read_write_delete, or full (not read_only) */}
           {((folder as any).permissionLevel === 'read_write' || 
             (folder as any).permissionLevel === 'read_write_delete' || 
@@ -1137,6 +1122,8 @@ function FolderSection({
               emailOtpCopiedFor={emailOtpCopiedFor}
               isAdmin={isAdmin}
               level={level + 1}
+              itemsWithSms={itemsWithSms}
+              setSmsOtpModalItemId={setSmsOtpModalItemId}
             />
           ))}
           {subfolders.length > 0 && directItems.length > 0 && (
@@ -1161,6 +1148,8 @@ function FolderSection({
               emailOtpPolling={emailOtpPollingFor === item.id}
               emailOtpCopied={emailOtpCopiedFor === item.id}
               isAdmin={isAdmin}
+              itemsWithSms={itemsWithSms}
+              setSmsOtpModalItemId={setSmsOtpModalItemId}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
@@ -1191,6 +1180,8 @@ function ItemRow({
   emailOtpPolling,
   emailOtpCopied,
   isAdmin = false,
+  itemsWithSms,
+  setSmsOtpModalItemId,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -1208,6 +1199,8 @@ function ItemRow({
   emailOtpPolling: boolean;
   emailOtpCopied: boolean;
   isAdmin?: boolean;
+  itemsWithSms: Set<string>;
+  setSmsOtpModalItemId: (itemId: string | null) => void;
 }) {
   const { Button, Select } = useUi();
   
@@ -1215,7 +1208,7 @@ function ItemRow({
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `item:${item.id}`,
     data: { type: 'item', itemId: item.id },
-    disabled: !((item as any).canMove === true || (item as any).canEdit === true),
+    disabled: !(item as any).canMove, // Only full access users/admins can move items
   });
 
   const style: React.CSSProperties = {
@@ -1259,7 +1252,8 @@ function ItemRow({
   const canUseEmailOtp = globalEmailAddress && item.username && 
     item.username.toLowerCase() === globalEmailAddress.toLowerCase();
   
-  const canMove = (item as any).canMove === true || (item as any).canEdit === true;
+  // Only full access users/admins can move items (checked via canMove flag from backend)
+  const canMove = (item as any).canMove === true;
   
   return (
     <div
@@ -1278,18 +1272,6 @@ function ItemRow({
       }}
     >
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        {/* Drag Handle */}
-        {canMove && (
-          <div
-            {...attributes}
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 -ml-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GripVertical size={14} className="text-muted-foreground" />
-          </div>
-        )}
-        
         {getItemIcon()}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-sm font-medium truncate">{item.title}</span>
@@ -1301,7 +1283,7 @@ function ItemRow({
         </div>
       </div>
 
-      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 ml-auto" onClick={(e) => e.stopPropagation()}>
         {/* URL launch button - show if item has a URL */}
         {item.url && (
           <Button
@@ -1327,17 +1309,27 @@ function ItemRow({
           <Button
             variant="ghost"
             size="sm"
-            disabled={emailOtpPolling}
-            title={emailOtpPolling ? 'Waiting for email OTP...' : 'Get email OTP code'}
+            title="Get email OTP code"
             onClick={() => onQuickEmailOtp(item)}
           >
             {emailOtpCopied ? (
               <Check size={16} className="text-green-600" />
-            ) : emailOtpPolling ? (
-              <Loader2 size={16} className="animate-spin text-blue-500" />
             ) : (
               <Mail size={16} className="text-blue-500" />
             )}
+          </Button>
+        )}
+        {itemsWithSms.has(item.id) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Get SMS OTP code"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSmsOtpModalItemId(item.id);
+            }}
+          >
+            <MessageSquare size={16} className="text-blue-500" />
           </Button>
         )}
         <Button
@@ -1349,6 +1341,18 @@ function ItemRow({
         >
           {totpCopied ? <Check size={16} className="text-green-600" /> : <ShieldCheck size={16} />}
         </Button>
+
+        {/* Drag Handle - show only if can move */}
+        {canMove && (
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing p-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={14} className="text-muted-foreground" />
+          </div>
+        )}
 
         {/* Move button - show if user has canMove or canEdit permission */}
         {canMove && (

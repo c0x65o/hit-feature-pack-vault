@@ -19,39 +19,43 @@ const OTP_PATTERNS = [
   { regex: /(?:here is|is)\s+(?:the\s+)?steam\s+guard\s+code[:\s]+([A-Z0-9]{5})/i, name: 'steam-guard-here-is', confidence: 'high' as const },
   { regex: /steam\s+guard[^a-z0-9]*([A-Z0-9]{5})/i, name: 'steam-guard-bare', confidence: 'high' as const },
   
-  // Alphanumeric codes with common keywords (4-8 chars)
-  { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+([A-Z0-9]{4,8})/i, name: 'keyword-prefix-alphanumeric', confidence: 'high' as const },
-  { regex: /([A-Z0-9]{4,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix-alphanumeric', confidence: 'high' as const },
+  // Alphanumeric codes with common keywords (5-8 chars minimum)
+  { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+([A-Z0-9]{5,8})/i, name: 'keyword-prefix-alphanumeric', confidence: 'high' as const },
+  { regex: /([A-Z0-9]{5,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix-alphanumeric', confidence: 'high' as const },
   
-  // Common patterns with explicit OTP keywords (numeric)
-  { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+(\d{4,8})/i, name: 'keyword-prefix', confidence: 'high' as const },
-  { regex: /(\d{4,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix', confidence: 'high' as const },
+  // Common patterns with explicit OTP keywords (numeric, 5-8 chars minimum)
+  { regex: /(?:verification|verify|security|auth|otp|pin|code|password)\s*(?:code|number|pin)?[:\s]+(\d{5,8})/i, name: 'keyword-prefix', confidence: 'high' as const },
+  { regex: /(\d{5,8})\s+(?:is|es)\s+(?:your|tu|the)\s+(?:verification|verify|security|auth|otp|pin|code|password)/i, name: 'keyword-suffix', confidence: 'high' as const },
   
-  // "Your code is X" style (alphanumeric)
-  { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+([A-Z0-9]{4,8})/i, name: 'your-code-is-alphanumeric', confidence: 'high' as const },
-  // "Your code is X" style (numeric)
-  { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+(\d{4,8})/i, name: 'your-code-is', confidence: 'high' as const },
-  { regex: /(?:code|código)[:\s]+(\d{4,8})/i, name: 'code-colon', confidence: 'high' as const },
+  // "Your code is X" style (alphanumeric, 5-8 chars minimum)
+  { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+([A-Z0-9]{5,8})/i, name: 'your-code-is-alphanumeric', confidence: 'high' as const },
+  // "Your code is X" style (numeric, 5-8 chars minimum)
+  { regex: /(?:your|tu|the)\s+(?:verification\s+)?code\s+(?:is|es)[:\s]+(\d{5,8})/i, name: 'your-code-is', confidence: 'high' as const },
+  // "code is X" or "verification code is X" (without "your") - numeric, 5-8 chars minimum
+  { regex: /(?:verification\s+)?code\s+(?:is|es)\s+(\d{5,8})/i, name: 'code-is-numeric', confidence: 'high' as const },
+  // "code is X" or "verification code is X" (without "your") - alphanumeric, 5-8 chars minimum
+  { regex: /(?:verification\s+)?code\s+(?:is|es)\s+([A-Z0-9]{5,8})/i, name: 'code-is-alphanumeric', confidence: 'high' as const },
+  { regex: /(?:code|código)[:\s]+(\d{5,8})/i, name: 'code-colon', confidence: 'high' as const },
   
-  // "Code: X" or "OTP: X" patterns (alphanumeric)
-  { regex: /\botp[:\s]+([A-Z0-9]{4,8})\b/i, name: 'otp-colon-alphanumeric', confidence: 'high' as const },
-  { regex: /\bpin[:\s]+([A-Z0-9]{4,8})\b/i, name: 'pin-colon-alphanumeric', confidence: 'high' as const },
-  // "Code: X" or "OTP: X" patterns (numeric)
-  { regex: /\botp[:\s]+(\d{4,8})\b/i, name: 'otp-colon', confidence: 'high' as const },
-  { regex: /\bpin[:\s]+(\d{4,8})\b/i, name: 'pin-colon', confidence: 'high' as const },
+  // "Code: X" or "OTP: X" patterns (alphanumeric, 5-8 chars minimum)
+  { regex: /\botp[:\s]+([A-Z0-9]{5,8})\b/i, name: 'otp-colon-alphanumeric', confidence: 'high' as const },
+  { regex: /\bpin[:\s]+([A-Z0-9]{5,8})\b/i, name: 'pin-colon-alphanumeric', confidence: 'high' as const },
+  // "Code: X" or "OTP: X" patterns (numeric, 5-8 chars minimum)
+  { regex: /\botp[:\s]+(\d{5,8})\b/i, name: 'otp-colon', confidence: 'high' as const },
+  { regex: /\bpin[:\s]+(\d{5,8})\b/i, name: 'pin-colon', confidence: 'high' as const },
   
-  // "Use X to verify" patterns (alphanumeric)
-  { regex: /use\s+([A-Z0-9]{4,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify-alphanumeric', confidence: 'high' as const },
-  // "Use X to verify" patterns (numeric)
-  { regex: /use\s+(\d{4,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify', confidence: 'high' as const },
+  // "Use X to verify" patterns (alphanumeric, 5-8 chars minimum)
+  { regex: /use\s+([A-Z0-9]{5,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify-alphanumeric', confidence: 'high' as const },
+  // "Use X to verify" patterns (numeric, 5-8 chars minimum)
+  { regex: /use\s+(\d{5,8})\s+(?:to|for)\s+(?:verify|confirm|validate)/i, name: 'use-to-verify', confidence: 'high' as const },
   
-  // "Enter X" patterns (alphanumeric)
-  { regex: /enter[:\s]+([A-Z0-9]{4,8})/i, name: 'enter-code-alphanumeric', confidence: 'high' as const },
-  // "Enter X" patterns (numeric)
-  { regex: /enter[:\s]+(\d{4,8})/i, name: 'enter-code', confidence: 'high' as const },
+  // "Enter X" patterns (alphanumeric, 5-8 chars minimum)
+  { regex: /enter[:\s]+([A-Z0-9]{5,8})/i, name: 'enter-code-alphanumeric', confidence: 'high' as const },
+  // "Enter X" patterns (numeric, 5-8 chars minimum)
+  { regex: /enter[:\s]+(\d{5,8})/i, name: 'enter-code', confidence: 'high' as const },
   
-  // Codes with dashes/spaces (e.g., "123-456" or "123 456")
-  { regex: /code[:\s]+(\d{2,4}[-\s]\d{2,4})/i, name: 'code-with-dash', confidence: 'high' as const },
+  // Codes with dashes/spaces (e.g., "123-456" or "123 456") - total must be at least 5 digits
+  { regex: /code[:\s]+(\d{3,4}[-\s]\d{3,4})/i, name: 'code-with-dash', confidence: 'high' as const },
   
   // G-XXXXXX pattern (Google)
   { regex: /G-(\d{6})/i, name: 'google-style', confidence: 'high' as const },
@@ -62,13 +66,15 @@ const OTP_PATTERNS = [
   // Generic 6-digit in short message (SMS style)
   { regex: /^[^0-9]*(\d{6})[^0-9]*$/i, name: 'standalone-6-digit', confidence: 'medium' as const },
   
-  // Standalone alphanumeric sequences (lower confidence)
+  // Standalone alphanumeric sequences (lower confidence, minimum 5 chars)
   { regex: /\b([A-Z0-9]{5})\b/, name: 'bare-5-alphanumeric', confidence: 'medium' as const }, // Common for Steam Guard
-  { regex: /\b([A-Z0-9]{4,8})\b/, name: 'bare-alphanumeric', confidence: 'low' as const },
+  // Exclude common words like "code", "password", etc. from bare matches (minimum 5 chars)
+  // Use negative lookahead to skip words that are likely not codes
+  { regex: /\b(?!code|password|verify|pin|otp|auth|number|digit|enter|click|button|link|url|http|https|www|mail|email|phone|call|text|message|sms|subject|from|to|date|time|year|month|day|hour|minute|second)([A-Z0-9]{5,8})\b/i, name: 'bare-alphanumeric', confidence: 'low' as const },
   
-  // Standalone digit sequences (lower confidence)
+  // Standalone digit sequences (lower confidence, minimum 5 chars)
   { regex: /\b(\d{6})\b/, name: 'bare-6-digit', confidence: 'low' as const },
-  { regex: /\b(\d{4})\b/, name: 'bare-4-digit', confidence: 'low' as const },
+  { regex: /\b(\d{5})\b/, name: 'bare-5-digit', confidence: 'low' as const },
   { regex: /\b(\d{8})\b/, name: 'bare-8-digit', confidence: 'low' as const },
 ];
 
@@ -89,6 +95,10 @@ export function extractOtpWithConfidence(messageBody: string): OtpExtractionResu
     if (match && match[1]) {
       // Remove dashes/spaces from code
       const code = match[1].replace(/[-\s]/g, '');
+      // Enforce minimum 5 characters for all codes
+      if (code.length < 5) {
+        continue; // Skip this match, try next pattern
+      }
       return {
         code,
         confidence,
@@ -98,8 +108,8 @@ export function extractOtpWithConfidence(messageBody: string): OtpExtractionResu
     }
   }
 
-  // Fallback: look for any 4-8 digit sequence
-  const digitMatch = cleaned.match(/\d{4,8}/);
+  // Fallback: look for any 5-8 digit sequence (minimum 5 chars)
+  const digitMatch = cleaned.match(/\d{5,8}/);
   if (digitMatch) {
     return {
       code: digitMatch[0],
@@ -109,8 +119,8 @@ export function extractOtpWithConfidence(messageBody: string): OtpExtractionResu
     };
   }
 
-  // Fallback: look for any 4-8 alphanumeric sequence (uppercase)
-  const alphanumericMatch = cleaned.match(/\b([A-Z0-9]{4,8})\b/);
+  // Fallback: look for any 5-8 alphanumeric sequence (uppercase, minimum 5 chars)
+  const alphanumericMatch = cleaned.match(/\b([A-Z0-9]{5,8})\b/);
   if (alphanumericMatch) {
     return {
       code: alphanumericMatch[1],
@@ -136,21 +146,88 @@ export function extractOtpCode(messageBody: string): string | null {
 
 /**
  * Strip HTML tags and decode HTML entities
+ * Improved handling for better OTP extraction from HTML emails
  */
 function stripHtml(html: string): string {
-  return html
-    // Remove HTML tags
-    .replace(/<[^>]*>/g, ' ')
-    // Decode common HTML entities
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    // Collapse whitespace
-    .replace(/\s+/g, ' ')
-    .trim();
+  if (!html) return '';
+  
+  let text = html;
+  
+  // First, try to extract text from common HTML structures that might contain OTP codes
+  // Look for text in <strong>, <b>, <span>, <div>, <p>, <td>, <h1-h6> tags
+  // These are often used to highlight OTP codes
+  const codePatterns = [
+    /<strong[^>]*>([^<]*)<\/strong>/gi,
+    /<b[^>]*>([^<]*)<\/b>/gi,
+    /<span[^>]*>([^<]*)<\/span>/gi,
+    /<div[^>]*>([^<]*)<\/div>/gi,
+    /<p[^>]*>([^<]*)<\/p>/gi,
+    /<td[^>]*>([^<]*)<\/td>/gi,
+    /<h[1-6][^>]*>([^<]*)<\/h[1-6]>/gi,
+  ];
+  
+  // Extract text from these tags and preserve it
+  const extractedTexts: string[] = [];
+  codePatterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[1]) {
+        extractedTexts.push(match[1].trim());
+      }
+    }
+  });
+  
+  // Remove script and style tags completely
+  text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  
+  // Remove HTML comments
+  text = text.replace(/<!--[\s\S]*?-->/g, '');
+  
+  // Replace <br>, <br/>, <br /> with newlines
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  
+  // Replace </p>, </div>, </li>, </td>, </tr> with newlines
+  text = text.replace(/<\/(p|div|li|td|tr)>/gi, '\n');
+  
+  // Remove all remaining HTML tags
+  text = text.replace(/<[^>]*>/g, ' ');
+  
+  // Decode HTML entities (more comprehensive)
+  const entityMap: Record<string, string> = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&nbsp': ' ',
+    '&amp': '&',
+    '&lt': '<',
+    '&gt': '>',
+    '&quot': '"',
+  };
+  
+  // Decode named entities
+  Object.entries(entityMap).forEach(([entity, char]) => {
+    text = text.replace(new RegExp(entity, 'gi'), char);
+  });
+  
+  // Decode numeric entities (&#123; and &#x1F;)
+  text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(parseInt(dec, 10)));
+  text = text.replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+  
+  // Combine extracted texts with main text
+  if (extractedTexts.length > 0) {
+    text = extractedTexts.join(' ') + ' ' + text;
+  }
+  
+  // Normalize whitespace - replace multiple spaces/newlines with single space
+  text = text.replace(/[\s\n\r]+/g, ' ');
+  
+  // Trim and return
+  return text.trim();
 }
 
 /**

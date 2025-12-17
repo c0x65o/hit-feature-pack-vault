@@ -12,5 +12,6 @@ export declare function POST(request: NextRequest): Promise<NextResponse<{
     secret: any;
     notes: any;
     totpSecret: any;
+    twoFactorType: any;
 }>>;
 //# sourceMappingURL=items-reveal.d.ts.map

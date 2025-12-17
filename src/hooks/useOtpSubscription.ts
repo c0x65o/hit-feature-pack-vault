@@ -111,6 +111,8 @@ export interface UseOtpSubscriptionOptions {
   pollingInterval?: number;
   /** Max time to poll in ms (default: 5 minutes) */
   maxPollTime?: number;
+  /** Keep listening after receiving OTP (default: false - stops after first OTP) */
+  keepListening?: boolean;
 }
 
 export interface UseOtpSubscriptionResult {
@@ -166,6 +168,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
     enabled = true,
     pollingInterval = 2000,
     maxPollTime = 5 * 60 * 1000,
+    keepListening = false,
   } = options;
 
   const [isListening, setIsListening] = useState(false);
@@ -188,46 +191,6 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
     setLatestNotification(null);
   }, []);
 
-  const handleOtpNotification = useCallback(async (notification: OtpNotification) => {
-    // Filter by type if specified
-    if (type !== 'all' && notification.type !== type) {
-      return;
-    }
-
-    // Filter by 'to' address if specified
-    if (toFilter) {
-      const filterLower = toFilter.toLowerCase();
-      const toLower = notification.to.toLowerCase();
-      // Partial match (e.g., "operations" matches "operations@example.com")
-      if (!toLower.includes(filterLower) && !filterLower.includes(toLower.split('@')[0])) {
-        return;
-      }
-    }
-
-    // Reveal the message to extract OTP
-    try {
-      const revealResult = await vaultApi.revealSmsMessage(notification.messageId);
-      const otpResult = extractOtpWithConfidence(revealResult.body);
-
-      if (otpResult.code) {
-        setOtpCode(otpResult.code);
-        setOtpConfidence(otpResult.confidence);
-        setFullMessage(otpResult.fullMessage);
-        setLatestNotification(notification);
-        
-        onOtpReceived?.({
-          ...otpResult,
-          notification,
-        });
-
-        // Stop listening after receiving OTP
-        stopListeningInternal();
-      }
-    } catch (err) {
-      console.error('[useOtpSubscription] Failed to reveal message:', err);
-    }
-  }, [type, toFilter, onOtpReceived]);
-
   const stopListeningInternal = useCallback(() => {
     // Clean up WebSocket subscription
     if (subscriptionRef.current) {
@@ -248,6 +211,69 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
     setIsListening(false);
     setConnectionType('disconnected');
   }, []);
+
+  const handleOtpNotification = useCallback(async (notification: OtpNotification) => {
+    // Filter by type if specified
+    if (type !== 'all' && notification.type !== type) {
+      return;
+    }
+
+    // Filter by 'to' address if specified
+    if (toFilter) {
+      const filterLower = toFilter.toLowerCase();
+      const toLower = notification.to.toLowerCase();
+      // Partial match (e.g., "operations" matches "operations@example.com")
+      if (!toLower.includes(filterLower) && !filterLower.includes(toLower.split('@')[0])) {
+        return;
+      }
+    }
+
+    // Always track the latest notification, even if extraction fails
+    // This allows UI to show "last code was X days ago" even if we couldn't extract it
+    setLatestNotification(notification);
+
+    // Reveal the message to extract OTP
+    try {
+      const revealResult = await vaultApi.revealSmsMessage(notification.messageId);
+      const otpResult = extractOtpWithConfidence(revealResult.body);
+
+      if (otpResult.code) {
+        setOtpCode(otpResult.code);
+        setOtpConfidence(otpResult.confidence);
+        setFullMessage(otpResult.fullMessage);
+        
+        onOtpReceived?.({
+          ...otpResult,
+          notification,
+        });
+
+        // Stop listening after receiving OTP unless keepListening is true
+        if (!keepListening) {
+          stopListeningInternal();
+        }
+      } else {
+        // No code extracted, but still notify about the message
+        // This allows UI to show that a message was received but extraction failed
+        onOtpReceived?.({
+          code: null,
+          confidence: 'none',
+          pattern: null,
+          fullMessage: otpResult.fullMessage,
+          notification,
+        });
+      }
+    } catch (err) {
+      console.error('[useOtpSubscription] Failed to reveal message:', err);
+      // Still notify about the notification even if reveal failed
+      onOtpReceived?.({
+        code: null,
+        confidence: 'none',
+        pattern: null,
+        fullMessage: '',
+        notification,
+      });
+    }
+  }, [type, toFilter, onOtpReceived, stopListeningInternal, keepListening]);
 
   const startListeningWebSocket = useCallback(async () => {
     try {
@@ -278,13 +304,20 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
   }, [handleOtpNotification]);
 
   const startListeningPolling = useCallback(() => {
-    lastPollTimeRef.current = new Date();
+    // Initialize with current time, but we'll update it after processing messages
+    const initialTime = new Date();
+    lastPollTimeRef.current = initialTime;
 
     pollingIntervalRef.current = setInterval(async () => {
       try {
         // Poll for new messages based on type
+        // Use the last poll time to avoid re-processing old messages
         let messages: any[] = [];
         const since = lastPollTimeRef.current?.toISOString();
+        
+        // Update poll time BEFORE fetching to ensure we don't miss messages
+        // that arrive during processing
+        const pollStartTime = new Date();
 
         if (type === 'email' || type === 'all') {
           const emailResult = await vaultApi.getLatestEmailMessages({ since });
@@ -317,13 +350,21 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
             receivedAt: typeof msg.receivedAt === 'string' ? msg.receivedAt : msg.receivedAt.toISOString(),
           });
 
-          // Stop if we found an OTP
-          if (otpCode) {
+          // When keepListening is false, stop after processing first message that might have OTP
+          // When keepListening is true, continue processing all messages to catch multiple OTPs
+          // Note: We can't check otpCode here because it's a stale closure value,
+          // but handleOtpNotification will update state and call onOtpReceived callback
+          if (!keepListening) {
+            // For non-keepListening mode, process one message per poll cycle
+            // This allows the state to update before the next poll
             break;
           }
+          // When keepListening is true, continue processing all messages in this batch
         }
 
-        lastPollTimeRef.current = new Date();
+        // Update last poll time AFTER processing messages
+        // This ensures we don't miss messages that arrive during processing
+        lastPollTimeRef.current = pollStartTime;
       } catch (err) {
         console.error('[useOtpSubscription] Polling error:', err);
       }
@@ -337,7 +378,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
 
     setConnectionType('polling');
     console.log('[useOtpSubscription] Connected via polling');
-  }, [type, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, otpCode]);
+  }, [type, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, keepListening]);
 
   const startListening = useCallback(async () => {
     if (isListening) return;

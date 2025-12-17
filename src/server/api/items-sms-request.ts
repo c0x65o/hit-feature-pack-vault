@@ -1,8 +1,8 @@
 // src/server/api/items-sms-request.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultSmsNumbers, vaultAuditEvents } from '@/lib/feature-pack-schemas';
-import { eq, and, isNull } from 'drizzle-orm';
+import { vaultItems, vaultAuditEvents } from '@/lib/feature-pack-schemas';
+import { eq } from 'drizzle-orm';
 import { getUserId, extractUserFromRequest } from '../auth';
 import { sendSms } from '../utils/twilio-sms';
 import { checkItemAccess } from '../lib/acl-utils';
@@ -58,41 +58,6 @@ export async function POST(request: NextRequest) {
     const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_ONLY'] });
     if (!accessCheck.hasAccess) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
-
-    // Check if SMS 2FA is configured for this item
-    // Look for SMS number associated with this item or global SMS number
-    const [itemSmsNumber] = await db
-      .select()
-      .from(vaultSmsNumbers)
-      .where(
-        and(
-          eq(vaultSmsNumbers.itemId, id),
-          eq(vaultSmsNumbers.status, 'active')
-        )
-      )
-      .limit(1);
-
-    // Fall back to global SMS number if no item-specific number
-    const [globalSmsNumber] = itemSmsNumber ? [] : await db
-      .select()
-      .from(vaultSmsNumbers)
-      .where(
-        and(
-          isNull(vaultSmsNumbers.vaultId),
-          isNull(vaultSmsNumbers.itemId),
-          eq(vaultSmsNumbers.status, 'active')
-        )
-      )
-      .limit(1);
-
-    const smsNumber = itemSmsNumber || globalSmsNumber;
-
-    if (!smsNumber) {
-      return NextResponse.json(
-        { error: 'No SMS number configured. Please configure a phone number in vault settings.' },
-        { status: 400 }
-      );
     }
 
     // Check if SMS 2FA is enabled (from feature pack config)

@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff, Mail, Phone, MessageSquare, Wifi, WifiOff } from 'lucide-react';
+import { Save, Copy, Check, Eye, EyeOff, Mail, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import { useOtpSubscription, isWebSocketAvailable } from '../hooks/useOtpSubscription';
-import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { OtpWaitingModal } from './OtpWaitingModal';
 
 type ItemType = 'credential' | 'api_key' | 'secure_note';
 type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
@@ -28,13 +27,8 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   const [secret, setSecret] = useState(''); // For SSH keys, API keys
   const [notes, setNotes] = useState('');
   const [twoFactorType, setTwoFactorType] = useState<TwoFactorType>('off');
-  const [globalPhoneNumber, setGlobalPhoneNumber] = useState<string | null>(null);
-  const [phoneCopied, setPhoneCopied] = useState(false);
-  const [pollingSms, setPollingSms] = useState(false);
-  const [otpCode, setOtpCode] = useState<string | null>(null);
-  const [otpConfidence, setOtpConfidence] = useState<'high' | 'medium' | 'low' | 'none'>('none');
-  const [otpFullMessage, setOtpFullMessage] = useState<string | null>(null);
-  const [showFullMessage, setShowFullMessage] = useState(false);
+  const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -42,39 +36,12 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   // Email 2FA state
   const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
   const [emailCopied, setEmailCopied] = useState(false);
-  const [pollingEmail, setPollingEmail] = useState(false);
-  
-  // Track last poll time to avoid re-checking old messages
-  const lastSmsPollTimeRef = useRef<Date | null>(null);
-  const lastEmailPollTimeRef = useRef<Date | null>(null);
 
   useEffect(() => {
-    if (twoFactorType === 'phone') {
-      loadGlobalPhoneNumber();
-    } else if (twoFactorType === 'email') {
+    if (twoFactorType === 'email') {
       loadGlobalEmailAddress();
     }
   }, [twoFactorType]);
-
-  async function loadGlobalPhoneNumber() {
-    try {
-      const result = await vaultApi.getGlobalPhoneNumber();
-      setGlobalPhoneNumber(result.phoneNumber);
-    } catch (err) {
-      console.error('Failed to load global phone number:', err);
-    }
-  }
-
-  async function copyPhoneNumber() {
-    if (!globalPhoneNumber) return;
-    try {
-      await navigator.clipboard.writeText(globalPhoneNumber);
-      setPhoneCopied(true);
-      setTimeout(() => setPhoneCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy phone number:', err);
-    }
-  }
 
   async function loadGlobalEmailAddress() {
     try {
@@ -97,85 +64,13 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   }
 
   async function startSmsPolling() {
-    if (pollingSms) return;
-    setPollingSms(true);
-    setOtpCode(null);
-    setOtpConfidence('none');
-    setOtpFullMessage(null);
-    setShowFullMessage(false);
-    lastSmsPollTimeRef.current = new Date();
-
-    const interval = setInterval(async () => {
-      try {
-        const since = lastSmsPollTimeRef.current?.toISOString();
-        const result = await vaultApi.getLatestSmsMessages(since);
-        for (const msg of result.messages) {
-          try {
-            const revealResult = await vaultApi.revealSmsMessage(msg.id);
-            const otpResult = extractOtpWithConfidence(revealResult.body);
-            if (otpResult.code) {
-              setOtpCode(otpResult.code);
-              setOtpConfidence(otpResult.confidence);
-              setOtpFullMessage(otpResult.fullMessage);
-              setPollingSms(false);
-              clearInterval(interval);
-              return;
-            }
-          } catch (err) {
-            console.error('Failed to reveal SMS message:', err);
-          }
-        }
-        lastSmsPollTimeRef.current = new Date();
-      } catch (err) {
-        console.error('Failed to poll SMS messages:', err);
-      }
-    }, 2000);
-
-    setTimeout(() => {
-      clearInterval(interval);
-      setPollingSms(false);
-    }, 5 * 60 * 1000);
+    // Open the SMS OTP waiting modal instead of silent polling
+    setShowSmsOtpModal(true);
   }
 
   async function startEmailPolling() {
-    if (pollingEmail) return;
-    setPollingEmail(true);
-    setOtpCode(null);
-    setOtpConfidence('none');
-    setOtpFullMessage(null);
-    setShowFullMessage(false);
-    lastEmailPollTimeRef.current = new Date();
-
-    const interval = setInterval(async () => {
-      try {
-        const since = lastEmailPollTimeRef.current?.toISOString();
-        const result = await vaultApi.getLatestEmailMessages({ since });
-        for (const msg of result.messages) {
-          try {
-            const revealResult = await vaultApi.revealSmsMessage(msg.id);
-            const otpResult = extractOtpWithConfidence(revealResult.body);
-            if (otpResult.code) {
-              setOtpCode(otpResult.code);
-              setOtpConfidence(otpResult.confidence);
-              setOtpFullMessage(otpResult.fullMessage);
-              setPollingEmail(false);
-              clearInterval(interval);
-              return;
-            }
-          } catch (err) {
-            console.error('Failed to reveal email message:', err);
-          }
-        }
-        lastEmailPollTimeRef.current = new Date();
-      } catch (err) {
-        console.error('Failed to poll email messages:', err);
-      }
-    }, 2000);
-
-    setTimeout(() => {
-      clearInterval(interval);
-      setPollingEmail(false);
-    }, 5 * 60 * 1000);
+    // Open the Email OTP waiting modal instead of manual polling
+    setShowEmailOtpModal(true);
   }
 
   function formatTimeAgo(date: Date | null): string {
@@ -228,7 +123,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
       if (twoFactorType === 'qr' && qrCodeInput.trim()) {
         itemData.totpSecret = qrCodeInput.trim();
       }
-      // Phone 2FA doesn't need to store anything - it uses the global phone number
+      // Phone 2FA doesn't need to store anything - messages come via SMS webhook
 
       await onSave(itemData);
       handleClose();
@@ -302,13 +197,13 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
 
             <div>
               <label className="text-sm font-medium">Password</label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full">
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(value: string) => setPassword(value)}
                   placeholder="Enter password"
-                  className="flex-1"
+                  className="flex-1 w-full"
                 />
                 <Button
                   variant="ghost"
@@ -336,102 +231,14 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
 
             {twoFactorType === 'phone' && (
               <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
-                {globalPhoneNumber ? (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <Phone size={14} />
-                        Registered Phone Number
-                      </label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <code className="text-sm font-mono bg-background px-2 py-1 rounded">
-                          {globalPhoneNumber}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={copyPhoneNumber}
-                        >
-                          {phoneCopied ? (
-                            <Check size={16} className="text-green-600" />
-                          ) : (
-                            <Copy size={16} />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {!pollingSms && !otpCode && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={startSmsPolling}
-                      >
-                        <MessageSquare size={16} className="mr-2" />
-                        Start Waiting for SMS
-                      </Button>
-                    )}
-                    
-                    {pollingSms && (
-                      <p className="text-sm text-muted-foreground animate-pulse">
-                        Waiting for SMS message...
-                      </p>
-                    )}
-                    
-                    {otpCode && (
-                      <div className={`p-3 bg-background rounded-md border-2 ${
-                        otpConfidence === 'high' 
-                          ? 'border-green-500' 
-                          : otpConfidence === 'medium' 
-                            ? 'border-yellow-500' 
-                            : 'border-gray-400'
-                      }`}>
-                        <label className={`text-sm font-medium ${
-                          otpConfidence === 'high' 
-                            ? 'text-green-600' 
-                            : otpConfidence === 'medium' 
-                              ? 'text-yellow-600' 
-                              : 'text-gray-600'
-                        }`}>
-                          OTP Code Received ({otpConfidence} confidence)
-                        </label>
-                        <div className="flex items-center gap-2 mt-2">
-                          <code className="text-2xl font-mono font-bold">
-                            {otpCode}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => navigator.clipboard.writeText(otpCode)}
-                          >
-                            <Copy size={16} />
-                          </Button>
-                        </div>
-                        
-                        {otpConfidence !== 'high' && otpFullMessage && (
-                          <div className="mt-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setShowFullMessage(!showFullMessage)}
-                            >
-                              {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
-                            </Button>
-                            {showFullMessage && (
-                              <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-                                {otpFullMessage}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <Alert variant="warning" title="No Phone Number Configured">
-                    Admin must configure a phone number in Setup.
-                  </Alert>
-                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={startSmsPolling}
+                >
+                  <MessageSquare size={16} className="mr-2" />
+                  Start Waiting for SMS
+                </Button>
               </div>
             )}
 
@@ -465,71 +272,14 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                       </p>
                     </div>
                     
-                    {!pollingEmail && !otpCode && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={startEmailPolling}
-                      >
-                        <Mail size={16} className="mr-2" />
-                        Start Waiting for Email
-                      </Button>
-                    )}
-                    
-                    {pollingEmail && (
-                      <p className="text-sm text-muted-foreground animate-pulse">
-                        Waiting for email message...
-                      </p>
-                    )}
-                    
-                    {otpCode && (
-                      <div className={`p-3 bg-background rounded-md border-2 ${
-                        otpConfidence === 'high' 
-                          ? 'border-green-500' 
-                          : otpConfidence === 'medium' 
-                            ? 'border-yellow-500' 
-                            : 'border-gray-400'
-                      }`}>
-                        <label className={`text-sm font-medium ${
-                          otpConfidence === 'high' 
-                            ? 'text-green-600' 
-                            : otpConfidence === 'medium' 
-                              ? 'text-yellow-600' 
-                              : 'text-gray-600'
-                        }`}>
-                          OTP Code Received ({otpConfidence} confidence)
-                        </label>
-                        <div className="flex items-center gap-2 mt-2">
-                          <code className="text-2xl font-mono font-bold">
-                            {otpCode}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => navigator.clipboard.writeText(otpCode)}
-                          >
-                            <Copy size={16} />
-                          </Button>
-                        </div>
-                        
-                        {otpConfidence !== 'high' && otpFullMessage && (
-                          <div className="mt-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setShowFullMessage(!showFullMessage)}
-                            >
-                              {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
-                            </Button>
-                            {showFullMessage && (
-                              <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-                                {otpFullMessage}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={startEmailPolling}
+                    >
+                      <Mail size={16} className="mr-2" />
+                      Start Waiting for Email
+                    </Button>
                   </>
                 ) : (
                   <Alert variant="warning" title="No Email Address Configured">
@@ -640,6 +390,23 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
           </Button>
         </div>
       </div>
+      {showSmsOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="sms"
+          itemTitle={title || undefined}
+          onClose={() => setShowSmsOtpModal(false)}
+        />
+      )}
+      {showEmailOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="email"
+          itemTitle={title || undefined}
+          emailAddress={globalEmailAddress || undefined}
+          onClose={() => setShowEmailOtpModal(false)}
+        />
+      )}
     </Modal>
   );
 }

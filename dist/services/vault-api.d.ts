@@ -32,6 +32,7 @@ export declare class VaultApiClient {
         secret?: string;
         notes?: string;
         totpSecret?: string;
+        twoFactorType?: string;
     }>;
     copyItem(id: string, field: 'password' | 'username' | 'totp'): Promise<void>;
     getAcls(resourceType: string, resourceId: string): Promise<VaultAcl[]>;

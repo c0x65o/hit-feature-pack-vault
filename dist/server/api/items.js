@@ -222,9 +222,11 @@ export async function GET(request) {
         // Add permission flags to each item for UI conditional rendering
         const safeItemsWithPermissions = await Promise.all(items.map(async (item) => {
             let hasTotp = false;
+            let twoFactorType = null;
             try {
                 const secretBlob = JSON.parse(decrypt(item.secretBlobEncrypted));
                 hasTotp = !!secretBlob?.totpSecret;
+                twoFactorType = secretBlob?.twoFactorType || null;
             }
             catch {
                 // ignore parse/decrypt errors; treat as no TOTP
@@ -234,12 +236,14 @@ export async function GET(request) {
             // Check permissions for this item (user should not be null at this point, but check for safety)
             const deleteCheck = user ? await checkItemAccess(db, item.id, user, { requiredPermissions: ['DELETE'] }) : { hasAccess: false };
             const writeCheck = user ? await checkItemAccess(db, item.id, user, { requiredPermissions: ['READ_WRITE'] }) : { hasAccess: false };
+            const fullAccessCheck = user ? await checkItemAccess(db, item.id, user, { requiredPermissions: ['MANAGE_ACL'] }) : { hasAccess: false };
             return {
                 ...safeItem,
                 hasTotp,
+                twoFactorType,
                 canDelete: deleteCheck.hasAccess,
                 canEdit: writeCheck.hasAccess,
-                canMove: writeCheck.hasAccess, // Moving requires READ_WRITE
+                canMove: fullAccessCheck.hasAccess, // Moving requires full access (MANAGE_ACL) or admin
             };
         }));
         return NextResponse.json({
@@ -366,6 +370,10 @@ export async function POST(request) {
             // For credentials, store password and notes normally
             secretData.password = body.password || '';
             secretData.notes = body.notes || '';
+            // Store 2FA type preference if provided
+            if (body.twoFactorType !== undefined) {
+                secretData.twoFactorType = body.twoFactorType;
+            }
         }
         // Encrypt the secret blob
         const secretBlobEncrypted = encrypt(JSON.stringify(secretData));

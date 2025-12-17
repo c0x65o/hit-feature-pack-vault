@@ -47,10 +47,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Check if user has READ_WRITE permission on the item (via ACL)
-    const itemAccessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+    // Check if user has full access (MANAGE_ACL) or is admin - only full access users/admins can move items
+    const itemAccessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['MANAGE_ACL'] });
     if (!itemAccessCheck.hasAccess) {
-      return NextResponse.json({ error: 'Forbidden: ' + (itemAccessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden: ' + (itemAccessCheck.reason || 'Only users with full access or admins can move items') }, { status: 403 });
     }
 
     // Get source vault to check type
