@@ -1,9 +1,9 @@
 // src/server/api/vaults.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, desc, asc, like, sql, and, or, type AnyColumn } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultVaults, vaultAcls, vaultFolders } from '@/lib/feature-pack-schemas';
+import { eq, desc, asc, like, sql, and, or, inArray, type AnyColumn } from 'drizzle-orm';
+import { getUserId, extractUserFromRequest } from '../auth';
 
 // Required for Next.js App Router
 export const dynamic = 'force-dynamic';
@@ -38,9 +38,67 @@ export async function GET(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
+    
+    // Get full user info for role checking
+    const user = extractUserFromRequest(request);
+    const isAdmin = user?.roles?.includes('admin') || false;
+    
+    // Build principal IDs for ACL matching (user ID, email, and roles)
+    const userPrincipalIds = user ? [
+      user.sub,
+      user.email,
+      ...(user.roles || []),
+    ].filter(Boolean) as string[] : [userId];
+    
+    // Get vault IDs the user has folder-level ACL access to
+    // Non-admins ONLY see vaults if they have explicit folder-level ACL on at least one folder
+    const aclAccessibleVaultIds = new Set<string>();
+    
+    if (!isAdmin && userPrincipalIds.length > 0) {
+      // Get folder-level ACLs and find their vault IDs
+      // Vault-level ACLs do NOT grant visibility - must have folder ACL
+      const folderAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
+      const folderAcls = await db
+        .select({ resourceId: vaultAcls.resourceId })
+        .from(vaultAcls)
+        .where(
+          and(
+            eq(vaultAcls.resourceType, 'folder'),
+            or(...folderAclConditions)
+          )
+        );
+      
+      if (folderAcls.length > 0) {
+        const folderIds = folderAcls.map((acl: { resourceId: string }) => acl.resourceId);
+        const foldersWithVaults = await db
+          .select({ vaultId: vaultFolders.vaultId })
+          .from(vaultFolders)
+          .where(inArray(vaultFolders.id, folderIds));
+        
+        for (const folder of foldersWithVaults) {
+          aclAccessibleVaultIds.add(folder.vaultId);
+        }
+      }
+    }
+    
+    // Build access conditions:
+    // - Owned vaults (all users see their own personal vault)
+    // - Admins see ALL shared vaults automatically
+    // - Non-admins see shared vaults ONLY if they have folder-level ACL access
+    const accessConditions: ReturnType<typeof eq>[] = [eq(vaultVaults.ownerUserId, userId)];
+    
+    if (isAdmin) {
+      // Admins see all shared vaults
+      accessConditions.push(eq(vaultVaults.type, 'shared'));
+    } else if (aclAccessibleVaultIds.size > 0) {
+      // Non-admins see only vaults containing folders they have ACL access to
+      accessConditions.push(inArray(vaultVaults.id, Array.from(aclAccessibleVaultIds)));
+    }
+    
     // Build where conditions
-    const conditions: ReturnType<typeof eq>[] = [eq(vaultVaults.ownerUserId, userId)];
+    const conditions: ReturnType<typeof eq>[] = [
+      accessConditions.length > 1 ? or(...accessConditions)! : accessConditions[0]
+    ];
     if (search) {
       conditions.push(like(vaultVaults.name, `%${search}%`));
     }
@@ -96,6 +154,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/vault/vaults
  * Create a new vault (personal or shared)
+ * Only admins can create shared vaults
  */
 export async function POST(request: NextRequest) {
   try {
@@ -115,10 +174,23 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    
+    // Get full user info for role checking
+    const user = extractUserFromRequest(request);
+    const isAdmin = user?.roles?.includes('admin') || false;
+    
+    // Only admins can create shared vaults
+    const requestedType = (body.type as 'personal' | 'shared') || 'personal';
+    if (requestedType === 'shared' && !isAdmin) {
+      return NextResponse.json(
+        { error: 'Only administrators can create shared vaults' },
+        { status: 403 }
+      );
+    }
 
     const result = await db.insert(vaultVaults).values({
       name: body.name as string,
-      type: (body.type as 'personal' | 'shared') || 'personal',
+      type: requestedType,
       ownerUserId: userId,
       ownerOrgId: body.ownerOrgId || null,
       tenantId: body.tenantId || null,

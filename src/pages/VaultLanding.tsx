@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
 import { FolderAclModal } from '../components/FolderAclModal';
+import { isCurrentUserAdmin } from '../utils/user';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
 import {
   DndContext,
   DragOverlay,
@@ -49,6 +51,25 @@ export function VaultLanding({ onNavigate }: Props) {
   const [showMoveFolderModal, setShowMoveFolderModal] = useState<string | null>(null);
   const [showMoveItemModal, setShowMoveItemModal] = useState<string | null>(null);
   const [showAclModalFolderId, setShowAclModalFolderId] = useState<string | null>(null);
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailOtpPollingFor, setEmailOtpPollingFor] = useState<string | null>(null);
+  const [emailOtpCopiedFor, setEmailOtpCopiedFor] = useState<string | null>(null);
+  
+  // Check if current user is admin (for UI visibility)
+  const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
+
+  // Fetch global email address
+  useEffect(() => {
+    async function fetchGlobalEmail() {
+      try {
+        const result = await vaultApi.getGlobalEmailAddress();
+        setGlobalEmailAddress(result.emailAddress);
+      } catch (err) {
+        console.error('Failed to fetch global email address:', err);
+      }
+    }
+    fetchGlobalEmail();
+  }, []);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -65,7 +86,7 @@ export function VaultLanding({ onNavigate }: Props) {
       setLoading(true);
       const allVaults = await vaultApi.getVaults();
       
-      // Get or create single personal vault
+      // Get or create single personal vault (all users can have a personal vault)
       let personalVault = allVaults.find(v => v.type === 'personal');
       if (!personalVault) {
         personalVault = await vaultApi.createVault({
@@ -74,16 +95,18 @@ export function VaultLanding({ onNavigate }: Props) {
         });
       }
       
-      // Get or create single shared vault
+      // Only admins can create shared vaults; non-admins can only see shared vaults
+      // they have ACL access to (which would already be in allVaults)
       let sharedVault = allVaults.find(v => v.type === 'shared');
-      if (!sharedVault) {
+      if (!sharedVault && isAdmin) {
+        // Only admins can create the shared vault if it doesn't exist
         sharedVault = await vaultApi.createVault({
           type: 'shared',
           name: 'Shared Vault',
         });
       }
       
-      // Store both vaults
+      // Store vaults the user has access to
       const vaultsList = [personalVault, sharedVault].filter(Boolean) as VaultVault[];
       setVaults(vaultsList);
       
@@ -92,7 +115,7 @@ export function VaultLanding({ onNavigate }: Props) {
       if (vaultFilter === 'personal') {
         filteredVaults = [personalVault].filter(Boolean) as VaultVault[];
       } else if (vaultFilter === 'shared') {
-        filteredVaults = [sharedVault].filter(Boolean) as VaultVault[];
+        filteredVaults = sharedVault ? [sharedVault] : [];
       }
       
       // Load folders and items for filtered vaults
@@ -109,7 +132,7 @@ export function VaultLanding({ onNavigate }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [vaultFilter]);
+  }, [vaultFilter, isAdmin]);
 
   async function handleCreateFolder(name: string, parentId: string | null, vaultId: string) {
     try {
@@ -310,6 +333,54 @@ export function VaultLanding({ onNavigate }: Props) {
     }
   }
 
+  async function handleQuickEmailOtp(item: VaultItemRow) {
+    if (emailOtpPollingFor === item.id) return;
+    
+    setEmailOtpPollingFor(item.id);
+    const startTime = new Date();
+    
+    const pollForOtp = async () => {
+      try {
+        const since = startTime.toISOString();
+        const result = await vaultApi.getLatestEmailMessages({ since });
+        
+        for (const msg of result.messages) {
+          try {
+            const revealResult = await vaultApi.revealSmsMessage(msg.id);
+            const otpResult = extractOtpWithConfidence(revealResult.body);
+            if (otpResult.code) {
+              await navigator.clipboard.writeText(otpResult.code);
+              setEmailOtpPollingFor(null);
+              setEmailOtpCopiedFor(item.id);
+              setTimeout(() => setEmailOtpCopiedFor(null), 2000);
+              return true;
+            }
+          } catch (err) {
+            console.error('Failed to reveal email message:', err);
+          }
+        }
+        return false;
+      } catch (err) {
+        console.error('Failed to poll email messages:', err);
+        return false;
+      }
+    };
+    
+    // Poll every 2 seconds for up to 5 minutes
+    const interval = setInterval(async () => {
+      const found = await pollForOtp();
+      if (found) {
+        clearInterval(interval);
+      }
+    }, 2000);
+    
+    // Stop after 5 minutes
+    setTimeout(() => {
+      clearInterval(interval);
+      setEmailOtpPollingFor(null);
+    }, 5 * 60 * 1000);
+  }
+
   async function handleMoveFolder(folderId: string, newParentId: string | null) {
     try {
       await vaultApi.moveFolder(folderId, newParentId);
@@ -392,10 +463,15 @@ export function VaultLanding({ onNavigate }: Props) {
               options={[
                 { value: 'all', label: 'All Vaults' },
                 { value: 'personal', label: 'Personal Only' },
-                { value: 'shared', label: 'Shared Only' },
+                // Only show shared option if user has access to a shared vault
+                ...(vaults.some(v => v.type === 'shared') ? [{ value: 'shared', label: 'Shared Only' }] : []),
               ]}
             />
           </div>
+          <Button variant="secondary" onClick={() => loadData()} disabled={loading} title="Refresh">
+            <RefreshCw size={16} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
           <Button variant="secondary" onClick={() => setShowAddFolderModal(true)}>
             <FolderPlus size={16} className="mr-2" />
             Add Folder
@@ -424,7 +500,7 @@ export function VaultLanding({ onNavigate }: Props) {
                   <ItemRow
                     key={item.id}
                     item={item}
-                    folders={folders.filter(f => f.vaultId === item.vaultId)}
+                    folders={folders}
                     onNavigate={navigate}
                     onMoveItem={handleMoveItem}
                     onQuickTotp={handleQuickTotp}
@@ -433,6 +509,10 @@ export function VaultLanding({ onNavigate }: Props) {
                     onDeleteItem={handleDeleteItem}
                     showMoveItemModal={showMoveItemModal}
                     onShowMoveItemModal={setShowMoveItemModal}
+                    globalEmailAddress={globalEmailAddress}
+                    onQuickEmailOtp={handleQuickEmailOtp}
+                    emailOtpPolling={emailOtpPollingFor === item.id}
+                    emailOtpCopied={emailOtpCopiedFor === item.id}
                   />
                 ))}
               </div>
@@ -469,6 +549,10 @@ export function VaultLanding({ onNavigate }: Props) {
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={setShowMoveItemModal}
               onShowAclModal={setShowAclModalFolderId}
+              globalEmailAddress={globalEmailAddress}
+              onQuickEmailOtp={handleQuickEmailOtp}
+              emailOtpPollingFor={emailOtpPollingFor}
+              emailOtpCopiedFor={emailOtpCopiedFor}
             />
           ))}
 
@@ -525,6 +609,7 @@ export function VaultLanding({ onNavigate }: Props) {
           onSave={handleCreateFolder}
           vaults={vaults}
           folders={folders}
+          isAdmin={isAdmin}
         />
       )}
 
@@ -579,6 +664,10 @@ function FolderSection({
   showMoveItemModal,
   onShowMoveItemModal,
   onShowAclModal,
+  globalEmailAddress,
+  onQuickEmailOtp,
+  emailOtpPollingFor,
+  emailOtpCopiedFor,
   level = 0,
 }: {
   folder: VaultFolder;
@@ -601,6 +690,10 @@ function FolderSection({
   showMoveItemModal: string | null;
   onShowMoveItemModal: (itemId: string | null) => void;
   onShowAclModal: (folderId: string | null) => void;
+  globalEmailAddress: string | null;
+  onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
+  emailOtpPollingFor: string | null;
+  emailOtpCopiedFor: string | null;
   level?: number;
 }) {
   const { Button, Select } = useUi();
@@ -828,6 +921,10 @@ function FolderSection({
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={onShowMoveItemModal}
               onShowAclModal={onShowAclModal}
+              globalEmailAddress={globalEmailAddress}
+              onQuickEmailOtp={onQuickEmailOtp}
+              emailOtpPollingFor={emailOtpPollingFor}
+              emailOtpCopiedFor={emailOtpCopiedFor}
               level={level + 1}
             />
           ))}
@@ -838,7 +935,7 @@ function FolderSection({
             <ItemRow
               key={item.id}
               item={item}
-              folders={allFolders.filter(f => f.vaultId === item.vaultId)}
+              folders={allFolders}
               onNavigate={onNavigate}
               onMoveItem={onMoveItem}
               onQuickTotp={onQuickTotp}
@@ -848,6 +945,10 @@ function FolderSection({
               onDeleteItem={onDeleteItem}
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={onShowMoveItemModal}
+              globalEmailAddress={globalEmailAddress}
+              onQuickEmailOtp={onQuickEmailOtp}
+              emailOtpPolling={emailOtpPollingFor === item.id}
+              emailOtpCopied={emailOtpCopiedFor === item.id}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
@@ -873,6 +974,10 @@ function ItemRow({
   onDeleteItem,
   showMoveItemModal,
   onShowMoveItemModal,
+  globalEmailAddress,
+  onQuickEmailOtp,
+  emailOtpPolling,
+  emailOtpCopied,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -885,6 +990,10 @@ function ItemRow({
   onDeleteItem: (item: VaultItemRow) => Promise<void> | void;
   showMoveItemModal: string | null;
   onShowMoveItemModal: (itemId: string | null) => void;
+  globalEmailAddress: string | null;
+  onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
+  emailOtpPolling: boolean;
+  emailOtpCopied: boolean;
 }) {
   const { Button, Select } = useUi();
   
@@ -899,10 +1008,12 @@ function ItemRow({
     }
   };
 
-  // Get available folders for move dropdown (same vault only)
+  // Get available folders for move dropdown (all accessible folders, including shared folders via ACL)
   const availableFolders = useMemo(() => {
-    return folders.filter(f => f.vaultId === item.vaultId);
-  }, [folders, item.vaultId]);
+    // Folders prop already contains only folders user has access to (filtered by ACL on server)
+    // So we can show all folders, not just same vault
+    return folders;
+  }, [folders]);
 
   const folderOptions = [
     { value: '', label: 'No folder' },
@@ -917,6 +1028,10 @@ function ItemRow({
   ];
 
   const isEven = index % 2 === 0;
+  
+  // Check if item's username matches the global 2FA email address
+  const canUseEmailOtp = globalEmailAddress && item.username && 
+    item.username.toLowerCase() === globalEmailAddress.toLowerCase();
   
   return (
     <div
@@ -946,6 +1061,23 @@ function ItemRow({
       </div>
 
       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {canUseEmailOtp && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={emailOtpPolling}
+            title={emailOtpPolling ? 'Waiting for email OTP...' : 'Get email OTP code'}
+            onClick={() => onQuickEmailOtp(item)}
+          >
+            {emailOtpCopied ? (
+              <Check size={16} className="text-green-600" />
+            ) : emailOtpPolling ? (
+              <Loader2 size={16} className="animate-spin text-blue-500" />
+            ) : (
+              <Mail size={16} className="text-blue-500" />
+            )}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"

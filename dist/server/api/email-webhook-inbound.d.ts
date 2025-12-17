@@ -16,8 +16,8 @@ export declare const runtime = "nodejs";
  *    - Authenticated via Authorization: Bearer <token> or X-API-Key header
  */
 export declare function POST(request: NextRequest): Promise<NextResponse<{
-    error: string;
-}> | NextResponse<{
     success: boolean;
+}> | NextResponse<{
+    error: string;
 }>>;
 //# sourceMappingURL=email-webhook-inbound.d.ts.map

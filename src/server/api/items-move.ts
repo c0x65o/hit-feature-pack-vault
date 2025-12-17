@@ -1,9 +1,10 @@
 // src/server/api/items-move.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultItems, vaultFolders } from '@/lib/feature-pack-schemas';
+import { eq } from 'drizzle-orm';
+import { extractUserFromRequest } from '../auth';
+import { checkItemAccess, checkFolderAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -27,8 +28,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
-    const userId = getUserId(request);
-    if (!userId) {
+    const user = extractUserFromRequest(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -46,42 +47,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Verify user owns the vault
-    const [vault] = await db
-      .select()
-      .from(vaultVaults)
-      .where(and(
-        eq(vaultVaults.id, existing.vaultId),
-        eq(vaultVaults.ownerUserId, userId)
-      ))
-      .limit(1);
-
-    if (!vault) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    // Check if user has EDIT permission on the item (via ACL)
+    const itemAccessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['EDIT'] });
+    if (!itemAccessCheck.hasAccess) {
+      return NextResponse.json({ error: 'Forbidden: ' + (itemAccessCheck.reason || 'Insufficient permissions') }, { status: 403 });
     }
 
-    // If folderId provided, verify it exists in the same vault
+    // Determine target vault ID and folder
+    let targetVaultId = existing.vaultId;
+    
     if (folderId) {
+      // Get the target folder
       const [folder] = await db
         .select()
         .from(vaultFolders)
-        .where(and(
-          eq(vaultFolders.id, folderId),
-          eq(vaultFolders.vaultId, existing.vaultId)
-        ))
+        .where(eq(vaultFolders.id, folderId))
         .limit(1);
 
       if (!folder) {
         return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
       }
+
+      // Check if user has access to the target folder (via ACL)
+      const folderAccessCheck = await checkFolderAccess(db, folderId, user);
+      if (!folderAccessCheck.hasAccess) {
+        return NextResponse.json({ error: 'Forbidden: No access to target folder' }, { status: 403 });
+      }
+
+      // When moving to a folder in a different vault, update the item's vaultId
+      targetVaultId = folder.vaultId;
     }
 
     const [item] = await db
       .update(vaultItems)
       .set({
         folderId: folderId,
+        vaultId: targetVaultId, // Update vaultId if moving to a different vault
         updatedAt: new Date(),
-        updatedBy: userId,
+        updatedBy: user.sub,
       })
       .where(eq(vaultItems.id, id))
       .returning();

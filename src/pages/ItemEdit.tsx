@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon } from 'lucide-react';
+import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon, Mail, Phone, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { InsertVaultItem, VaultItem } from '../schema/vault';
-import { extractOtpCode } from '../utils/otp-extractor';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
 
 interface Props {
   itemId?: string;
@@ -13,7 +13,7 @@ interface Props {
 }
 
 type ItemType = 'credential' | 'api_key' | 'secure_note';
-type TwoFactorType = 'off' | 'qr' | 'phone';
+type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
 
 export function ItemEdit({ itemId, onNavigate }: Props) {
   const { Page, Card, Button, Input, Alert, Select } = useUi();
@@ -37,11 +37,19 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [pollingSms, setPollingSms] = useState(false);
   const [otpCode, setOtpCode] = useState<string | null>(null);
+  const [otpConfidence, setOtpConfidence] = useState<'high' | 'medium' | 'low' | 'none'>('none');
+  const [otpFullMessage, setOtpFullMessage] = useState<string | null>(null);
+  const [showFullMessage, setShowFullMessage] = useState(false);
   const [latestMessageTime, setLatestMessageTime] = useState<Date | null>(null);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
   const lastPollTimeRef = useRef<Date | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Email 2FA state
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
+  const [pollingEmail, setPollingEmail] = useState(false);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -53,6 +61,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
       loadItem();
     }
     loadGlobalPhoneNumber();
+    loadGlobalEmailAddress();
   }, [itemId]);
 
   useEffect(() => {
@@ -124,11 +133,34 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     }
   }
 
+  async function loadGlobalEmailAddress() {
+    try {
+      const result = await vaultApi.getGlobalEmailAddress();
+      setGlobalEmailAddress(result.emailAddress);
+    } catch (err) {
+      console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function copyEmailAddress() {
+    if (!globalEmailAddress) return;
+    try {
+      await navigator.clipboard.writeText(globalEmailAddress);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy email address:', err);
+    }
+  }
+
   async function startSmsPolling() {
     if (pollingSms) return;
     
     setPollingSms(true);
     setOtpCode(null);
+    setOtpConfidence('none');
+    setOtpFullMessage(null);
+    setShowFullMessage(false);
     setLatestMessageTime(null);
     lastPollTimeRef.current = new Date();
 
@@ -142,9 +174,11 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
         for (const msg of result.messages) {
           try {
             const revealResult = await vaultApi.revealSmsMessage(msg.id);
-            const code = extractOtpCode(revealResult.body);
-            if (code) {
-              setOtpCode(code);
+            const otpResult = extractOtpWithConfidence(revealResult.body);
+            if (otpResult.code) {
+              setOtpCode(otpResult.code);
+              setOtpConfidence(otpResult.confidence);
+              setOtpFullMessage(otpResult.fullMessage);
               setLatestMessageTime(new Date(msg.receivedAt));
               setPollingSms(false);
               if (pollingIntervalRef.current) {
@@ -175,6 +209,65 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
         pollingIntervalRef.current = null;
       }
       setPollingSms(false);
+    }, 5 * 60 * 1000);
+  }
+
+  async function startEmailPolling() {
+    if (pollingEmail) return;
+    
+    setPollingEmail(true);
+    setOtpCode(null);
+    setOtpConfidence('none');
+    setOtpFullMessage(null);
+    setShowFullMessage(false);
+    setLatestMessageTime(null);
+    lastPollTimeRef.current = new Date();
+
+    // Poll every 2 seconds
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const since = lastPollTimeRef.current?.toISOString();
+        const result = await vaultApi.getLatestEmailMessages({ since });
+        
+        // Check each message for OTP code
+        for (const msg of result.messages) {
+          try {
+            const revealResult = await vaultApi.revealSmsMessage(msg.id);
+            const otpResult = extractOtpWithConfidence(revealResult.body);
+            if (otpResult.code) {
+              setOtpCode(otpResult.code);
+              setOtpConfidence(otpResult.confidence);
+              setOtpFullMessage(otpResult.fullMessage);
+              setLatestMessageTime(new Date(msg.receivedAt));
+              setPollingEmail(false);
+              if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+              }
+              return;
+            }
+            // Update latest message time even if no code extracted
+            if (msg.receivedAt) {
+              setLatestMessageTime(new Date(msg.receivedAt));
+            }
+          } catch (err) {
+            console.error('Failed to reveal email message:', err);
+          }
+        }
+        
+        lastPollTimeRef.current = new Date();
+      } catch (err) {
+        console.error('Failed to poll email messages:', err);
+      }
+    }, 2000);
+
+    // Stop polling after 5 minutes
+    setTimeout(() => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      setPollingEmail(false);
     }, 5 * 60 * 1000);
   }
 
@@ -226,12 +319,13 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     }
   }
 
-  function stopSmsPolling() {
+  function stopPolling() {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
     setPollingSms(false);
+    setPollingEmail(false);
   }
 
   async function handleSave() {
@@ -246,7 +340,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     try {
       setSaving(true);
       // Stop polling if active
-      stopSmsPolling();
+      stopPolling();
       
       const itemData: any = {
         ...formData,
@@ -390,15 +484,19 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                   onChange={(value: string) => {
                     const newType = value as TwoFactorType;
                     setTwoFactorType(newType);
-                    if (newType !== 'phone') {
-                      stopSmsPolling();
+                    if (newType !== 'phone' && newType !== 'email') {
+                      stopPolling();
                       setOtpCode(null);
+                      setOtpConfidence('none');
+                      setOtpFullMessage(null);
+                      setShowFullMessage(false);
                     }
                   }}
                   options={[
                     { value: 'off', label: 'Off' },
                     { value: 'qr', label: 'QR Code (TOTP)' },
                     { value: 'phone', label: 'Phone Number (SMS)' },
+                    { value: 'email', label: 'Email' },
                   ]}
                 />
               </div>
@@ -408,7 +506,8 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                   {globalPhoneNumber ? (
                     <>
                       <div>
-                        <label className="text-sm font-medium text-muted-foreground">
+                        <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                          <Phone size={14} />
                           Registered Phone Number
                         </label>
                         <div className="flex items-center gap-2 mt-1">
@@ -439,13 +538,14 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                           size="sm"
                           onClick={startSmsPolling}
                         >
+                          <MessageSquare size={16} className="mr-2" />
                           Start Waiting for SMS
                         </Button>
                       )}
                       
                       {pollingSms && (
                         <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-muted-foreground animate-pulse">
                             {latestMessageTime 
                               ? `Waiting for SMS message... Last message: ${formatTimeAgo(latestMessageTime)}`
                               : 'Waiting for SMS message...'}
@@ -453,7 +553,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={stopSmsPolling}
+                            onClick={stopPolling}
                           >
                             Stop Polling
                           </Button>
@@ -461,9 +561,21 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                       )}
                       
                       {otpCode && (
-                        <div className="p-3 bg-background rounded-md border-2 border-green-500">
-                          <label className="text-sm font-medium text-green-600">
-                            OTP Code Received
+                        <div className={`p-3 bg-background rounded-md border-2 ${
+                          otpConfidence === 'high' 
+                            ? 'border-green-500' 
+                            : otpConfidence === 'medium' 
+                              ? 'border-yellow-500' 
+                              : 'border-gray-400'
+                        }`}>
+                          <label className={`text-sm font-medium ${
+                            otpConfidence === 'high' 
+                              ? 'text-green-600' 
+                              : otpConfidence === 'medium' 
+                                ? 'text-yellow-600' 
+                                : 'text-gray-600'
+                          }`}>
+                            OTP Code Received ({otpConfidence} confidence)
                             {latestMessageTime && (
                               <span className="text-xs font-normal text-muted-foreground ml-2">
                                 ({formatTimeAgo(latestMessageTime)})
@@ -486,12 +598,154 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                               <Copy size={16} />
                             </Button>
                           </div>
+                          
+                          {otpConfidence !== 'high' && otpFullMessage && (
+                            <div className="mt-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowFullMessage(!showFullMessage)}
+                              >
+                                {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                              </Button>
+                              {showFullMessage && (
+                                <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                  {otpFullMessage}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </>
                   ) : (
                     <Alert variant="warning" title="No Phone Number Configured">
                       A global admin must configure a phone number in the vault settings.
+                    </Alert>
+                  )}
+                </div>
+              )}
+
+              {twoFactorType === 'email' && (
+                <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
+                  {globalEmailAddress ? (
+                    <>
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                          <Mail size={14} />
+                          2FA Email Address
+                        </label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-sm font-mono bg-background px-2 py-1 rounded">
+                            {globalEmailAddress}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={copyEmailAddress}
+                            title="Copy to clipboard"
+                          >
+                            {emailCopied ? (
+                              <Check size={16} className="text-green-600" />
+                            ) : (
+                              <Copy size={16} />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          When the service sends a 2FA code to this email, it will be automatically detected.
+                        </p>
+                      </div>
+                      
+                      {!pollingEmail && !otpCode && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={startEmailPolling}
+                        >
+                          <Mail size={16} className="mr-2" />
+                          Start Waiting for Email
+                        </Button>
+                      )}
+                      
+                      {pollingEmail && (
+                        <div className="space-y-2">
+                          <p className="text-sm text-muted-foreground animate-pulse">
+                            {latestMessageTime 
+                              ? `Waiting for email message... Last message: ${formatTimeAgo(latestMessageTime)}`
+                              : 'Waiting for email message...'}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={stopPolling}
+                          >
+                            Stop Polling
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {otpCode && (
+                        <div className={`p-3 bg-background rounded-md border-2 ${
+                          otpConfidence === 'high' 
+                            ? 'border-green-500' 
+                            : otpConfidence === 'medium' 
+                              ? 'border-yellow-500' 
+                              : 'border-gray-400'
+                        }`}>
+                          <label className={`text-sm font-medium ${
+                            otpConfidence === 'high' 
+                              ? 'text-green-600' 
+                              : otpConfidence === 'medium' 
+                                ? 'text-yellow-600' 
+                                : 'text-gray-600'
+                          }`}>
+                            OTP Code Received ({otpConfidence} confidence)
+                            {latestMessageTime && (
+                              <span className="text-xs font-normal text-muted-foreground ml-2">
+                                ({formatTimeAgo(latestMessageTime)})
+                              </span>
+                            )}
+                          </label>
+                          <div className="flex items-center gap-2 mt-2">
+                            <code className="text-2xl font-mono font-bold">
+                              {otpCode}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                navigator.clipboard.writeText(otpCode);
+                                setEmailCopied(true);
+                                setTimeout(() => setEmailCopied(false), 2000);
+                              }}
+                            >
+                              <Copy size={16} />
+                            </Button>
+                          </div>
+                          
+                          {otpConfidence !== 'high' && otpFullMessage && (
+                            <div className="mt-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowFullMessage(!showFullMessage)}
+                              >
+                                {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                              </Button>
+                              {showFullMessage && (
+                                <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                  {otpFullMessage}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <Alert variant="warning" title="No Email Address Configured">
+                      A global admin must configure a 2FA email address in the vault settings.
                     </Alert>
                   )}
                 </div>

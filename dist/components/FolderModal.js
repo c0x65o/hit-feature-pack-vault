@@ -3,7 +3,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
 import { Save } from 'lucide-react';
-export function FolderModal({ onClose, onSave, vaults, folders }) {
+export function FolderModal({ onClose, onSave, vaults, folders, isAdmin = false }) {
     const { Modal, Button, Input, Select, Alert } = useUi();
     const [open, setOpen] = useState(true);
     const [name, setName] = useState('');
@@ -15,6 +15,9 @@ export function FolderModal({ onClose, onSave, vaults, folders }) {
     // Get single vaults by type (there should only be one of each)
     const personalVault = vaults.find(v => v.type === 'personal');
     const sharedVault = vaults.find(v => v.type === 'shared');
+    // Only admins can CREATE folders in the shared vault
+    // Non-admin users can see folders via ACL but cannot create new ones
+    const canCreateInShared = isAdmin && !!sharedVault;
     useEffect(() => {
         // When scope changes, update vaultId to the appropriate single vault
         if (scope === 'personal') {
@@ -60,10 +63,10 @@ export function FolderModal({ onClose, onSave, vaults, folders }) {
         setOpen(false);
         onClose();
     };
-    return (_jsx(Modal, { open: open, title: "Create Folder", onClose: handleClose, children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Scope *" }), _jsx("p", { className: "text-xs text-muted-foreground mt-1 mb-2", children: "Choose whether this folder is personal (only you can access) or shared (controlled by folder sharing)" }), _jsx(Select, { value: scope, onChange: (value) => setScope(value), options: [
+    return (_jsx(Modal, { open: open, title: "Create Folder", onClose: handleClose, children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), canCreateInShared ? (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Scope *" }), _jsx("p", { className: "text-xs text-muted-foreground mt-1 mb-2", children: "Choose whether this folder is personal (only you can access) or shared (controlled by folder sharing)" }), _jsx(Select, { value: scope, onChange: (value) => setScope(value), options: [
                                 { value: 'personal', label: 'Personal (only you can access)' },
                                 { value: 'shared', label: 'Shared (controlled by folder sharing)' },
-                            ] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Folder Name *" }), _jsx(Input, { value: name, onChange: (value) => setName(value), placeholder: "e.g., Work, Personal" })] }), rootFolders.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Parent Folder (Optional)" }), _jsx(Select, { value: parentId || '', onChange: (value) => setParentId(value || null), options: [
+                            ] })] })) : (_jsx("p", { className: "text-sm text-muted-foreground", children: "This folder will be added to your personal vault." })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Folder Name *" }), _jsx(Input, { value: name, onChange: (value) => setName(value), placeholder: "e.g., Work, Personal" })] }), rootFolders.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Parent Folder (Optional)" }), _jsx(Select, { value: parentId || '', onChange: (value) => setParentId(value || null), options: [
                                 { value: '', label: 'Root (no parent)' },
                                 ...rootFolders.map(f => ({
                                     value: f.id,

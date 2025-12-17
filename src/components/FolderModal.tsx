@@ -10,9 +10,10 @@ interface Props {
   onSave: (name: string, parentId: string | null, vaultId: string) => Promise<void>;
   vaults: VaultVault[];
   folders: VaultFolder[];
+  isAdmin?: boolean;
 }
 
-export function FolderModal({ onClose, onSave, vaults, folders }: Props) {
+export function FolderModal({ onClose, onSave, vaults, folders, isAdmin = false }: Props) {
   const { Modal, Button, Input, Select, Alert } = useUi();
   const [open, setOpen] = useState(true);
   const [name, setName] = useState('');
@@ -25,6 +26,10 @@ export function FolderModal({ onClose, onSave, vaults, folders }: Props) {
   // Get single vaults by type (there should only be one of each)
   const personalVault = vaults.find(v => v.type === 'personal');
   const sharedVault = vaults.find(v => v.type === 'shared');
+  
+  // Only admins can CREATE folders in the shared vault
+  // Non-admin users can see folders via ACL but cannot create new ones
+  const canCreateInShared = isAdmin && !!sharedVault;
   
   useEffect(() => {
     // When scope changes, update vaultId to the appropriate single vault
@@ -88,20 +93,26 @@ export function FolderModal({ onClose, onSave, vaults, folders }: Props) {
           </Alert>
         )}
 
-        <div>
-          <label className="text-sm font-medium">Scope *</label>
-          <p className="text-xs text-muted-foreground mt-1 mb-2">
-            Choose whether this folder is personal (only you can access) or shared (controlled by folder sharing)
+        {canCreateInShared ? (
+          <div>
+            <label className="text-sm font-medium">Scope *</label>
+            <p className="text-xs text-muted-foreground mt-1 mb-2">
+              Choose whether this folder is personal (only you can access) or shared (controlled by folder sharing)
+            </p>
+            <Select
+              value={scope}
+              onChange={(value) => setScope(value as 'personal' | 'shared')}
+              options={[
+                { value: 'personal', label: 'Personal (only you can access)' },
+                { value: 'shared', label: 'Shared (controlled by folder sharing)' },
+              ]}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This folder will be added to your personal vault.
           </p>
-          <Select
-            value={scope}
-            onChange={(value) => setScope(value as 'personal' | 'shared')}
-            options={[
-              { value: 'personal', label: 'Personal (only you can access)' },
-              { value: 'shared', label: 'Shared (controlled by folder sharing)' },
-            ]}
-          />
-        </div>
+        )}
 
         <div>
           <label className="text-sm font-medium">Folder Name *</label>

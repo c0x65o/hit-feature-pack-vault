@@ -1,12 +1,13 @@
 'use client';
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
+import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Check, Edit2, X, ChevronDown, Wifi, WifiOff } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import { extractOtpCode } from '../utils/otp-extractor';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { useOtpSubscription, isWebSocketAvailable } from '../hooks/useOtpSubscription';
 export function VaultSetup({ onNavigate }) {
-    const { Page, Card, Button, Alert } = useUi();
+    const { Page, Card, Button, Alert, Input } = useUi();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [smsNumbers, setSmsNumbers] = useState([]);
@@ -18,6 +19,38 @@ export function VaultSetup({ onNavigate }) {
     const [loadingWebhookLogs, setLoadingWebhookLogs] = useState(false);
     const [webhookApiKey, setWebhookApiKey] = useState(null);
     const [generatingApiKey, setGeneratingApiKey] = useState(false);
+    const [expandedLogSections, setExpandedLogSections] = useState(new Set());
+    // Email configuration state
+    const [globalEmailAddress, setGlobalEmailAddress] = useState(null);
+    const [editingEmail, setEditingEmail] = useState(false);
+    const [emailInput, setEmailInput] = useState('');
+    const [savingEmail, setSavingEmail] = useState(false);
+    // Email messages state
+    const [emailMessages, setEmailMessages] = useState([]);
+    const [loadingEmailMessages, setLoadingEmailMessages] = useState(false);
+    const [expandedEmailId, setExpandedEmailId] = useState(null);
+    // WebSocket-based OTP subscription - this establishes the connection and enables real-time updates
+    const otpSubscription = useOtpSubscription({
+        type: 'all',
+        enabled: true, // Always listen for incoming OTP messages
+        onOtpReceived: async (result) => {
+            // When OTP is received via WebSocket, refresh the message lists
+            console.log('[VaultSetup] Real-time OTP received:', result.notification.type, result.code);
+            if (result.notification.type === 'email') {
+                loadEmailMessages();
+            }
+            else if (result.notification.type === 'sms' && selectedSmsNumberId) {
+                loadMessages(selectedSmsNumberId);
+            }
+        },
+    });
+    // WebSocket status from the subscription
+    const wsStatus = otpSubscription.connectionType === 'websocket'
+        ? 'connected'
+        : otpSubscription.connectionType === 'polling'
+            ? 'polling'
+            : 'disconnected';
+    const wsAvailable = isWebSocketAvailable();
     const navigate = (path) => {
         if (onNavigate)
             onNavigate(path);
@@ -28,7 +61,22 @@ export function VaultSetup({ onNavigate }) {
         loadData();
         loadWebhookLogs();
         loadWebhookApiKey();
+        loadGlobalEmailAddress();
     }, []);
+    useEffect(() => {
+        // Load email messages when global email is configured
+        if (globalEmailAddress) {
+            loadEmailMessages();
+            // Auto-refresh email messages every 5 seconds
+            const interval = setInterval(() => {
+                loadEmailMessages();
+            }, 5000);
+            return () => clearInterval(interval);
+        }
+        else {
+            setEmailMessages([]);
+        }
+    }, [globalEmailAddress]);
     useEffect(() => {
         if (selectedSmsNumberId) {
             loadMessages(selectedSmsNumberId);
@@ -151,6 +199,78 @@ export function VaultSetup({ onNavigate }) {
             setError(err instanceof Error ? err : new Error('Failed to reveal message'));
         }
     }
+    async function loadGlobalEmailAddress() {
+        try {
+            const result = await vaultApi.getGlobalEmailAddress();
+            setGlobalEmailAddress(result.emailAddress);
+            setEmailInput(result.emailAddress || '');
+        }
+        catch (err) {
+            console.error('Failed to load global email address:', err);
+        }
+    }
+    async function saveGlobalEmailAddress() {
+        if (!emailInput.trim()) {
+            return;
+        }
+        try {
+            setSavingEmail(true);
+            setError(null);
+            await vaultApi.setGlobalEmailAddress(emailInput.trim());
+            setGlobalEmailAddress(emailInput.trim());
+            setEditingEmail(false);
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to save email address'));
+        }
+        finally {
+            setSavingEmail(false);
+        }
+    }
+    async function deleteGlobalEmailAddress() {
+        if (!confirm('Remove the global 2FA email address?')) {
+            return;
+        }
+        try {
+            setSavingEmail(true);
+            setError(null);
+            await vaultApi.deleteGlobalEmailAddress();
+            setGlobalEmailAddress(null);
+            setEmailInput('');
+            setEditingEmail(false);
+        }
+        catch (err) {
+            setError(err instanceof Error ? err : new Error('Failed to delete email address'));
+        }
+        finally {
+            setSavingEmail(false);
+        }
+    }
+    async function loadEmailMessages() {
+        try {
+            setLoadingEmailMessages(true);
+            const result = await vaultApi.getLatestEmailMessages();
+            setEmailMessages(result.messages);
+            // Automatically reveal the most recent message if it's within 5 minutes
+            if (result.messages.length > 0) {
+                const mostRecent = result.messages[0];
+                const receivedAt = new Date(mostRecent.receivedAt);
+                const now = new Date();
+                const diffMs = now.getTime() - receivedAt.getTime();
+                const diffMins = diffMs / (1000 * 60);
+                // If message is within 5 minutes, try to reveal it
+                if (diffMins <= 5) {
+                    await handleRevealMessage(mostRecent.id);
+                }
+            }
+        }
+        catch (err) {
+            console.error('Failed to load email messages:', err);
+        }
+        finally {
+            setLoadingEmailMessages(false);
+        }
+    }
     if (loading) {
         return (_jsx(Page, { title: "Setup", description: "Loading...", children: _jsx("div", { className: "text-center py-8 text-muted-foreground", children: "Loading..." }) }));
     }
@@ -158,7 +278,28 @@ export function VaultSetup({ onNavigate }) {
         { label: 'Vault', href: '/vault/personal', icon: _jsx(LockIcon, { size: 14 }) },
         { label: 'Setup', icon: _jsx(Settings, { size: 14 }) },
     ];
-    return (_jsxs(Page, { title: "Setup", breadcrumbs: breadcrumbs, onNavigate: navigate, description: "Configure webhooks for SMS (F-Droid) and Email (Power Automate) forwarding", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs("div", { className: "space-y-6", children: [_jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-6", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-2", children: "Webhook Configuration" }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Configure F-Droid (SMS) or Power Automate (Email) to forward messages to these webhooks. Phone numbers and email addresses don't need to be pre-configured - any message sent to the webhook will be stored." })] }), _jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h3", { className: "text-md font-semibold", children: "SMS Webhook (F-Droid)" }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => {
+    return (_jsxs(Page, { title: "Setup", breadcrumbs: breadcrumbs, onNavigate: navigate, description: "Configure webhooks for SMS (F-Droid) and Email (Power Automate) forwarding", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), _jsxs("div", { className: "space-y-6", children: [_jsxs("div", { className: "flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border", children: [_jsx("div", { className: "flex items-center gap-2", children: wsStatus === 'connected' ? (_jsxs(_Fragment, { children: [_jsxs("span", { className: "relative flex h-3 w-3", children: [_jsx("span", { className: "animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" }), _jsx("span", { className: "relative inline-flex rounded-full h-3 w-3 bg-green-500" })] }), _jsx(Wifi, { size: 18, className: "text-green-500" }), _jsx("span", { className: "text-sm font-medium text-green-600 dark:text-green-400", children: "WebSocket Connected" })] })) : wsStatus === 'polling' ? (_jsxs(_Fragment, { children: [_jsxs("span", { className: "relative flex h-3 w-3", children: [_jsx("span", { className: "animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" }), _jsx("span", { className: "relative inline-flex rounded-full h-3 w-3 bg-yellow-500" })] }), _jsx(RefreshCw, { size: 18, className: "text-yellow-500 animate-spin", style: { animationDuration: '2s' } }), _jsx("span", { className: "text-sm font-medium text-yellow-600 dark:text-yellow-400", children: "Polling Active" })] })) : !wsAvailable ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "relative flex h-3 w-3", children: _jsx("span", { className: "relative inline-flex rounded-full h-3 w-3 bg-gray-400" }) }), _jsx(WifiOff, { size: 18, className: "text-gray-400" }), _jsx("span", { className: "text-sm font-medium text-gray-500", children: "WebSocket Unavailable" })] })) : (_jsxs(_Fragment, { children: [_jsx("span", { className: "relative flex h-3 w-3", children: _jsx("span", { className: "relative inline-flex rounded-full h-3 w-3 bg-gray-400" }) }), _jsx(WifiOff, { size: 18, className: "text-gray-400" }), _jsx("span", { className: "text-sm font-medium text-gray-500", children: "Disconnected" })] })) }), _jsx("span", { className: "text-xs text-muted-foreground", children: wsStatus === 'connected'
+                                    ? 'OTP codes will appear instantly when received'
+                                    : wsStatus === 'polling'
+                                        ? 'OTP codes detected via polling (every 2s)'
+                                        : 'Waiting for connection...' })] }), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-6", children: [_jsxs("div", { children: [_jsxs("h2", { className: "text-lg font-semibold mb-2 flex items-center gap-2", children: [_jsx(Mail, { size: 20 }), "2FA Email Address"] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Configure the email address used for receiving 2FA codes. When adding vault items with email-based 2FA, incoming emails to this address will be matched for OTP extraction." })] }), _jsxs("div", { className: "space-y-3", children: [editingEmail ? (_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Input, { value: emailInput, onChange: (value) => setEmailInput(value), placeholder: "operations@yourcompany.com", className: "flex-1" }), _jsx(Button, { variant: "primary", size: "sm", onClick: saveGlobalEmailAddress, disabled: savingEmail || !emailInput.trim(), children: savingEmail ? 'Saving...' : _jsx(Check, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => {
+                                                        setEditingEmail(false);
+                                                        setEmailInput(globalEmailAddress || '');
+                                                    }, children: _jsx(X, { size: 16 }) })] })) : globalEmailAddress ? (_jsxs("div", { className: "flex items-center justify-between bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Mail, { size: 16, className: "text-muted-foreground" }), _jsx("code", { className: "text-sm font-mono", children: globalEmailAddress })] }), _jsxs("div", { className: "flex gap-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setEditingEmail(true), children: _jsx(Edit2, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: deleteGlobalEmailAddress, className: "text-red-500 hover:text-red-600", children: _jsx(X, { size: 16 }) })] })] })) : (_jsxs("div", { className: "space-y-3", children: [_jsx(Alert, { variant: "info", title: "No Email Address Configured", children: _jsx("p", { className: "text-sm mt-2", children: "Set up a 2FA email address to enable email-based OTP code extraction." }) }), _jsxs(Button, { variant: "primary", size: "sm", onClick: () => setEditingEmail(true), children: [_jsx(Mail, { size: 16, className: "mr-2" }), "Configure Email Address"] })] })), _jsx("p", { className: "text-xs text-muted-foreground", children: "When you add a vault item with \"Email\" 2FA, the system will poll for incoming emails matching this address and automatically extract OTP codes." })] })] }) }), globalEmailAddress && (_jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("h2", { className: "text-lg font-semibold flex items-center gap-2", children: [_jsx(Mail, { size: 20 }), "Email Inbox (Debug)"] }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: loadEmailMessages, disabled: loadingEmailMessages, children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loadingEmailMessages ? 'animate-spin' : ''}` }), "Refresh"] })] }), _jsxs("p", { className: "text-sm text-muted-foreground", children: ["Emails matching ", _jsx("code", { className: "font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded", children: globalEmailAddress }), " will appear here."] }), loadingEmailMessages ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "Loading emails..." })) : emailMessages.length === 0 ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "No email messages received yet" })) : (_jsx("div", { className: "space-y-2 max-h-96 overflow-y-auto", children: emailMessages.map(msg => {
+                                        const revealedBody = revealedMessages.get(msg.id);
+                                        const isRevealed = !!revealedBody;
+                                        const otpResult = isRevealed && revealedBody ? extractOtpWithConfidence(revealedBody) : null;
+                                        const showFullMessage = expandedEmailId === msg.id;
+                                        return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm flex-1", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.from] }), msg.subject && (_jsxs("div", { className: "text-muted-foreground text-xs mt-0.5", children: ["Subject: ", msg.subject] })), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), otpResult && otpResult.code && (_jsxs("div", { className: `mb-2 p-3 rounded-md border-2 ${otpResult.confidence === 'high'
+                                                        ? 'bg-green-50 dark:bg-green-900/20 border-green-500'
+                                                        : otpResult.confidence === 'medium'
+                                                            ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                                                            : 'bg-gray-50 dark:bg-gray-800 border-gray-400'}`, children: [_jsxs("div", { className: "flex items-center justify-between mb-2", children: [_jsxs("label", { className: `text-sm font-medium ${otpResult.confidence === 'high'
+                                                                        ? 'text-green-600 dark:text-green-400'
+                                                                        : otpResult.confidence === 'medium'
+                                                                            ? 'text-yellow-600 dark:text-yellow-400'
+                                                                            : 'text-gray-600 dark:text-gray-400'}`, children: ["OTP Code Detected (", otpResult.confidence, " confidence)"] }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpResult.code }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpResult.code), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), isRevealed && (_jsxs("div", { className: "space-y-2", children: [(!otpResult || !otpResult.code || otpResult.confidence !== 'high') && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setExpandedEmailId(showFullMessage ? null : msg.id), children: showFullMessage ? 'Hide Full Message' : 'Show Full Message' })), showFullMessage && (_jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap", children: revealedBody }))] }))] }, msg.id));
+                                    }) }))] }) })), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-6", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-lg font-semibold mb-2", children: "Webhook Configuration" }), _jsx("p", { className: "text-sm text-muted-foreground", children: "Configure F-Droid (SMS) or Power Automate (Email) to forward messages to these webhooks. Phone numbers and email addresses don't need to be pre-configured - any message sent to the webhook will be stored." })] }), _jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h3", { className: "text-md font-semibold", children: "SMS Webhook (F-Droid)" }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => {
                                                         const url = typeof window !== 'undefined'
                                                             ? `${window.location.origin}/api/vault/sms/webhook/inbound`
                                                             : '/api/vault/sms/webhook/inbound';
@@ -188,13 +329,47 @@ export function VaultSetup({ onNavigate }) {
                                                             }, children: [_jsx(Copy, { size: 16, className: "mr-2" }), "Copy Key"] })), _jsx(Button, { variant: "primary", size: "sm", onClick: handleGenerateApiKey, disabled: generatingApiKey, children: generatingApiKey ? 'Generating...' : webhookApiKey ? 'Regenerate' : 'Generate' })] })] }), webhookApiKey ? (_jsx("div", { className: "bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border", children: _jsx("code", { className: "text-sm font-mono break-all", children: webhookApiKey }) })) : (_jsx(Alert, { variant: "warning", title: "No API Key Configured", children: _jsx("p", { className: "text-sm mt-2", children: "Generate an API key to secure your webhooks. This key is shared between F-Droid (SMS) and Power Automate (Email) webhooks." }) })), _jsxs("p", { className: "text-xs text-muted-foreground", children: ["Use this API key in the ", _jsxs("code", { className: "font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded", children: ["Authorization: Bearer ", '<API_KEY>'] }), " header or ", _jsx("code", { className: "font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded", children: "X-API-Key" }), " header for both webhooks."] })] })] }) }), smsNumbers.length > 0 && (_jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h2", { className: "text-lg font-semibold", children: "SMS Inbox (Debug)" }), selectedSmsNumberId && (_jsxs(Button, { variant: "secondary", size: "sm", onClick: () => selectedSmsNumberId && loadMessages(selectedSmsNumberId), disabled: loadingMessages, children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loadingMessages ? 'animate-spin' : ''}` }), "Refresh"] }))] }), smsNumbers.length > 1 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Select SMS Number" }), _jsx("select", { value: selectedSmsNumberId || '', onChange: (e) => setSelectedSmsNumberId(e.target.value || null), className: "w-full mt-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800", children: smsNumbers.map(num => (_jsxs("option", { value: num.id, children: [num.phoneNumber, " (", num.vaultId ? 'Vault-specific' : 'Global', ")"] }, num.id))) })] })), selectedSmsNumberId && (_jsx("div", { className: "space-y-2", children: loadingMessages ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "Loading messages..." })) : messages.length === 0 ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "No messages received yet" })) : (_jsx("div", { className: "space-y-2 max-h-96 overflow-y-auto", children: messages.map(msg => {
                                             const revealedBody = revealedMessages.get(msg.id);
                                             const isRevealed = !!revealedBody;
-                                            const messageBody = isRevealed ? revealedBody : '••••••••';
-                                            const otpCode = isRevealed && revealedBody ? extractOtpCode(revealedBody) : null;
-                                            return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.fromNumber] }), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), otpCode && (_jsxs("div", { className: "mb-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border-2 border-green-500", children: [_jsxs("div", { className: "flex items-center justify-between mb-2", children: [_jsx("label", { className: "text-sm font-medium text-green-600 dark:text-green-400", children: "OTP Code Detected" }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpCode), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), _jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border", children: messageBody })] }, msg.id));
+                                            const otpResult = isRevealed && revealedBody ? extractOtpWithConfidence(revealedBody) : null;
+                                            const showFullMessage = expandedEmailId === `sms-${msg.id}`;
+                                            return (_jsxs("div", { className: "p-3 border rounded-lg bg-gray-50 dark:bg-gray-900", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "text-sm", children: [_jsxs("div", { className: "font-medium", children: ["From: ", msg.fromNumber] }), _jsx("div", { className: "text-muted-foreground text-xs mt-1", children: new Date(msg.receivedAt).toLocaleString() })] }), !isRevealed && (_jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleRevealMessage(msg.id), children: "Reveal" }))] }), otpResult && otpResult.code && (_jsxs("div", { className: `mb-2 p-3 rounded-md border-2 ${otpResult.confidence === 'high'
+                                                            ? 'bg-green-50 dark:bg-green-900/20 border-green-500'
+                                                            : otpResult.confidence === 'medium'
+                                                                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                                                                : 'bg-gray-50 dark:bg-gray-800 border-gray-400'}`, children: [_jsxs("div", { className: "flex items-center justify-between mb-2", children: [_jsxs("label", { className: `text-sm font-medium ${otpResult.confidence === 'high'
+                                                                            ? 'text-green-600 dark:text-green-400'
+                                                                            : otpResult.confidence === 'medium'
+                                                                                ? 'text-yellow-600 dark:text-yellow-400'
+                                                                                : 'text-gray-600 dark:text-gray-400'}`, children: ["OTP Code Detected (", otpResult.confidence, " confidence)"] }), _jsx("span", { className: "text-xs text-muted-foreground", children: formatTimeAgo(msg.receivedAt) })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("code", { className: "text-2xl font-mono font-bold", children: otpResult.code }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => navigator.clipboard.writeText(otpResult.code), title: "Copy OTP code", children: _jsx(Copy, { size: 16 }) })] })] })), isRevealed && (_jsxs("div", { className: "space-y-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setExpandedEmailId(showFullMessage ? null : `sms-${msg.id}`), children: showFullMessage ? 'Hide Full Message' : 'Show Full Message' }), showFullMessage && (_jsx("div", { className: "text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap", children: revealedBody }))] }))] }, msg.id));
                                         }) })) }))] }) })), _jsx(Card, { children: _jsxs("div", { className: "p-6 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("h2", { className: "text-lg font-semibold flex items-center gap-2", children: [_jsx(Activity, { size: 20 }), "Webhook Logs"] }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: loadWebhookLogs, disabled: loadingWebhookLogs, children: [_jsx(RefreshCw, { size: 16, className: `mr-2 ${loadingWebhookLogs ? 'animate-spin' : ''}` }), "Refresh"] })] }), _jsx("p", { className: "text-sm text-muted-foreground", children: "View all incoming webhook requests for debugging. This includes successful requests, failed requests, and validation errors." }), loadingWebhookLogs ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "Loading webhook logs..." })) : webhookLogs.length === 0 ? (_jsx("div", { className: "text-center py-4 text-muted-foreground", children: "No webhook logs yet" })) : (_jsx("div", { className: "space-y-2 max-h-96 overflow-y-auto", children: webhookLogs.map(log => (_jsxs("div", { className: `p-3 border rounded-lg ${log.success
                                             ? 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800'
                                             : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`, children: [_jsx("div", { className: "flex items-start justify-between mb-2", children: _jsxs("div", { className: "text-sm flex-1", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx("span", { className: "font-medium", children: log.method }), _jsx("span", { className: `px-2 py-0.5 rounded text-xs ${log.success
                                                                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                                                                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`, children: log.statusCode || 'N/A' }), log.processingTimeMs && (_jsxs("span", { className: "text-xs text-muted-foreground", children: [log.processingTimeMs, "ms"] }))] }), _jsx("div", { className: "text-xs text-muted-foreground mt-1", children: new Date(log.receivedAt).toLocaleString() }), log.fromNumber && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["From: ", log.fromNumber, " \u2192 To: ", log.toNumber || 'N/A'] })), log.messageSid && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1 font-mono", children: ["SID: ", log.messageSid] })), log.error && (_jsxs("div", { className: "text-xs text-red-600 dark:text-red-400 mt-1", children: ["Error: ", log.error] })), log.ip && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["IP: ", log.ip] }))] }) }), log.body && Object.keys(log.body).length > 0 && (_jsxs("details", { className: "mt-2", children: [_jsx("summary", { className: "text-xs text-muted-foreground cursor-pointer", children: "View request body" }), _jsx("pre", { className: "text-xs mt-2 p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto", children: JSON.stringify(log.body, null, 2) })] }))] }, log.id))) }))] }) })] })] }));
+                                                                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`, children: log.statusCode || 'N/A' }), log.processingTimeMs && (_jsxs("span", { className: "text-xs text-muted-foreground", children: [log.processingTimeMs, "ms"] }))] }), _jsx("div", { className: "text-xs text-muted-foreground mt-1", children: new Date(log.receivedAt).toLocaleString() }), log.fromNumber && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["From: ", log.fromNumber, " \u2192 To: ", log.toNumber || 'N/A'] })), log.messageSid && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1 font-mono", children: ["SID: ", log.messageSid] })), log.error && (_jsxs("div", { className: "text-xs text-red-600 dark:text-red-400 mt-1", children: ["Error: ", log.error] })), log.ip && (_jsxs("div", { className: "text-xs text-muted-foreground mt-1", children: ["IP: ", log.ip] }))] }) }), _jsxs("div", { className: "mt-2 space-y-2", children: [log.headers && Object.keys(log.headers).length > 0 && (() => {
+                                                        const headersKey = `${log.id}-headers`;
+                                                        const isExpanded = expandedLogSections.has(headersKey);
+                                                        return (_jsxs("div", { className: "border-t border-gray-200 dark:border-gray-700 pt-2", children: [_jsxs("button", { onClick: () => {
+                                                                        const newSet = new Set(expandedLogSections);
+                                                                        if (isExpanded) {
+                                                                            newSet.delete(headersKey);
+                                                                        }
+                                                                        else {
+                                                                            newSet.add(headersKey);
+                                                                        }
+                                                                        setExpandedLogSections(newSet);
+                                                                    }, className: "flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors", children: [_jsx(ChevronDown, { size: 14, className: `transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}` }), "View request headers"] }), isExpanded && (_jsx("div", { className: "mt-2 animate-in slide-in-from-top-2 duration-200", children: _jsx("pre", { className: "text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto", children: JSON.stringify(log.headers, null, 2) }) }))] }));
+                                                    })(), log.body && Object.keys(log.body).length > 0 && (() => {
+                                                        const bodyKey = `${log.id}-body`;
+                                                        const isExpanded = expandedLogSections.has(bodyKey);
+                                                        return (_jsxs("div", { className: "border-t border-gray-200 dark:border-gray-700 pt-2", children: [_jsxs("button", { onClick: () => {
+                                                                        const newSet = new Set(expandedLogSections);
+                                                                        if (isExpanded) {
+                                                                            newSet.delete(bodyKey);
+                                                                        }
+                                                                        else {
+                                                                            newSet.add(bodyKey);
+                                                                        }
+                                                                        setExpandedLogSections(newSet);
+                                                                    }, className: "flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors", children: [_jsx(ChevronDown, { size: 14, className: `transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}` }), "View request body"] }), isExpanded && (_jsx("div", { className: "mt-2 animate-in slide-in-from-top-2 duration-200", children: _jsx("pre", { className: "text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto", children: JSON.stringify(log.body, null, 2) }) }))] }));
+                                                    })()] })] }, log.id))) }))] }) })] })] }));
 }
 export default VaultSetup;

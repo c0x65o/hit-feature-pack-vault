@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff } from 'lucide-react';
+import { Save, Copy, Check, Eye, EyeOff, Mail, Phone, MessageSquare, Wifi, WifiOff } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import { extractOtpCode } from '../utils/otp-extractor';
+import { useOtpSubscription, isWebSocketAvailable } from '../hooks/useOtpSubscription';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
 
 type ItemType = 'credential' | 'api_key' | 'secure_note';
-type TwoFactorType = 'off' | 'qr' | 'phone';
+type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
 
 interface Props {
   onClose: () => void;
@@ -31,13 +32,23 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [pollingSms, setPollingSms] = useState(false);
   const [otpCode, setOtpCode] = useState<string | null>(null);
+  const [otpConfidence, setOtpConfidence] = useState<'high' | 'medium' | 'low' | 'none'>('none');
+  const [otpFullMessage, setOtpFullMessage] = useState<string | null>(null);
+  const [showFullMessage, setShowFullMessage] = useState(false);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  
+  // Email 2FA state
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
+  const [pollingEmail, setPollingEmail] = useState(false);
 
   useEffect(() => {
     if (twoFactorType === 'phone') {
       loadGlobalPhoneNumber();
+    } else if (twoFactorType === 'email') {
+      loadGlobalEmailAddress();
     }
   }, [twoFactorType]);
 
@@ -61,10 +72,33 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
     }
   }
 
+  async function loadGlobalEmailAddress() {
+    try {
+      const result = await vaultApi.getGlobalEmailAddress();
+      setGlobalEmailAddress(result.emailAddress);
+    } catch (err) {
+      console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function copyEmailAddress() {
+    if (!globalEmailAddress) return;
+    try {
+      await navigator.clipboard.writeText(globalEmailAddress);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy email address:', err);
+    }
+  }
+
   async function startSmsPolling() {
     if (pollingSms) return;
     setPollingSms(true);
     setOtpCode(null);
+    setOtpConfidence('none');
+    setOtpFullMessage(null);
+    setShowFullMessage(false);
 
     const interval = setInterval(async () => {
       try {
@@ -72,9 +106,11 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
         for (const msg of result.messages) {
           try {
             const revealResult = await vaultApi.revealSmsMessage(msg.id);
-            const code = extractOtpCode(revealResult.body);
-            if (code) {
-              setOtpCode(code);
+            const otpResult = extractOtpWithConfidence(revealResult.body);
+            if (otpResult.code) {
+              setOtpCode(otpResult.code);
+              setOtpConfidence(otpResult.confidence);
+              setOtpFullMessage(otpResult.fullMessage);
               setPollingSms(false);
               clearInterval(interval);
               return;
@@ -91,6 +127,44 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
     setTimeout(() => {
       clearInterval(interval);
       setPollingSms(false);
+    }, 5 * 60 * 1000);
+  }
+
+  async function startEmailPolling() {
+    if (pollingEmail) return;
+    setPollingEmail(true);
+    setOtpCode(null);
+    setOtpConfidence('none');
+    setOtpFullMessage(null);
+    setShowFullMessage(false);
+
+    const interval = setInterval(async () => {
+      try {
+        const result = await vaultApi.getLatestEmailMessages();
+        for (const msg of result.messages) {
+          try {
+            const revealResult = await vaultApi.revealSmsMessage(msg.id);
+            const otpResult = extractOtpWithConfidence(revealResult.body);
+            if (otpResult.code) {
+              setOtpCode(otpResult.code);
+              setOtpConfidence(otpResult.confidence);
+              setOtpFullMessage(otpResult.fullMessage);
+              setPollingEmail(false);
+              clearInterval(interval);
+              return;
+            }
+          } catch (err) {
+            console.error('Failed to reveal email message:', err);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to poll email messages:', err);
+      }
+    }, 2000);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      setPollingEmail(false);
     }, 5 * 60 * 1000);
   }
 
@@ -199,20 +273,20 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
         {itemType === 'credential' && (
           <>
             <div>
-              <label className="text-sm font-medium">Username</label>
-              <Input
-                value={username}
-                onChange={(value: string) => setUsername(value)}
-                placeholder="username or email"
-              />
-            </div>
-
-            <div>
               <label className="text-sm font-medium">URL *</label>
               <Input
                 value={url}
                 onChange={(value: string) => setUrl(value)}
                 placeholder="https://example.com"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Username</label>
+              <Input
+                value={username}
+                onChange={(value: string) => setUsername(value)}
+                placeholder="username or email"
               />
             </div>
 
@@ -245,6 +319,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                   { value: 'off', label: 'Off' },
                   { value: 'qr', label: 'QR Code (TOTP)' },
                   { value: 'phone', label: 'Phone Number (SMS)' },
+                  { value: 'email', label: 'Email' },
                 ]}
               />
             </div>
@@ -254,7 +329,8 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                 {globalPhoneNumber ? (
                   <>
                     <div>
-                      <label className="text-sm font-medium text-muted-foreground">
+                      <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                        <Phone size={14} />
                         Registered Phone Number
                       </label>
                       <div className="flex items-center gap-2 mt-1">
@@ -281,20 +357,33 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                         size="sm"
                         onClick={startSmsPolling}
                       >
+                        <MessageSquare size={16} className="mr-2" />
                         Start Waiting for SMS
                       </Button>
                     )}
                     
                     {pollingSms && (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground animate-pulse">
                         Waiting for SMS message...
                       </p>
                     )}
                     
                     {otpCode && (
-                      <div className="p-3 bg-background rounded-md border-2 border-green-500">
-                        <label className="text-sm font-medium text-green-600">
-                          OTP Code Received
+                      <div className={`p-3 bg-background rounded-md border-2 ${
+                        otpConfidence === 'high' 
+                          ? 'border-green-500' 
+                          : otpConfidence === 'medium' 
+                            ? 'border-yellow-500' 
+                            : 'border-gray-400'
+                      }`}>
+                        <label className={`text-sm font-medium ${
+                          otpConfidence === 'high' 
+                            ? 'text-green-600' 
+                            : otpConfidence === 'medium' 
+                              ? 'text-yellow-600' 
+                              : 'text-gray-600'
+                        }`}>
+                          OTP Code Received ({otpConfidence} confidence)
                         </label>
                         <div className="flex items-center gap-2 mt-2">
                           <code className="text-2xl font-mono font-bold">
@@ -308,12 +397,133 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                             <Copy size={16} />
                           </Button>
                         </div>
+                        
+                        {otpConfidence !== 'high' && otpFullMessage && (
+                          <div className="mt-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowFullMessage(!showFullMessage)}
+                            >
+                              {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                            </Button>
+                            {showFullMessage && (
+                              <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                {otpFullMessage}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
                 ) : (
                   <Alert variant="warning" title="No Phone Number Configured">
                     Admin must configure a phone number in Setup.
+                  </Alert>
+                )}
+              </div>
+            )}
+
+            {twoFactorType === 'email' && (
+              <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
+                {globalEmailAddress ? (
+                  <>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                        <Mail size={14} />
+                        2FA Email Address
+                      </label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <code className="text-sm font-mono bg-background px-2 py-1 rounded">
+                          {globalEmailAddress}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={copyEmailAddress}
+                        >
+                          {emailCopied ? (
+                            <Check size={16} className="text-green-600" />
+                          ) : (
+                            <Copy size={16} />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        When the service sends a 2FA code to this email, it will be automatically detected.
+                      </p>
+                    </div>
+                    
+                    {!pollingEmail && !otpCode && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={startEmailPolling}
+                      >
+                        <Mail size={16} className="mr-2" />
+                        Start Waiting for Email
+                      </Button>
+                    )}
+                    
+                    {pollingEmail && (
+                      <p className="text-sm text-muted-foreground animate-pulse">
+                        Waiting for email message...
+                      </p>
+                    )}
+                    
+                    {otpCode && (
+                      <div className={`p-3 bg-background rounded-md border-2 ${
+                        otpConfidence === 'high' 
+                          ? 'border-green-500' 
+                          : otpConfidence === 'medium' 
+                            ? 'border-yellow-500' 
+                            : 'border-gray-400'
+                      }`}>
+                        <label className={`text-sm font-medium ${
+                          otpConfidence === 'high' 
+                            ? 'text-green-600' 
+                            : otpConfidence === 'medium' 
+                              ? 'text-yellow-600' 
+                              : 'text-gray-600'
+                        }`}>
+                          OTP Code Received ({otpConfidence} confidence)
+                        </label>
+                        <div className="flex items-center gap-2 mt-2">
+                          <code className="text-2xl font-mono font-bold">
+                            {otpCode}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => navigator.clipboard.writeText(otpCode)}
+                          >
+                            <Copy size={16} />
+                          </Button>
+                        </div>
+                        
+                        {otpConfidence !== 'high' && otpFullMessage && (
+                          <div className="mt-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowFullMessage(!showFullMessage)}
+                            >
+                              {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                            </Button>
+                            {showFullMessage && (
+                              <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                {otpFullMessage}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Alert variant="warning" title="No Email Address Configured">
+                    Admin must configure a 2FA email address in Setup.
                   </Alert>
                 )}
               </div>
@@ -357,18 +567,24 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
         {itemType === 'api_key' && (
           <div>
             <label className="text-sm font-medium">Secret / Key</label>
-            <div className="flex items-center gap-2">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={secret}
-                onChange={(value: string) => setSecret(value)}
+            <div className="relative">
+              <textarea
+                value={showPassword ? secret : secret ? '•'.repeat(Math.max(secret.length, 50)) : ''}
+                onChange={(e) => setSecret(e.target.value)}
                 placeholder="Paste SSH key or API key"
-                className="flex-1"
+                className="w-full px-3 py-2 border rounded-md min-h-[120px] font-mono text-sm"
+                style={{
+                  ...(showPassword ? {} : { 
+                    caretColor: 'transparent',
+                  })
+                }}
               />
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowPassword(!showPassword)}
+                className="absolute top-2 right-2"
+                title={showPassword ? 'Hide key' : 'Show key'}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </Button>

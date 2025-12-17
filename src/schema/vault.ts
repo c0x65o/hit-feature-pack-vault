@@ -457,19 +457,15 @@ export type InsertVaultSetting = typeof vaultSettings.$inferInsert;
 
 /**
  * Permission Constants
+ * Simplified permissions:
+ * - READ_ONLY: Can view passwords and items
+ * - READ_WRITE: Can add/edit items and folders
+ * - DELETE: Can delete items and folders
  */
 export const VAULT_PERMISSIONS = {
-  VIEW_METADATA: "VIEW_METADATA",
-  REVEAL_PASSWORD: "REVEAL_PASSWORD",
-  COPY_PASSWORD: "COPY_PASSWORD",
-  EDIT: "EDIT",
+  READ_ONLY: "READ_ONLY",
+  READ_WRITE: "READ_WRITE",
   DELETE: "DELETE",
-  SHARE: "SHARE",
-  GENERATE_TOTP: "GENERATE_TOTP",
-  REVEAL_TOTP_SECRET: "REVEAL_TOTP_SECRET",
-  READ_SMS: "READ_SMS",
-  MANAGE_SMS: "MANAGE_SMS",
-  IMPORT: "IMPORT",
 } as const;
 
 export type VaultPermission = (typeof VAULT_PERMISSIONS)[keyof typeof VAULT_PERMISSIONS];

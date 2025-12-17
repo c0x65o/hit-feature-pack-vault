@@ -26,6 +26,7 @@ function verifyTwilioSignature(url, params, signature, authToken) {
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hash));
 }
 import { encrypt, decrypt } from '../utils/encryption';
+import { publishOtpReceived } from '../utils/publish-event';
 /**
  * Get client IP from request headers
  */
@@ -68,22 +69,57 @@ async function getWebhookApiKey() {
 async function verifyApiKey(request) {
     const apiKey = await getWebhookApiKey();
     if (!apiKey) {
-        // If no API key is configured, allow requests (for backward compatibility)
-        return true;
+        // If no API key is configured, allow requests
+        return { valid: true, reason: 'no_key_configured' };
     }
+    const expectedKeyPrefix = apiKey.substring(0, 8);
     // Check Authorization header (Bearer token)
     const authHeader = request.headers.get('authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (authHeader) {
+        if (!authHeader.startsWith('Bearer ')) {
+            return {
+                valid: false,
+                reason: 'invalid_auth_format',
+                details: `Authorization header must start with "Bearer ", got: "${authHeader.substring(0, 20)}..."`
+            };
+        }
         const token = authHeader.substring(7);
-        return token === apiKey;
+        if (!token) {
+            return {
+                valid: false,
+                reason: 'empty_bearer_token',
+                details: 'Authorization header has "Bearer " but no token after it'
+            };
+        }
+        if (token === apiKey) {
+            return { valid: true, reason: 'bearer_token_valid' };
+        }
+        const providedPrefix = token.substring(0, 8);
+        return {
+            valid: false,
+            reason: 'bearer_token_mismatch',
+            details: `Token prefix "${providedPrefix}..." does not match expected "${expectedKeyPrefix}..."`
+        };
     }
     // Check X-API-Key header
     const apiKeyHeader = request.headers.get('x-api-key');
     if (apiKeyHeader) {
-        return apiKeyHeader === apiKey;
+        if (apiKeyHeader === apiKey) {
+            return { valid: true, reason: 'api_key_header_valid' };
+        }
+        const providedPrefix = apiKeyHeader.substring(0, 8);
+        return {
+            valid: false,
+            reason: 'api_key_header_mismatch',
+            details: `X-API-Key prefix "${providedPrefix}..." does not match expected "${expectedKeyPrefix}..."`
+        };
     }
     // If API key is configured but not provided, reject
-    return false;
+    return {
+        valid: false,
+        reason: 'no_auth_provided',
+        details: 'API key is configured but no Authorization or X-API-Key header was provided'
+    };
 }
 /**
  * POST /api/vault/sms/webhook/inbound
@@ -173,14 +209,17 @@ export async function POST(request) {
             const urlWithoutQuery = request.url.split('?')[0];
             const isValid = verifyTwilioSignature(urlWithoutQuery, body, twilioSignature, twilioAuthToken);
             if (!isValid) {
-                console.error('[vault] Invalid Twilio signature');
+                console.error('[vault] SMS webhook Twilio signature verification failed');
+                console.error('[vault] URL used for verification:', urlWithoutQuery);
+                console.error('[vault] Request from IP:', clientIP);
+                console.error('[vault] AccountSid:', accountSid || 'not provided');
                 const processingTime = Date.now() - startTime;
                 if (webhookLogId) {
                     await db.update(vaultWebhookLogs)
                         .set({
                         statusCode: 403,
                         success: false,
-                        error: 'Invalid Twilio signature',
+                        error: 'Invalid Twilio signature - signature verification failed',
                         processingTimeMs: processingTime,
                     })
                         .where(eq(vaultWebhookLogs.id, webhookLogId));
@@ -190,35 +229,56 @@ export async function POST(request) {
         }
         else {
             // F-Droid/Custom webhook - verify API key
-            if (!(await verifyApiKey(request))) {
-                console.error('[vault] Invalid or missing API key');
+            const authResult = await verifyApiKey(request);
+            if (!authResult.valid) {
+                console.error('[vault] SMS webhook auth failed:', authResult.reason);
+                if (authResult.details) {
+                    console.error('[vault] Auth details:', authResult.details);
+                }
+                console.error('[vault] Request from IP:', clientIP);
+                console.error('[vault] Request headers present:', Object.keys(headers).join(', '));
                 const processingTime = Date.now() - startTime;
+                const errorMsg = authResult.details
+                    ? `${authResult.reason}: ${authResult.details}`
+                    : authResult.reason;
                 if (webhookLogId) {
                     await db.update(vaultWebhookLogs)
                         .set({
                         statusCode: 401,
                         success: false,
-                        error: 'Invalid or missing API key',
+                        error: errorMsg,
                         processingTimeMs: processingTime,
                     })
                         .where(eq(vaultWebhookLogs.id, webhookLogId));
                 }
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+                return NextResponse.json({ error: 'Unauthorized', reason: authResult.reason }, { status: 401 });
             }
         }
         if (!fromNumber || !toNumber || !messageBody) {
+            const missingFields = [];
+            if (!fromNumber)
+                missingFields.push('from/From');
+            if (!toNumber)
+                missingFields.push('to/To');
+            if (!messageBody)
+                missingFields.push('body/Body');
+            console.error('[vault] SMS webhook missing required fields:', missingFields.join(', '));
+            console.error('[vault] Received fields:', Object.keys(body).join(', '));
+            console.error('[vault] Request from IP:', clientIP);
+            console.error('[vault] Content-Type:', contentType);
             const processingTime = Date.now() - startTime;
+            const errorMsg = `Missing required fields: ${missingFields.join(', ')}. Received: ${Object.keys(body).join(', ')}`;
             if (webhookLogId) {
                 await db.update(vaultWebhookLogs)
                     .set({
                     statusCode: 400,
                     success: false,
-                    error: 'Missing required fields',
+                    error: errorMsg,
                     processingTimeMs: processingTime,
                 })
                     .where(eq(vaultWebhookLogs.id, webhookLogId));
             }
-            return NextResponse.json({ error: 'Missing required fields: from, to, and body are required' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing required fields: from, to, and body are required', missing: missingFields, received: Object.keys(body) }, { status: 400 });
         }
         // Find or create global SMS number (phone number doesn't matter, we use a global inbox)
         // Look for a global SMS number (no vaultId or itemId)
@@ -265,7 +325,7 @@ export async function POST(request) {
             receivedAt = new Date();
         }
         // Store the encrypted message
-        await db.insert(vaultSmsMessages).values({
+        const [insertedMessage] = await db.insert(vaultSmsMessages).values({
             smsNumberId: smsNumber.id,
             fromNumber: fromNumber,
             toNumber: toNumber,
@@ -278,8 +338,16 @@ export async function POST(request) {
                 receivedAt: receivedAt.toISOString(),
             },
             retentionExpiresAt: retentionExpiresAt,
-        });
+        }).returning({ id: vaultSmsMessages.id });
         console.log(`[vault] Stored SMS message from ${fromNumber} to ${toNumber}`);
+        // Publish real-time event for WebSocket clients
+        await publishOtpReceived({
+            messageId: insertedMessage.id,
+            type: 'sms',
+            from: fromNumber,
+            to: toNumber,
+            receivedAt: receivedAt.toISOString(),
+        });
         // Update webhook log with success
         const processingTime = Date.now() - startTime;
         if (webhookLogId) {

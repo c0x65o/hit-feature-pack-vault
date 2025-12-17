@@ -1,10 +1,9 @@
 // src/server/api/acl.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultAcls } from '@/lib/feature-pack-schemas';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { vaultAcls, vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
+import { eq, desc, and } from 'drizzle-orm';
 import { extractUserFromRequest } from '../auth';
-import { checkFolderAccess, checkVaultAccess } from '../lib/acl-utils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -72,20 +71,63 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    const isAdmin = user.roles?.includes('admin') || false;
 
-    // Verify user has SHARE permission on the resource
+    // Only admins can manage ACLs on shared vaults/folders
     if (body.resourceType === 'folder') {
-      const accessCheck = await checkFolderAccess(db, body.resourceId, user, { requiredPermissions: ['SHARE'] });
-      if (!accessCheck.hasAccess) {
-        return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+      // Get the folder to find its vault
+      const [folder] = await db
+        .select({ vaultId: vaultFolders.vaultId })
+        .from(vaultFolders)
+        .where(eq(vaultFolders.id, body.resourceId))
+        .limit(1);
+      
+      if (!folder) {
+        return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
+      }
+      
+      // Get the vault to check type
+      const [vault] = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.id, folder.vaultId))
+        .limit(1);
+      
+      if (!vault) {
+        return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
+      }
+      
+      // For shared vaults, only admins can manage ACLs
+      if (vault.type === 'shared' && !isAdmin) {
+        return NextResponse.json({ error: 'Forbidden: Only administrators can manage access on shared vaults' }, { status: 403 });
+      }
+      
+      // For personal vaults, only the owner can manage ACLs
+      if (vault.type === 'personal' && vault.ownerUserId !== user.sub) {
+        return NextResponse.json({ error: 'Forbidden: You do not have access to this vault' }, { status: 403 });
       }
     } else if (body.resourceType === 'vault') {
-      const accessCheck = await checkVaultAccess(db, body.resourceId, user, ['SHARE']);
-      if (!accessCheck.hasAccess) {
-        return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+      const [vault] = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.id, body.resourceId))
+        .limit(1);
+      
+      if (!vault) {
+        return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
+      }
+      
+      // For shared vaults, only admins can manage ACLs
+      if (vault.type === 'shared' && !isAdmin) {
+        return NextResponse.json({ error: 'Forbidden: Only administrators can manage access on shared vaults' }, { status: 403 });
+      }
+      
+      // For personal vaults, only the owner can manage ACLs
+      if (vault.type === 'personal' && vault.ownerUserId !== user.sub) {
+        return NextResponse.json({ error: 'Forbidden: You do not have access to this vault' }, { status: 403 });
       }
     }
-    // TODO: Add item ACL checking
 
     const result = await db.insert(vaultAcls).values({
       resourceType: body.resourceType,

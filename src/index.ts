@@ -83,3 +83,12 @@ export {
 
 // Services
 export { VaultApiClient, vaultApi } from './services/vault-api';
+
+// Utilities
+export {
+  extractOtpCode,
+  extractOtpWithConfidence,
+  isOtpMessage,
+  OTP_KEYWORDS,
+} from './utils/otp-extractor';
+export type { OtpExtractionResult } from './utils/otp-extractor';

@@ -27,18 +27,181 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [newPermissions, setNewPermissions] = useState<string[]>([]);
   const [newInherit, setNewInherit] = useState(true);
 
+  // Principal options state
+  const [users, setUsers] = useState<Array<{ value: string; label: string }>>([]);
+  const [groups, setGroups] = useState<Array<{ value: string; label: string }>>([]);
+  const [roles, setRoles] = useState<Array<{ value: string; label: string }>>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
   useEffect(() => {
     if (isOpen && folderId) {
       loadAcls();
     }
   }, [isOpen, folderId]);
 
+  // Load principal options when principal type changes
+  useEffect(() => {
+    if (showAddForm) {
+      loadPrincipalOptions();
+    }
+  }, [newPrincipalType, showAddForm]);
+
+  async function loadPrincipalOptions() {
+    setLoadingOptions(true);
+    try {
+      if (newPrincipalType === 'user') {
+        // Fetch users from user directory API
+        const response = await fetch('/api/user-directory?limit=10000', {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.enabled) {
+            if (data.users && Array.isArray(data.users) && data.users.length > 0) {
+              const userOptions = data.users.map((user: { email: string; displayName?: string | null; firstName?: string | null; lastName?: string | null }) => ({
+                value: user.email,
+                label: user.displayName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+              }));
+              setUsers(userOptions);
+            } else if (data.error) {
+              console.error('[FolderAclModal] User directory error:', data.error);
+              setError(new Error(`Failed to load users: ${data.error}`));
+              setUsers([]);
+            } else {
+              console.warn('[FolderAclModal] User directory returned no users');
+              setUsers([]);
+            }
+          } else {
+            console.error('[FolderAclModal] User directory not enabled:', data.error);
+            setError(new Error(data.error || 'User directory not available'));
+            setUsers([]);
+          }
+        } else {
+          const errorText = await response.text();
+          console.error('[FolderAclModal] Failed to fetch users:', response.status, errorText);
+          setError(new Error(`Failed to load users: ${response.status} ${response.statusText}`));
+          setUsers([]);
+        }
+      } else if (newPrincipalType === 'group') {
+        // Fetch groups from both auth module (dynamic) and vault API (static)
+        try {
+          const allGroupOptions: Array<{ value: string; label: string }> = [];
+          
+          // Fetch dynamic groups from auth module
+          try {
+            const authUrl = typeof window !== 'undefined' 
+              ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+              : '/api/proxy/auth';
+            const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+            };
+            if (token) {
+              headers['Authorization'] = `Bearer ${token}`;
+            }
+            
+            const authResponse = await fetch(`${authUrl}/admin/groups`, { headers });
+            if (authResponse.ok) {
+              const authGroups = await authResponse.json();
+              const dynamicGroupOptions = (Array.isArray(authGroups) ? authGroups : []).map((group: { id: string; name: string; description?: string | null }) => ({
+                value: group.id,
+                label: group.description ? `${group.name} - ${group.description}` : group.name,
+              }));
+              allGroupOptions.push(...dynamicGroupOptions);
+            }
+          } catch (err) {
+            console.warn('Failed to load dynamic groups from auth module:', err);
+          }
+          
+          // Fetch static groups from vault API
+          try {
+            const vaultGroupsData = await vaultApi.getGroups();
+            const staticGroupOptions = vaultGroupsData.map((group: { id: string; name: string; description?: string | null }) => ({
+              value: group.id,
+              label: group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`,
+            }));
+            allGroupOptions.push(...staticGroupOptions);
+          } catch (err) {
+            console.warn('Failed to load static groups from vault:', err);
+          }
+          
+          setGroups(allGroupOptions);
+        } catch (err) {
+          console.error('Failed to load groups:', err);
+          setGroups([]);
+        }
+      } else if (newPrincipalType === 'role') {
+        // Fetch roles from auth module features endpoint
+        try {
+          const authUrl = typeof window !== 'undefined' 
+            ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+            : '/api/proxy/auth';
+          const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(`${authUrl}/features`, { headers });
+          if (response.ok) {
+            const data = await response.json();
+            const availableRoles = data.features?.available_roles || ['admin', 'user'];
+            const roleOptions = availableRoles.map((role: string) => ({
+              value: role,
+              label: role.charAt(0).toUpperCase() + role.slice(1),
+            }));
+            setRoles(roleOptions);
+          } else {
+            // Fallback: try to extract roles from users
+            const userResponse = await fetch('/api/user-directory?limit=1000', {
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            if (userResponse.ok) {
+              const userData = await userResponse.json();
+              if (userData.enabled && userData.users) {
+                const roleSet = new Set<string>();
+                userData.users.forEach((user: { role?: string }) => {
+                  const role = user.role || 'user';
+                  roleSet.add(role);
+                });
+                const roleOptions = Array.from(roleSet).sort().map((role: string) => ({
+                  value: role,
+                  label: role.charAt(0).toUpperCase() + role.slice(1),
+                }));
+                setRoles(roleOptions);
+              } else {
+                setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
+              }
+            } else {
+              setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load roles:', err);
+          setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load principal options:', err);
+    } finally {
+      setLoadingOptions(false);
+    }
+  }
+
   async function loadAcls() {
     try {
       setLoading(true);
       setError(null);
       const aclsData = await vaultApi.getAcls('folder', folderId);
-      setAcls(aclsData);
+      setAcls(Array.isArray(aclsData) ? aclsData : []);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load ACLs'));
     } finally {
@@ -118,17 +281,9 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   }
 
   const permissionLabels: Record<string, string> = {
-    VIEW_METADATA: 'View Metadata',
-    REVEAL_PASSWORD: 'Reveal Password',
-    COPY_PASSWORD: 'Copy Password',
-    EDIT: 'Edit',
-    DELETE: 'Delete',
-    SHARE: 'Share',
-    GENERATE_TOTP: 'Generate TOTP',
-    REVEAL_TOTP_SECRET: 'Reveal TOTP Secret',
-    READ_SMS: 'Read SMS',
-    MANAGE_SMS: 'Manage SMS',
-    IMPORT: 'Import',
+    READ_ONLY: 'Read Only (view passwords)',
+    READ_WRITE: 'Read & Write (add/edit items)',
+    DELETE: 'Delete (remove items)',
   };
 
   return (
@@ -171,7 +326,10 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                     <label className="text-sm font-medium mb-1 block">Principal Type</label>
                     <Select
                       value={newPrincipalType}
-                      onChange={(value: string) => setNewPrincipalType(value as 'user' | 'group' | 'role')}
+                      onChange={(value: string) => {
+                        setNewPrincipalType(value as 'user' | 'group' | 'role');
+                        setNewPrincipalId(''); // Reset when type changes
+                      }}
                       options={[
                         { value: 'user', label: 'User' },
                         { value: 'group', label: 'Group' },
@@ -182,15 +340,42 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
 
                   <div>
                     <label className="text-sm font-medium mb-1 block">
-                      {newPrincipalType === 'user' ? 'User Email' : 
-                       newPrincipalType === 'group' ? 'Group ID' : 'Role Name'}
+                      {newPrincipalType === 'user' ? 'User' : 
+                       newPrincipalType === 'group' ? 'Group' : 'Role'}
                     </label>
-                    <Input
-                      value={newPrincipalId}
-                      onChange={(value: string) => setNewPrincipalId(value)}
-                      placeholder={newPrincipalType === 'user' ? 'user@example.com' : 
-                                   newPrincipalType === 'group' ? 'group-id' : 'role-name'}
-                    />
+                    {loadingOptions ? (
+                      <div className="flex items-center gap-2">
+                        <Spinner size="sm" />
+                        <span className="text-sm text-muted-foreground">Loading options...</span>
+                      </div>
+                    ) : (
+                      (() => {
+                        const options = newPrincipalType === 'user' ? users :
+                                       newPrincipalType === 'group' ? groups :
+                                       roles;
+                        
+                        if (options.length > 0) {
+                          return (
+                            <Select
+                              value={newPrincipalId}
+                              onChange={(value: string) => setNewPrincipalId(value)}
+                              options={options}
+                              placeholder={`Select ${newPrincipalType}`}
+                            />
+                          );
+                        } else {
+                          // Fallback to input if no options available
+                          return (
+                            <Input
+                              value={newPrincipalId}
+                              onChange={(value: string) => setNewPrincipalId(value)}
+                              placeholder={newPrincipalType === 'user' ? 'user@example.com' : 
+                                           newPrincipalType === 'group' ? 'group-id' : 'role-name'}
+                            />
+                          );
+                        }
+                      })()
+                    )}
                   </div>
                 </div>
 
@@ -224,6 +409,9 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                       setNewPrincipalId('');
                       setNewPermissions([]);
                       setError(null);
+                      setUsers([]);
+                      setGroups([]);
+                      setRoles([]);
                     }}
                     variant="secondary"
                     size="sm"

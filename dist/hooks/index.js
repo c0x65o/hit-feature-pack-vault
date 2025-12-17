@@ -2,4 +2,4 @@
  * Vault Hooks
  * Exported individually for tree-shaking
  */
-export {};
+export { useOtpSubscription, getWebSocketStatus, isWebSocketAvailable, } from './useOtpSubscription';

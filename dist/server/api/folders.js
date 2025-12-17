@@ -1,10 +1,10 @@
 // src/server/api/folders.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
-import { eq, desc, asc, like, sql, and, inArray } from 'drizzle-orm';
+import { vaultFolders, vaultVaults, vaultAcls } from '@/lib/feature-pack-schemas';
+import { eq, desc, asc, like, sql, and, or, inArray } from 'drizzle-orm';
 import { extractUserFromRequest } from '../auth';
-import { checkVaultAccess } from '../lib/acl-utils';
+import { getDescendantFolderIds } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 /**
@@ -30,34 +30,115 @@ export async function GET(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+        const isAdmin = user.roles?.includes('admin') || false;
         // Get vaults the user owns
         const userVaults = await db
             .select({ id: vaultVaults.id })
             .from(vaultVaults)
             .where(eq(vaultVaults.ownerUserId, user.sub));
         const userVaultIds = userVaults.map((v) => v.id);
-        // Get vaults user has ACL access to
-        // TODO: Optimize this - could cache user's accessible vaults
-        const allVaults = await db.select({ id: vaultVaults.id }).from(vaultVaults);
+        // Build principal IDs for ACL matching
+        const userPrincipalIds = [
+            user.sub,
+            user.email,
+            ...(user.roles || []),
+        ].filter(Boolean);
+        // Build accessible vault IDs (for owners/admins) and folder IDs (for ACL users)
+        // Vault owners and admins see all folders in their vaults
+        // Non-admin users see folders they have explicit folder-level ACL on OR vault-level ACL on
         const accessibleVaultIds = new Set(userVaultIds);
-        for (const vault of allVaults) {
-            if (!accessibleVaultIds.has(vault.id)) {
-                const accessCheck = await checkVaultAccess(db, vault.id, user);
-                if (accessCheck.hasAccess) {
-                    accessibleVaultIds.add(vault.id);
+        const accessibleFolderIds = new Set();
+        // Track if user has any vault-level ACLs (separate from folder-level)
+        let hasVaultLevelAcl = false;
+        if (isAdmin) {
+            // Admins get access to all folders in shared vaults
+            const sharedVaults = await db
+                .select({ id: vaultVaults.id })
+                .from(vaultVaults)
+                .where(eq(vaultVaults.type, 'shared'));
+            for (const vault of sharedVaults) {
+                accessibleVaultIds.add(vault.id);
+            }
+            hasVaultLevelAcl = true; // Admins effectively have vault-level access
+        }
+        else if (userPrincipalIds.length > 0) {
+            // Check vault-level ACLs FIRST - users with vault ACL see all folders in that vault
+            const vaultAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
+            const vaultAclsList = await db
+                .select({ resourceId: vaultAcls.resourceId })
+                .from(vaultAcls)
+                .where(and(eq(vaultAcls.resourceType, 'vault'), or(...vaultAclConditions)));
+            if (vaultAclsList.length > 0) {
+                hasVaultLevelAcl = true;
+                for (const acl of vaultAclsList) {
+                    accessibleVaultIds.add(acl.resourceId);
                 }
             }
+            // Check folder-level ACLs - users with folder ACL see that folder AND all descendant folders
+            // IMPORTANT: Folder-level ACL does NOT grant vault-level access
+            const folderAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
+            const folderAcls = await db
+                .select({ resourceId: vaultAcls.resourceId })
+                .from(vaultAcls)
+                .where(and(eq(vaultAcls.resourceType, 'folder'), or(...folderAclConditions)));
+            // Get the folder IDs the user has direct access to
+            const directAccessFolderIds = new Set();
+            for (const acl of folderAcls) {
+                directAccessFolderIds.add(acl.resourceId);
+            }
+            // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
+            const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
+            // Add all accessible folders (direct + descendants) to the set
+            for (const folderId of allAccessibleFolderIds) {
+                accessibleFolderIds.add(folderId);
+            }
         }
-        if (accessibleVaultIds.size === 0) {
+        // If no accessible vaults and no accessible folders, return empty
+        if (accessibleVaultIds.size === 0 && accessibleFolderIds.size === 0) {
             return NextResponse.json({
                 items: [],
                 pagination: { page, pageSize, total: 0, totalPages: 0 },
             });
         }
-        // Build where conditions - folders must be in accessible vaults
-        const conditions = [inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds))];
+        // Build where conditions:
+        // CRITICAL: If user has folder-level ACL but NO vault-level ACL for a vault,
+        // they should ONLY see folders they have explicit ACL on, NOT all folders in that vault
+        const conditions = [];
+        // Separate vault-level access from folder-level access
+        // Users with vault-level ACL see all folders in those vaults
+        // Users with ONLY folder-level ACL see ONLY those specific folders
+        if (accessibleVaultIds.size > 0 && accessibleFolderIds.size > 0) {
+            // User has both - show folders from vault-level access OR folder-level access
+            conditions.push(or(inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds)), inArray(vaultFolders.id, Array.from(accessibleFolderIds))));
+        }
+        else if (accessibleVaultIds.size > 0) {
+            // User ONLY has vault-level access - show all folders in those vaults
+            conditions.push(inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds)));
+        }
+        else if (accessibleFolderIds.size > 0) {
+            // User ONLY has folder-level access - show ONLY those specific folders
+            // This is critical - do NOT show all folders in the vault, only the ones with ACL
+            conditions.push(inArray(vaultFolders.id, Array.from(accessibleFolderIds)));
+        }
         if (vaultId) {
-            conditions.push(eq(vaultFolders.vaultId, vaultId));
+            // When filtering by vaultId:
+            // - If user has vault-level access to this vault: show all folders (already handled above)
+            // - If user ONLY has folder-level access: the folderId filter above already restricts to accessible folders
+            //   We still add vaultId filter to ensure we only get folders from this vault
+            const hasVaultAccess = accessibleVaultIds.has(vaultId);
+            if (hasVaultAccess) {
+                // User has vault-level access - vaultId filter is redundant but harmless
+                conditions.push(eq(vaultFolders.vaultId, vaultId));
+            }
+            else if (accessibleFolderIds.size > 0) {
+                // User ONLY has folder-level ACL - add vaultId filter to ensure folders are in this vault
+                // Combined with folderId filter above, this will only return accessible folders in this vault
+                conditions.push(eq(vaultFolders.vaultId, vaultId));
+            }
+            else {
+                // User has no access - return empty
+                conditions.push(eq(vaultFolders.vaultId, vaultId));
+            }
         }
         if (parentId) {
             conditions.push(eq(vaultFolders.parentId, parentId));
@@ -124,7 +205,7 @@ export async function POST(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        // Verify user has access to vault (ownership or ACL with IMPORT permission)
+        // Verify user has access to vault
         const [vault] = await db
             .select()
             .from(vaultVaults)
@@ -133,31 +214,37 @@ export async function POST(request) {
         if (!vault) {
             return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
         }
-        // Check if user owns vault or has IMPORT permission
-        if (vault.ownerUserId !== user.sub) {
-            const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['IMPORT']);
-            if (!accessCheck.hasAccess) {
-                return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
-            }
+        const isAdmin = user.roles?.includes('admin') || false;
+        // For shared vaults, only admins can create folders
+        if (vault.type === 'shared' && !isAdmin) {
+            return NextResponse.json({ error: 'Forbidden: Only administrators can create folders in shared vaults' }, { status: 403 });
         }
-        // Build materialized path
-        let path = '/';
-        if (body.parentId) {
-            const parent = await db
-                .select()
-                .from(vaultFolders)
-                .where(eq(vaultFolders.id, body.parentId))
-                .limit(1);
-            if (parent[0]) {
-                path = `${parent[0].path}${body.name}/`;
-            }
+        // For personal vaults, only the owner can create folders
+        if (vault.type === 'personal' && vault.ownerUserId !== user.sub) {
+            return NextResponse.json({ error: 'Forbidden: You do not have access to this vault' }, { status: 403 });
+        }
+        // Handle root folder creation (parentId is null) or nested folder creation
+        let path;
+        if (!body.parentId) {
+            // Root folder: path is just /{name}/
+            path = `/${body.name}/`;
         }
         else {
-            path = `/${body.name}/`;
+            // Nested folder: verify parent folder exists and belongs to the same vault
+            const [parent] = await db
+                .select()
+                .from(vaultFolders)
+                .where(and(eq(vaultFolders.id, body.parentId), eq(vaultFolders.vaultId, body.vaultId)))
+                .limit(1);
+            if (!parent) {
+                return NextResponse.json({ error: 'Parent folder not found or does not belong to this vault' }, { status: 404 });
+            }
+            // Build materialized path from parent
+            path = `${parent.path}${body.name}/`;
         }
         const result = await db.insert(vaultFolders).values({
             vaultId: body.vaultId,
-            parentId: body.parentId || null,
+            parentId: body.parentId,
             name: body.name,
             path,
             createdBy: user.sub,
@@ -166,6 +253,7 @@ export async function POST(request) {
     }
     catch (error) {
         console.error('[vault] Create folder error:', error);
-        return NextResponse.json({ error: 'Failed to create folder' }, { status: 500 });
+        const errorMessage = error instanceof Error ? error.message : 'Failed to create folder';
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

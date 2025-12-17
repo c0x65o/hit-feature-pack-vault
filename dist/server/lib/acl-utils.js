@@ -1,5 +1,5 @@
 import { vaultAcls, vaultFolders, vaultVaults, vaultItems } from '@/lib/feature-pack-schemas';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, inArray } from 'drizzle-orm';
 /**
  * Get user's groups and roles for ACL checking
  */
@@ -11,6 +11,35 @@ async function getUserPrincipals(db, user) {
     // For now, return empty groups array - this should be implemented based on your auth setup
     const groupIds = [];
     return { userId, userEmail, groupIds, roles };
+}
+/**
+ * Get all descendant folder IDs (children, grandchildren, etc.) for a set of parent folder IDs.
+ * This is used to ensure that when a user has access to a folder, they also see items in all child folders.
+ */
+export async function getDescendantFolderIds(db, parentFolderIds) {
+    if (parentFolderIds.size === 0) {
+        return new Set();
+    }
+    const allFolderIds = new Set(parentFolderIds);
+    let currentLevelIds = Array.from(parentFolderIds);
+    // Recursively find all descendants
+    while (currentLevelIds.length > 0) {
+        const children = await db
+            .select({ id: vaultFolders.id })
+            .from(vaultFolders)
+            .where(inArray(vaultFolders.parentId, currentLevelIds));
+        const newChildIds = children
+            .map((c) => c.id)
+            .filter((id) => !allFolderIds.has(id));
+        if (newChildIds.length === 0) {
+            break; // No more children found
+        }
+        for (const id of newChildIds) {
+            allFolderIds.add(id);
+        }
+        currentLevelIds = newChildIds;
+    }
+    return allFolderIds;
 }
 /**
  * Check if user has access to a vault (ownership or ACL)
@@ -29,7 +58,12 @@ export async function checkVaultAccess(db, vaultId, user, requiredPermissions) {
     if (vault.ownerUserId === user.sub) {
         return { hasAccess: true };
     }
-    // Check ACL permissions
+    // Admins have full access to shared vaults
+    const isAdmin = user.roles?.includes('admin') || false;
+    if (isAdmin && vault.type === 'shared') {
+        return { hasAccess: true };
+    }
+    // For non-owners and non-admins, check ACL permissions
     const principals = await getUserPrincipals(db, user);
     const principalIds = [
         principals.userId,
@@ -160,15 +194,37 @@ export async function checkFolderAccess(db, folderId, user, options = {}) {
     if (!folder) {
         return { hasAccess: false, reason: 'Folder not found' };
     }
-    // Check vault ownership first
-    const vaultAccess = await checkVaultAccess(db, folder.vaultId, user);
-    if (vaultAccess.hasAccess && (!requiredPermissions.length || vaultAccess.hasAccess)) {
+    // Get vault to check ownership and type
+    const [vault] = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.id, folder.vaultId))
+        .limit(1);
+    if (!vault) {
+        return { hasAccess: false, reason: 'Vault not found' };
+    }
+    const isAdmin = user.roles?.includes('admin') || false;
+    const isOwner = vault.ownerUserId === user.sub;
+    // For owners of personal vaults: they have full access (all permissions)
+    if (isOwner && vault.type === 'personal') {
         return { hasAccess: true };
     }
-    // Check folder ACLs
+    // For shared vaults: owners and admins need explicit ACL entries for specific permissions
+    // If no specific permissions required, grant access to owners/admins
+    if ((isOwner || isAdmin) && vault.type === 'shared') {
+        if (requiredPermissions.length === 0) {
+            return { hasAccess: true };
+        }
+        // For specific permissions, fall through to ACL check below
+    }
+    // For non-owners and non-admins, check ACL permissions
     const principals = await getUserPrincipals(db, user);
     const effectiveAcls = await getEffectiveFolderAcls(db, folderId, principals);
     if (effectiveAcls.length === 0) {
+        // If user is admin/owner but no ACLs found and permissions required, deny
+        if ((isOwner || (isAdmin && vault.type === 'shared')) && requiredPermissions.length > 0) {
+            return { hasAccess: false, reason: 'No ACL permissions found for required permissions' };
+        }
         return { hasAccess: false, reason: 'No ACL permissions found' };
     }
     // Merge all permissions from effective ACLs
@@ -178,7 +234,7 @@ export async function checkFolderAccess(db, folderId, user, options = {}) {
             allPermissions.add(perm);
         }
     }
-    // Check required permissions
+    // Check required permissions - if specified, user must have them
     if (requiredPermissions.length > 0) {
         const hasAllRequired = requiredPermissions.every(perm => allPermissions.has(perm));
         if (!hasAllRequired) {
@@ -201,9 +257,22 @@ export async function checkItemAccess(db, itemId, user, options = {}) {
     if (!item) {
         return { hasAccess: false, reason: 'Item not found' };
     }
-    // Check vault ownership first
-    const vaultAccess = await checkVaultAccess(db, item.vaultId, user);
-    if (vaultAccess.hasAccess) {
+    // Get vault to check ownership and type
+    const [vault] = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.id, item.vaultId))
+        .limit(1);
+    if (!vault) {
+        return { hasAccess: false, reason: 'Vault not found' };
+    }
+    // Vault owner has full access
+    if (vault.ownerUserId === user.sub) {
+        return { hasAccess: true };
+    }
+    // Admins have full access to shared vaults
+    const isAdmin = user.roles?.includes('admin') || false;
+    if (isAdmin && vault.type === 'shared') {
         return { hasAccess: true };
     }
     // Check item-level ACLs

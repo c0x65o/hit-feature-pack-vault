@@ -19,6 +19,7 @@ export declare function GET(request: NextRequest): Promise<NextResponse<{
 /**
  * POST /api/vault/vaults
  * Create a new vault (personal or shared)
+ * Only admins can create shared vaults
  */
 export declare function POST(request: NextRequest): Promise<NextResponse<any>>;
 //# sourceMappingURL=vaults.d.ts.map

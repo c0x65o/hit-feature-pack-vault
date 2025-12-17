@@ -3,6 +3,14 @@
  * Exported individually for tree-shaking
  */
 
-// Placeholder for future hooks
-export {};
+export {
+  useOtpSubscription,
+  getWebSocketStatus,
+  isWebSocketAvailable,
+} from './useOtpSubscription';
 
+export type {
+  OtpNotification,
+  UseOtpSubscriptionOptions,
+  UseOtpSubscriptionResult,
+} from './useOtpSubscription';

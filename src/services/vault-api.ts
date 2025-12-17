@@ -181,7 +181,8 @@ export class VaultApiClient {
 
   // ACL/Sharing
   async getAcls(resourceType: string, resourceId: string): Promise<VaultAcl[]> {
-    return this.request<VaultAcl[]>(`/acl?resource_type=${resourceType}&resource_id=${resourceId}`);
+    const response = await this.request<{ items: VaultAcl[] }>(`/acl?resource_type=${resourceType}&resource_id=${resourceId}`);
+    return response.items || [];
   }
 
   async createAcl(data: InsertVaultAcl): Promise<VaultAcl> {
@@ -309,6 +310,42 @@ export class VaultApiClient {
     return this.request(`/sms/messages/latest${query}`);
   }
 
+  // Global email address (admin only)
+  async getGlobalEmailAddress(): Promise<{ emailAddress: string | null }> {
+    return this.request<{ emailAddress: string | null }>('/email/global');
+  }
+
+  async setGlobalEmailAddress(emailAddress: string): Promise<{ emailAddress: string }> {
+    return this.request<{ emailAddress: string }>('/email/global', {
+      method: 'POST',
+      body: JSON.stringify({ emailAddress }),
+    });
+  }
+
+  async deleteGlobalEmailAddress(): Promise<void> {
+    return this.request<void>('/email/global', {
+      method: 'DELETE',
+    });
+  }
+
+  // Latest email messages for polling
+  async getLatestEmailMessages(options?: { since?: string; email?: string }): Promise<{
+    messages: Array<{
+      id: string;
+      from: string;
+      to: string;
+      subject: string | null;
+      receivedAt: Date;
+    }>;
+    globalEmail: string | null;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.since) params.append('since', options.since);
+    if (options?.email) params.append('email', options.email);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/email/messages/latest${query}`);
+  }
+
   // Search
   async search(query: string, filters?: {
     vaultId?: string;
@@ -409,7 +446,8 @@ export class VaultApiClient {
 
   // Static Groups (fallback)
   async getGroups(): Promise<VaultStaticGroup[]> {
-    return this.request<VaultStaticGroup[]>('/groups');
+    const response = await this.request<{ items: VaultStaticGroup[] }>('/groups');
+    return response.items || [];
   }
 
   async createGroup(name: string, description?: string): Promise<VaultStaticGroup> {

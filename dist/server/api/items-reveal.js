@@ -2,8 +2,9 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { vaultItems, vaultVaults, vaultAuditEvents } from '@/lib/feature-pack-schemas';
-import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { eq } from 'drizzle-orm';
+import { getUserId, extractUserFromRequest } from '../auth';
+import { checkItemAccess } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -41,10 +42,23 @@ export async function POST(request) {
         const [vault] = await db
             .select()
             .from(vaultVaults)
-            .where(and(eq(vaultVaults.id, item.vaultId), eq(vaultVaults.ownerUserId, userId)))
+            .where(eq(vaultVaults.id, item.vaultId))
             .limit(1);
         if (!vault) {
-            // TODO: Check ACL for shared vault access
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+        // Check if user owns the vault
+        const isOwner = vault.ownerUserId === userId;
+        // Check if user has ACL access (for shared vaults)
+        let hasAclAccess = false;
+        if (!isOwner) {
+            const user = extractUserFromRequest(request);
+            if (user) {
+                const accessCheck = await checkItemAccess(db, id, user, { requiredPermissions: ['READ_ONLY', 'READ_WRITE'] });
+                hasAclAccess = accessCheck.hasAccess;
+            }
+        }
+        if (!isOwner && !hasAclAccess) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
         // Create audit event for reveal action

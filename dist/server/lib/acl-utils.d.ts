@@ -5,6 +5,11 @@ export interface AclCheckOptions {
     checkInheritance?: boolean;
 }
 /**
+ * Get all descendant folder IDs (children, grandchildren, etc.) for a set of parent folder IDs.
+ * This is used to ensure that when a user has access to a folder, they also see items in all child folders.
+ */
+export declare function getDescendantFolderIds(db: ReturnType<typeof getDb>, parentFolderIds: Set<string>): Promise<Set<string>>;
+/**
  * Check if user has access to a vault (ownership or ACL)
  */
 export declare function checkVaultAccess(db: ReturnType<typeof getDb>, vaultId: string, user: User, requiredPermissions?: string[]): Promise<{

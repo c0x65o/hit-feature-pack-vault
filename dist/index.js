@@ -18,3 +18,5 @@ export { navContributions as nav } from './nav';
 export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, vaultStaticGroups, vaultGroupMembers, vaultSettings, vaultTypeEnum, itemTypeEnum, principalTypeEnum, smsStatusEnum, auditActionEnum, VAULT_PERMISSIONS, } from './schema/vault';
 // Services
 export { VaultApiClient, vaultApi } from './services/vault-api';
+// Utilities
+export { extractOtpCode, extractOtpWithConfidence, isOtpMessage, OTP_KEYWORDS, } from './utils/otp-extractor';

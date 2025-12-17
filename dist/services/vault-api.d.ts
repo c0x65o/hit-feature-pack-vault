@@ -72,6 +72,26 @@ export declare class VaultApiClient {
             receivedAt: Date;
         }>;
     }>;
+    getGlobalEmailAddress(): Promise<{
+        emailAddress: string | null;
+    }>;
+    setGlobalEmailAddress(emailAddress: string): Promise<{
+        emailAddress: string;
+    }>;
+    deleteGlobalEmailAddress(): Promise<void>;
+    getLatestEmailMessages(options?: {
+        since?: string;
+        email?: string;
+    }): Promise<{
+        messages: Array<{
+            id: string;
+            from: string;
+            to: string;
+            subject: string | null;
+            receivedAt: Date;
+        }>;
+        globalEmail: string | null;
+    }>;
     search(query: string, filters?: {
         vaultId?: string;
         folderId?: string;

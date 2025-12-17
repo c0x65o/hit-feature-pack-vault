@@ -138,7 +138,8 @@ export class VaultApiClient {
     }
     // ACL/Sharing
     async getAcls(resourceType, resourceId) {
-        return this.request(`/acl?resource_type=${resourceType}&resource_id=${resourceId}`);
+        const response = await this.request(`/acl?resource_type=${resourceType}&resource_id=${resourceId}`);
+        return response.items || [];
     }
     async createAcl(data) {
         return this.request('/acl', {
@@ -238,6 +239,31 @@ export class VaultApiClient {
         const query = params.toString() ? `?${params.toString()}` : '';
         return this.request(`/sms/messages/latest${query}`);
     }
+    // Global email address (admin only)
+    async getGlobalEmailAddress() {
+        return this.request('/email/global');
+    }
+    async setGlobalEmailAddress(emailAddress) {
+        return this.request('/email/global', {
+            method: 'POST',
+            body: JSON.stringify({ emailAddress }),
+        });
+    }
+    async deleteGlobalEmailAddress() {
+        return this.request('/email/global', {
+            method: 'DELETE',
+        });
+    }
+    // Latest email messages for polling
+    async getLatestEmailMessages(options) {
+        const params = new URLSearchParams();
+        if (options?.since)
+            params.append('since', options.since);
+        if (options?.email)
+            params.append('email', options.email);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/email/messages/latest${query}`);
+    }
     // Search
     async search(query, filters) {
         const params = new URLSearchParams({ q: query });
@@ -305,7 +331,8 @@ export class VaultApiClient {
     }
     // Static Groups (fallback)
     async getGroups() {
-        return this.request('/groups');
+        const response = await this.request('/groups');
+        return response.items || [];
     }
     async createGroup(name, description) {
         return this.request('/groups', {

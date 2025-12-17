@@ -2,17 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity } from 'lucide-react';
+import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Phone, Check, Edit2, X, ChevronDown, Wifi, WifiOff } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
-import { extractOtpCode } from '../utils/otp-extractor';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { useOtpSubscription, getWebSocketStatus, isWebSocketAvailable } from '../hooks/useOtpSubscription';
 
 interface Props {
   onNavigate?: (path: string) => void;
 }
 
 export function VaultSetup({ onNavigate }: Props) {
-  const { Page, Card, Button, Alert } = useUi();
+  const { Page, Card, Button, Alert, Input } = useUi();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [smsNumbers, setSmsNumbers] = useState<VaultSmsNumber[]>([]);
@@ -24,6 +25,47 @@ export function VaultSetup({ onNavigate }: Props) {
   const [loadingWebhookLogs, setLoadingWebhookLogs] = useState(false);
   const [webhookApiKey, setWebhookApiKey] = useState<string | null>(null);
   const [generatingApiKey, setGeneratingApiKey] = useState(false);
+  const [expandedLogSections, setExpandedLogSections] = useState<Set<string>>(new Set());
+  
+  // Email configuration state
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  
+  // Email messages state
+  const [emailMessages, setEmailMessages] = useState<Array<{
+    id: string;
+    from: string;
+    to: string;
+    subject: string | null;
+    receivedAt: Date;
+  }>>([]);
+  const [loadingEmailMessages, setLoadingEmailMessages] = useState(false);
+  const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
+  
+  // WebSocket-based OTP subscription - this establishes the connection and enables real-time updates
+  const otpSubscription = useOtpSubscription({
+    type: 'all',
+    enabled: true, // Always listen for incoming OTP messages
+    onOtpReceived: async (result) => {
+      // When OTP is received via WebSocket, refresh the message lists
+      console.log('[VaultSetup] Real-time OTP received:', result.notification.type, result.code);
+      if (result.notification.type === 'email') {
+        loadEmailMessages();
+      } else if (result.notification.type === 'sms' && selectedSmsNumberId) {
+        loadMessages(selectedSmsNumberId);
+      }
+    },
+  });
+  
+  // WebSocket status from the subscription
+  const wsStatus = otpSubscription.connectionType === 'websocket' 
+    ? 'connected' 
+    : otpSubscription.connectionType === 'polling' 
+      ? 'polling' as const
+      : 'disconnected';
+  const wsAvailable = isWebSocketAvailable();
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -34,7 +76,24 @@ export function VaultSetup({ onNavigate }: Props) {
     loadData();
     loadWebhookLogs();
     loadWebhookApiKey();
+    loadGlobalEmailAddress();
   }, []);
+
+  useEffect(() => {
+    // Load email messages when global email is configured
+    if (globalEmailAddress) {
+      loadEmailMessages();
+      
+      // Auto-refresh email messages every 5 seconds
+      const interval = setInterval(() => {
+        loadEmailMessages();
+      }, 5000);
+      
+      return () => clearInterval(interval);
+    } else {
+      setEmailMessages([]);
+    }
+  }, [globalEmailAddress]);
 
   useEffect(() => {
     if (selectedSmsNumberId) {
@@ -160,6 +219,79 @@ export function VaultSetup({ onNavigate }: Props) {
     }
   }
 
+  async function loadGlobalEmailAddress() {
+    try {
+      const result = await vaultApi.getGlobalEmailAddress();
+      setGlobalEmailAddress(result.emailAddress);
+      setEmailInput(result.emailAddress || '');
+    } catch (err) {
+      console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function saveGlobalEmailAddress() {
+    if (!emailInput.trim()) {
+      return;
+    }
+
+    try {
+      setSavingEmail(true);
+      setError(null);
+      await vaultApi.setGlobalEmailAddress(emailInput.trim());
+      setGlobalEmailAddress(emailInput.trim());
+      setEditingEmail(false);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to save email address'));
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function deleteGlobalEmailAddress() {
+    if (!confirm('Remove the global 2FA email address?')) {
+      return;
+    }
+
+    try {
+      setSavingEmail(true);
+      setError(null);
+      await vaultApi.deleteGlobalEmailAddress();
+      setGlobalEmailAddress(null);
+      setEmailInput('');
+      setEditingEmail(false);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to delete email address'));
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function loadEmailMessages() {
+    try {
+      setLoadingEmailMessages(true);
+      const result = await vaultApi.getLatestEmailMessages();
+      setEmailMessages(result.messages);
+      
+      // Automatically reveal the most recent message if it's within 5 minutes
+      if (result.messages.length > 0) {
+        const mostRecent = result.messages[0];
+        const receivedAt = new Date(mostRecent.receivedAt);
+        const now = new Date();
+        const diffMs = now.getTime() - receivedAt.getTime();
+        const diffMins = diffMs / (1000 * 60);
+        
+        // If message is within 5 minutes, try to reveal it
+        if (diffMins <= 5) {
+          await handleRevealMessage(mostRecent.id);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load email messages:', err);
+    } finally {
+      setLoadingEmailMessages(false);
+    }
+  }
+
 
   if (loading) {
     return (
@@ -188,6 +320,286 @@ export function VaultSetup({ onNavigate }: Props) {
       )}
 
       <div className="space-y-6">
+        {/* Connection Status */}
+        <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border">
+          <div className="flex items-center gap-2">
+            {wsStatus === 'connected' ? (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                <Wifi size={18} className="text-green-500" />
+                <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                  WebSocket Connected
+                </span>
+              </>
+            ) : wsStatus === 'polling' ? (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
+                </span>
+                <RefreshCw size={18} className="text-yellow-500 animate-spin" style={{ animationDuration: '2s' }} />
+                <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                  Polling Active
+                </span>
+              </>
+            ) : !wsAvailable ? (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
+                </span>
+                <WifiOff size={18} className="text-gray-400" />
+                <span className="text-sm font-medium text-gray-500">
+                  WebSocket Unavailable
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
+                </span>
+                <WifiOff size={18} className="text-gray-400" />
+                <span className="text-sm font-medium text-gray-500">
+                  Disconnected
+                </span>
+              </>
+            )}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {wsStatus === 'connected' 
+              ? 'OTP codes will appear instantly when received'
+              : wsStatus === 'polling'
+                ? 'OTP codes detected via polling (every 2s)'
+                : 'Waiting for connection...'}
+          </span>
+        </div>
+
+        {/* 2FA Settings */}
+        <Card>
+          <div className="p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                <Mail size={20} />
+                2FA Email Address
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Configure the email address used for receiving 2FA codes. When adding vault items with email-based 2FA, 
+                incoming emails to this address will be matched for OTP extraction.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {editingEmail ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={emailInput}
+                    onChange={(value: string) => setEmailInput(value)}
+                    placeholder="operations@yourcompany.com"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={saveGlobalEmailAddress}
+                    disabled={savingEmail || !emailInput.trim()}
+                  >
+                    {savingEmail ? 'Saving...' : <Check size={16} />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingEmail(false);
+                      setEmailInput(globalEmailAddress || '');
+                    }}
+                  >
+                    <X size={16} />
+                  </Button>
+                </div>
+              ) : globalEmailAddress ? (
+                <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border">
+                  <div className="flex items-center gap-2">
+                    <Mail size={16} className="text-muted-foreground" />
+                    <code className="text-sm font-mono">{globalEmailAddress}</code>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingEmail(true)}
+                    >
+                      <Edit2 size={16} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={deleteGlobalEmailAddress}
+                      className="text-red-500 hover:text-red-600"
+                    >
+                      <X size={16} />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Alert variant="info" title="No Email Address Configured">
+                    <p className="text-sm mt-2">
+                      Set up a 2FA email address to enable email-based OTP code extraction.
+                    </p>
+                  </Alert>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setEditingEmail(true)}
+                  >
+                    <Mail size={16} className="mr-2" />
+                    Configure Email Address
+                  </Button>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                When you add a vault item with "Email" 2FA, the system will poll for incoming emails matching 
+                this address and automatically extract OTP codes.
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Email Inbox */}
+        {globalEmailAddress && (
+          <Card>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Mail size={20} />
+                  Email Inbox (Debug)
+                </h2>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={loadEmailMessages}
+                  disabled={loadingEmailMessages}
+                >
+                  <RefreshCw size={16} className={`mr-2 ${loadingEmailMessages ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Emails matching <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">{globalEmailAddress}</code> will appear here.
+              </p>
+
+              {loadingEmailMessages ? (
+                <div className="text-center py-4 text-muted-foreground">Loading emails...</div>
+              ) : emailMessages.length === 0 ? (
+                <div className="text-center py-4 text-muted-foreground">
+                  No email messages received yet
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {emailMessages.map(msg => {
+                    const revealedBody = revealedMessages.get(msg.id);
+                    const isRevealed = !!revealedBody;
+                    const otpResult = isRevealed && revealedBody ? extractOtpWithConfidence(revealedBody) : null;
+                    const showFullMessage = expandedEmailId === msg.id;
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="text-sm flex-1">
+                            <div className="font-medium">From: {msg.from}</div>
+                            {msg.subject && (
+                              <div className="text-muted-foreground text-xs mt-0.5">
+                                Subject: {msg.subject}
+                              </div>
+                            )}
+                            <div className="text-muted-foreground text-xs mt-1">
+                              {new Date(msg.receivedAt).toLocaleString()}
+                            </div>
+                          </div>
+                          {!isRevealed && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevealMessage(msg.id)}
+                            >
+                              Reveal
+                            </Button>
+                          )}
+                        </div>
+                        
+                        {otpResult && otpResult.code && (
+                          <div className={`mb-2 p-3 rounded-md border-2 ${
+                            otpResult.confidence === 'high' 
+                              ? 'bg-green-50 dark:bg-green-900/20 border-green-500' 
+                              : otpResult.confidence === 'medium'
+                                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                                : 'bg-gray-50 dark:bg-gray-800 border-gray-400'
+                          }`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className={`text-sm font-medium ${
+                                otpResult.confidence === 'high' 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : otpResult.confidence === 'medium'
+                                    ? 'text-yellow-600 dark:text-yellow-400'
+                                    : 'text-gray-600 dark:text-gray-400'
+                              }`}>
+                                OTP Code Detected ({otpResult.confidence} confidence)
+                              </label>
+                              <span className="text-xs text-muted-foreground">
+                                {formatTimeAgo(msg.receivedAt)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <code className="text-2xl font-mono font-bold">
+                                {otpResult.code}
+                              </code>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigator.clipboard.writeText(otpResult.code!)}
+                                title="Copy OTP code"
+                              >
+                                <Copy size={16} />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {isRevealed && (
+                          <div className="space-y-2">
+                            {(!otpResult || !otpResult.code || otpResult.confidence !== 'high') && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setExpandedEmailId(showFullMessage ? null : msg.id)}
+                              >
+                                {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                              </Button>
+                            )}
+                            
+                            {showFullMessage && (
+                              <div className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                {revealedBody}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
         {/* Webhook Configuration */}
         <Card>
           <div className="p-6 space-y-6">
@@ -394,8 +806,8 @@ export function VaultSetup({ onNavigate }: Props) {
                       {messages.map(msg => {
                         const revealedBody = revealedMessages.get(msg.id);
                         const isRevealed = !!revealedBody;
-                        const messageBody = isRevealed ? revealedBody : '••••••••';
-                        const otpCode = isRevealed && revealedBody ? extractOtpCode(revealedBody) : null;
+                        const otpResult = isRevealed && revealedBody ? extractOtpWithConfidence(revealedBody) : null;
+                        const showFullMessage = expandedEmailId === `sms-${msg.id}`;
 
                         return (
                           <div
@@ -420,11 +832,23 @@ export function VaultSetup({ onNavigate }: Props) {
                               )}
                             </div>
                             
-                            {otpCode && (
-                              <div className="mb-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border-2 border-green-500">
+                            {otpResult && otpResult.code && (
+                              <div className={`mb-2 p-3 rounded-md border-2 ${
+                                otpResult.confidence === 'high' 
+                                  ? 'bg-green-50 dark:bg-green-900/20 border-green-500' 
+                                  : otpResult.confidence === 'medium'
+                                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                                    : 'bg-gray-50 dark:bg-gray-800 border-gray-400'
+                              }`}>
                                 <div className="flex items-center justify-between mb-2">
-                                  <label className="text-sm font-medium text-green-600 dark:text-green-400">
-                                    OTP Code Detected
+                                  <label className={`text-sm font-medium ${
+                                    otpResult.confidence === 'high' 
+                                      ? 'text-green-600 dark:text-green-400' 
+                                      : otpResult.confidence === 'medium'
+                                        ? 'text-yellow-600 dark:text-yellow-400'
+                                        : 'text-gray-600 dark:text-gray-400'
+                                  }`}>
+                                    OTP Code Detected ({otpResult.confidence} confidence)
                                   </label>
                                   <span className="text-xs text-muted-foreground">
                                     {formatTimeAgo(msg.receivedAt)}
@@ -432,12 +856,12 @@ export function VaultSetup({ onNavigate }: Props) {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <code className="text-2xl font-mono font-bold">
-                                    {otpCode}
+                                    {otpResult.code}
                                   </code>
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => navigator.clipboard.writeText(otpCode)}
+                                    onClick={() => navigator.clipboard.writeText(otpResult.code!)}
                                     title="Copy OTP code"
                                   >
                                     <Copy size={16} />
@@ -446,9 +870,23 @@ export function VaultSetup({ onNavigate }: Props) {
                               </div>
                             )}
                             
-                            <div className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border">
-                              {messageBody}
-                            </div>
+                            {isRevealed && (
+                              <div className="space-y-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setExpandedEmailId(showFullMessage ? null : `sms-${msg.id}`)}
+                                >
+                                  {showFullMessage ? 'Hide Full Message' : 'Show Full Message'}
+                                </Button>
+                                
+                                {showFullMessage && (
+                                  <div className="text-sm font-mono bg-white dark:bg-gray-800 p-2 rounded border max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                    {revealedBody}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -542,16 +980,74 @@ export function VaultSetup({ onNavigate }: Props) {
                         )}
                       </div>
                     </div>
-                    {log.body && Object.keys(log.body).length > 0 && (
-                      <details className="mt-2">
-                        <summary className="text-xs text-muted-foreground cursor-pointer">
-                          View request body
-                        </summary>
-                        <pre className="text-xs mt-2 p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto">
-                          {JSON.stringify(log.body, null, 2)}
-                        </pre>
-                      </details>
-                    )}
+                    <div className="mt-2 space-y-2">
+                      {log.headers && Object.keys(log.headers).length > 0 && (() => {
+                        const headersKey = `${log.id}-headers`;
+                        const isExpanded = expandedLogSections.has(headersKey);
+                        return (
+                          <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                            <button
+                              onClick={() => {
+                                const newSet = new Set(expandedLogSections);
+                                if (isExpanded) {
+                                  newSet.delete(headersKey);
+                                } else {
+                                  newSet.add(headersKey);
+                                }
+                                setExpandedLogSections(newSet);
+                              }}
+                              className="flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <ChevronDown 
+                                size={14} 
+                                className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                              View request headers
+                            </button>
+                            {isExpanded && (
+                              <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                <pre className="text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto">
+                                  {JSON.stringify(log.headers, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {log.body && Object.keys(log.body).length > 0 && (() => {
+                        const bodyKey = `${log.id}-body`;
+                        const isExpanded = expandedLogSections.has(bodyKey);
+                        return (
+                          <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                            <button
+                              onClick={() => {
+                                const newSet = new Set(expandedLogSections);
+                                if (isExpanded) {
+                                  newSet.delete(bodyKey);
+                                } else {
+                                  newSet.add(bodyKey);
+                                }
+                                setExpandedLogSections(newSet);
+                              }}
+                              className="flex items-center gap-2 w-full text-left text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <ChevronDown 
+                                size={14} 
+                                className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                              View request body
+                            </button>
+                            {isExpanded && (
+                              <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                <pre className="text-xs p-2 bg-white dark:bg-gray-800 rounded border overflow-x-auto">
+                                  {JSON.stringify(log.body, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 ))}
               </div>

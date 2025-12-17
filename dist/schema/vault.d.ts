@@ -1355,19 +1355,15 @@ export type InsertVaultGroupMember = typeof vaultGroupMembers.$inferInsert;
 export type InsertVaultSetting = typeof vaultSettings.$inferInsert;
 /**
  * Permission Constants
+ * Simplified permissions:
+ * - READ_ONLY: Can view passwords and items
+ * - READ_WRITE: Can add/edit items and folders
+ * - DELETE: Can delete items and folders
  */
 export declare const VAULT_PERMISSIONS: {
-    readonly VIEW_METADATA: "VIEW_METADATA";
-    readonly REVEAL_PASSWORD: "REVEAL_PASSWORD";
-    readonly COPY_PASSWORD: "COPY_PASSWORD";
-    readonly EDIT: "EDIT";
+    readonly READ_ONLY: "READ_ONLY";
+    readonly READ_WRITE: "READ_WRITE";
     readonly DELETE: "DELETE";
-    readonly SHARE: "SHARE";
-    readonly GENERATE_TOTP: "GENERATE_TOTP";
-    readonly REVEAL_TOTP_SECRET: "REVEAL_TOTP_SECRET";
-    readonly READ_SMS: "READ_SMS";
-    readonly MANAGE_SMS: "MANAGE_SMS";
-    readonly IMPORT: "IMPORT";
 };
 export type VaultPermission = (typeof VAULT_PERMISSIONS)[keyof typeof VAULT_PERMISSIONS];
 //# sourceMappingURL=vault.d.ts.map
