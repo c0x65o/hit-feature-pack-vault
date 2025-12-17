@@ -14,7 +14,7 @@ interface FolderAclModalProps {
 }
 
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAclModalProps) {
-  const { Modal, Button, Alert, Spinner, Input, Select, Checkbox, Badge } = useUi();
+  const { Modal, Button, Alert, Spinner, Input, Select, Badge, Checkbox } = useUi();
   const [acls, setAcls] = useState<VaultAcl[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -24,7 +24,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPrincipalType, setNewPrincipalType] = useState<'user' | 'group' | 'role'>('user');
   const [newPrincipalId, setNewPrincipalId] = useState('');
-  const [newPermissions, setNewPermissions] = useState<string[]>([]);
+  const [newPermissionLevel, setNewPermissionLevel] = useState<'full' | 'read_write' | 'read_only' | ''>('');
   const [newInherit, setNewInherit] = useState(true);
 
   // Principal options state
@@ -50,12 +50,19 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     setLoadingOptions(true);
     try {
       if (newPrincipalType === 'user') {
+        // Get auth token from localStorage
+        const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
         // Fetch users from user directory API
         const response = await fetch('/api/user-directory?limit=10000', {
           credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
         });
         if (response.ok) {
           const data = await response.json();
@@ -158,11 +165,16 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
             setRoles(roleOptions);
           } else {
             // Fallback: try to extract roles from users
+            const fallbackToken = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+            const fallbackHeaders: Record<string, string> = {
+              'Content-Type': 'application/json',
+            };
+            if (fallbackToken) {
+              fallbackHeaders['Authorization'] = `Bearer ${fallbackToken}`;
+            }
             const userResponse = await fetch('/api/user-directory?limit=1000', {
               credentials: 'include',
-              headers: {
-                'Content-Type': 'application/json',
-              },
+              headers: fallbackHeaders,
             });
             if (userResponse.ok) {
               const userData = await userResponse.json();
@@ -215,20 +227,21 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       return;
     }
 
-    if (newPermissions.length === 0) {
-      setError(new Error('At least one permission is required'));
+    if (!newPermissionLevel) {
+      setError(new Error('Permission level is required'));
       return;
     }
 
     try {
       setSaving(true);
       setError(null);
+      const permissions = getPermissionsFromLevel(newPermissionLevel as 'full' | 'read_write' | 'read_only');
       const newAcl: InsertVaultAcl = {
         resourceType: 'folder',
         resourceId: folderId,
         principalType: newPrincipalType,
         principalId: newPrincipalId.trim(),
-        permissions: newPermissions,
+        permissions: permissions,
         inherit: newInherit,
         createdBy: '', // Will be set by backend
       };
@@ -238,7 +251,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       // Reset form
       setNewPrincipalType('user');
       setNewPrincipalId('');
-      setNewPermissions([]);
+      setNewPermissionLevel('');
       setNewInherit(true);
       setShowAddForm(false);
       
@@ -270,14 +283,18 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     }
   }
 
-  function togglePermission(permission: string) {
-    setNewPermissions(prev => {
-      if (prev.includes(permission)) {
-        return prev.filter(p => p !== permission);
-      } else {
-        return [...prev, permission];
-      }
-    });
+  // Map permission level to actual permissions array
+  function getPermissionsFromLevel(level: 'full' | 'read_write' | 'read_only'): string[] {
+    switch (level) {
+      case 'full':
+        return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE];
+      case 'read_write':
+        return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE];
+      case 'read_only':
+        return [VAULT_PERMISSIONS.READ_ONLY];
+      default:
+        return [];
+    }
   }
 
   const permissionLabels: Record<string, string> = {
@@ -380,18 +397,17 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Permissions</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {Object.entries(VAULT_PERMISSIONS).map(([key, value]) => (
-                      <div key={key} className="flex items-center space-x-2">
-                        <Checkbox
-                          checked={newPermissions.includes(value)}
-                          onChange={() => togglePermission(value)}
-                        />
-                        <label className="text-sm">{permissionLabels[value] || value}</label>
-                      </div>
-                    ))}
-                  </div>
+                  <label className="text-sm font-medium mb-1 block">Permissions</label>
+                  <Select
+                    value={newPermissionLevel}
+                    onChange={(value: string) => setNewPermissionLevel(value as 'full' | 'read_write' | 'read_only' | '')}
+                    options={[
+                      { value: 'full', label: 'Full (read write delete)' },
+                      { value: 'read_write', label: 'Read and Write' },
+                      { value: 'read_only', label: 'Read Only' },
+                    ]}
+                    placeholder="Select permission level"
+                  />
                 </div>
 
                 <div className="flex items-center space-x-2">
@@ -407,7 +423,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                     onClick={() => {
                       setShowAddForm(false);
                       setNewPrincipalId('');
-                      setNewPermissions([]);
+                      setNewPermissionLevel('');
                       setError(null);
                       setUsers([]);
                       setGroups([]);
@@ -420,7 +436,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
                   </Button>
                   <Button
                     onClick={handleCreateAcl}
-                    disabled={saving || !newPrincipalId.trim() || newPermissions.length === 0}
+                    disabled={saving || !newPrincipalId.trim() || !newPermissionLevel}
                     size="sm"
                   >
                     {saving ? 'Adding...' : 'Add Access'}

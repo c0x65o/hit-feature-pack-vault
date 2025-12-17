@@ -846,23 +846,29 @@ function FolderSection({
           </button>
         </div>
         <div className="flex items-center gap-1">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onShowAclModal(folder.id);
-            }}
-            title="Manage Access"
-          >
-            <Users size={14} />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
-            <Plus size={14} />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(folder)}>
-            <Trash2 size={14} />
-          </Button>
+          {(folder as any).canShare !== false && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowAclModal(folder.id);
+              }}
+              title="Manage Access"
+            >
+              <Users size={14} />
+            </Button>
+          )}
+          {(folder as any).canEdit !== false && (
+            <Button variant="ghost" size="sm" onClick={() => onAddItem(folder.id)}>
+              <Plus size={14} />
+            </Button>
+          )}
+          {(folder as any).canDelete !== false && (
+            <Button variant="ghost" size="sm" onClick={() => onDelete(folder)}>
+              <Trash2 size={14} />
+            </Button>
+          )}
         </div>
       </div>
       

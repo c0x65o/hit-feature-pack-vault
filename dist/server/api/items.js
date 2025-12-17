@@ -48,7 +48,7 @@ export async function GET(request) {
         const accessibleVaultIds = new Set(userVaultIds);
         const accessibleFolderIds = new Set();
         if (isAdmin) {
-            // Admins get access to all items in shared vaults
+            // Admins get access to ALL items in shared vaults - they see everything
             const sharedVaults = await db
                 .select({ id: vaultVaults.id })
                 .from(vaultVaults)
@@ -56,6 +56,8 @@ export async function GET(request) {
             for (const vault of sharedVaults) {
                 accessibleVaultIds.add(vault.id);
             }
+            // Admins don't need folder-level ACLs - they have vault-level access to all shared vaults
+            // So we skip the folder ACL check for admins
         }
         else if (userPrincipalIds.length > 0) {
             // Check vault-level ACLs - users with vault ACL see all items in that vault
@@ -118,18 +120,22 @@ export async function GET(request) {
             conditions.push(eq(vaultItems.vaultId, vaultId));
         }
         if (folderId) {
-            // When filtering by folderId, include items in that folder AND all descendant folders
-            // This ensures users see items in child folders when viewing a parent folder
-            // Access is already checked by the accessConditions above, so we just need to expand the folder filter
-            const descendantFolderIds = await getDescendantFolderIds(db, new Set([folderId]));
-            const folderIdsToInclude = Array.from(descendantFolderIds);
-            if (folderIdsToInclude.length > 0) {
-                conditions.push(inArray(vaultItems.folderId, folderIdsToInclude));
+            // When filtering by folderId:
+            // - Admins: ignore folderId filter - they see ALL items in the vault (already filtered by vaultId above)
+            // - Non-admins: include items in that folder AND all descendant folders
+            if (!isAdmin) {
+                // Non-admins: filter to folder and descendants
+                const descendantFolderIds = await getDescendantFolderIds(db, new Set([folderId]));
+                const folderIdsToInclude = Array.from(descendantFolderIds);
+                if (folderIdsToInclude.length > 0) {
+                    conditions.push(inArray(vaultItems.folderId, folderIdsToInclude));
+                }
+                else {
+                    // Fallback to just the folder itself if no descendants
+                    conditions.push(eq(vaultItems.folderId, folderId));
+                }
             }
-            else {
-                // Fallback to just the folder itself if no descendants
-                conditions.push(eq(vaultItems.folderId, folderId));
-            }
+            // Admins: don't add folderId filter - they see all items in the vault
         }
         if (search) {
             conditions.push(like(vaultItems.title, `%${search}%`));

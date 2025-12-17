@@ -5,7 +5,7 @@ import { useUi } from '@hit/ui-kit';
 import { vaultApi } from '../services/vault-api';
 import { VAULT_PERMISSIONS } from '../schema/vault';
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
-    const { Modal, Button, Alert, Spinner, Input, Select, Checkbox, Badge } = useUi();
+    const { Modal, Button, Alert, Spinner, Input, Select, Badge, Checkbox } = useUi();
     const [acls, setAcls] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -14,7 +14,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
     const [showAddForm, setShowAddForm] = useState(false);
     const [newPrincipalType, setNewPrincipalType] = useState('user');
     const [newPrincipalId, setNewPrincipalId] = useState('');
-    const [newPermissions, setNewPermissions] = useState([]);
+    const [newPermissionLevel, setNewPermissionLevel] = useState('');
     const [newInherit, setNewInherit] = useState(true);
     // Principal options state
     const [users, setUsers] = useState([]);
@@ -36,12 +36,18 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         setLoadingOptions(true);
         try {
             if (newPrincipalType === 'user') {
+                // Get auth token from localStorage
+                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
                 // Fetch users from user directory API
                 const response = await fetch('/api/user-directory?limit=10000', {
                     credentials: 'include',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers,
                 });
                 if (response.ok) {
                     const data = await response.json();
@@ -149,11 +155,16 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                     }
                     else {
                         // Fallback: try to extract roles from users
+                        const fallbackToken = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+                        const fallbackHeaders = {
+                            'Content-Type': 'application/json',
+                        };
+                        if (fallbackToken) {
+                            fallbackHeaders['Authorization'] = `Bearer ${fallbackToken}`;
+                        }
                         const userResponse = await fetch('/api/user-directory?limit=1000', {
                             credentials: 'include',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
+                            headers: fallbackHeaders,
                         });
                         if (userResponse.ok) {
                             const userData = await userResponse.json();
@@ -210,19 +221,20 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setError(new Error('Principal ID is required'));
             return;
         }
-        if (newPermissions.length === 0) {
-            setError(new Error('At least one permission is required'));
+        if (!newPermissionLevel) {
+            setError(new Error('Permission level is required'));
             return;
         }
         try {
             setSaving(true);
             setError(null);
+            const permissions = getPermissionsFromLevel(newPermissionLevel);
             const newAcl = {
                 resourceType: 'folder',
                 resourceId: folderId,
                 principalType: newPrincipalType,
                 principalId: newPrincipalId.trim(),
-                permissions: newPermissions,
+                permissions: permissions,
                 inherit: newInherit,
                 createdBy: '', // Will be set by backend
             };
@@ -230,7 +242,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             // Reset form
             setNewPrincipalType('user');
             setNewPrincipalId('');
-            setNewPermissions([]);
+            setNewPermissionLevel('');
             setNewInherit(true);
             setShowAddForm(false);
             // Reload ACLs
@@ -262,15 +274,18 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setSaving(false);
         }
     }
-    function togglePermission(permission) {
-        setNewPermissions(prev => {
-            if (prev.includes(permission)) {
-                return prev.filter(p => p !== permission);
-            }
-            else {
-                return [...prev, permission];
-            }
-        });
+    // Map permission level to actual permissions array
+    function getPermissionsFromLevel(level) {
+        switch (level) {
+            case 'full':
+                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE];
+            case 'read_write':
+                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE];
+            case 'read_only':
+                return [VAULT_PERMISSIONS.READ_ONLY];
+            default:
+                return [];
+        }
     }
     const permissionLabels = {
         READ_ONLY: 'Read Only (view passwords)',
@@ -297,13 +312,17 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
                                                         return (_jsx(Input, { value: newPrincipalId, onChange: (value) => setNewPrincipalId(value), placeholder: newPrincipalType === 'user' ? 'user@example.com' :
                                                                 newPrincipalType === 'group' ? 'group-id' : 'role-name' }));
                                                     }
-                                                })())] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-2 block", children: "Permissions" }), _jsx("div", { className: "grid grid-cols-2 gap-2", children: Object.entries(VAULT_PERMISSIONS).map(([key, value]) => (_jsxs("div", { className: "flex items-center space-x-2", children: [_jsx(Checkbox, { checked: newPermissions.includes(value), onChange: () => togglePermission(value) }), _jsx("label", { className: "text-sm", children: permissionLabels[value] || value })] }, key))) })] }), _jsxs("div", { className: "flex items-center space-x-2", children: [_jsx(Checkbox, { checked: newInherit, onChange: (checked) => setNewInherit(checked) }), _jsx("label", { className: "text-sm", children: "Inherit to child folders and items" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {
+                                                })())] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Permissions" }), _jsx(Select, { value: newPermissionLevel, onChange: (value) => setNewPermissionLevel(value), options: [
+                                                { value: 'full', label: 'Full (read write delete)' },
+                                                { value: 'read_write', label: 'Read and Write' },
+                                                { value: 'read_only', label: 'Read Only' },
+                                            ], placeholder: "Select permission level" })] }), _jsxs("div", { className: "flex items-center space-x-2", children: [_jsx(Checkbox, { checked: newInherit, onChange: (checked) => setNewInherit(checked) }), _jsx("label", { className: "text-sm", children: "Inherit to child folders and items" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {
                                                 setShowAddForm(false);
                                                 setNewPrincipalId('');
-                                                setNewPermissions([]);
+                                                setNewPermissionLevel('');
                                                 setError(null);
                                                 setUsers([]);
                                                 setGroups([]);
                                                 setRoles([]);
-                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || newPermissions.length === 0, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: acl.principalId }), acl.inherit && (_jsx(Badge, { variant: "info", className: "text-xs", children: "Inherits" }))] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
+                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: acl.principalId }), acl.inherit && (_jsx(Badge, { variant: "info", className: "text-xs", children: "Inherits" }))] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
 }

@@ -103,42 +103,37 @@ export async function GET(request) {
         // Build where conditions:
         // CRITICAL: If user has folder-level ACL but NO vault-level ACL for a vault,
         // they should ONLY see folders they have explicit ACL on, NOT all folders in that vault
+        // If vaultId is provided and user ONLY has folder-level ACL (no vault-level ACL for this vault),
+        // filter accessibleFolderIds to only folders in this vault BEFORE building conditions
+        let filteredAccessibleFolderIds = accessibleFolderIds;
+        if (vaultId && !accessibleVaultIds.has(vaultId) && accessibleFolderIds.size > 0) {
+            // User ONLY has folder-level ACL - filter to folders in this vault
+            const foldersInThisVault = await db
+                .select({ id: vaultFolders.id })
+                .from(vaultFolders)
+                .where(and(eq(vaultFolders.vaultId, vaultId), inArray(vaultFolders.id, Array.from(accessibleFolderIds))));
+            filteredAccessibleFolderIds = new Set(foldersInThisVault.map((f) => f.id));
+        }
         const conditions = [];
         // Separate vault-level access from folder-level access
         // Users with vault-level ACL see all folders in those vaults
         // Users with ONLY folder-level ACL see ONLY those specific folders
-        if (accessibleVaultIds.size > 0 && accessibleFolderIds.size > 0) {
+        if (accessibleVaultIds.size > 0 && filteredAccessibleFolderIds.size > 0) {
             // User has both - show folders from vault-level access OR folder-level access
-            conditions.push(or(inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds)), inArray(vaultFolders.id, Array.from(accessibleFolderIds))));
+            conditions.push(or(inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds)), inArray(vaultFolders.id, Array.from(filteredAccessibleFolderIds))));
         }
         else if (accessibleVaultIds.size > 0) {
             // User ONLY has vault-level access - show all folders in those vaults
             conditions.push(inArray(vaultFolders.vaultId, Array.from(accessibleVaultIds)));
         }
-        else if (accessibleFolderIds.size > 0) {
+        else if (filteredAccessibleFolderIds.size > 0) {
             // User ONLY has folder-level access - show ONLY those specific folders
             // This is critical - do NOT show all folders in the vault, only the ones with ACL
-            conditions.push(inArray(vaultFolders.id, Array.from(accessibleFolderIds)));
+            conditions.push(inArray(vaultFolders.id, Array.from(filteredAccessibleFolderIds)));
         }
         if (vaultId) {
-            // When filtering by vaultId:
-            // - If user has vault-level access to this vault: show all folders (already handled above)
-            // - If user ONLY has folder-level access: the folderId filter above already restricts to accessible folders
-            //   We still add vaultId filter to ensure we only get folders from this vault
-            const hasVaultAccess = accessibleVaultIds.has(vaultId);
-            if (hasVaultAccess) {
-                // User has vault-level access - vaultId filter is redundant but harmless
-                conditions.push(eq(vaultFolders.vaultId, vaultId));
-            }
-            else if (accessibleFolderIds.size > 0) {
-                // User ONLY has folder-level ACL - add vaultId filter to ensure folders are in this vault
-                // Combined with folderId filter above, this will only return accessible folders in this vault
-                conditions.push(eq(vaultFolders.vaultId, vaultId));
-            }
-            else {
-                // User has no access - return empty
-                conditions.push(eq(vaultFolders.vaultId, vaultId));
-            }
+            // Add vaultId filter
+            conditions.push(eq(vaultFolders.vaultId, vaultId));
         }
         if (parentId) {
             conditions.push(eq(vaultFolders.parentId, parentId));
@@ -172,8 +167,21 @@ export async function GET(request) {
             .orderBy(orderDirection)
             .limit(pageSize)
             .offset(offset);
+        // Add permission flags to each folder for UI conditional rendering
+        const { checkFolderAccess } = await import('../lib/acl-utils');
+        const itemsWithPermissions = await Promise.all(items.map(async (folder) => {
+            const deleteCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['DELETE'] });
+            const shareCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['SHARE'] });
+            const editCheck = await checkFolderAccess(db, folder.id, user, { requiredPermissions: ['EDIT', 'READ_WRITE'] });
+            return {
+                ...folder,
+                canDelete: deleteCheck.hasAccess,
+                canShare: shareCheck.hasAccess,
+                canEdit: editCheck.hasAccess,
+            };
+        }));
         return NextResponse.json({
-            items,
+            items: itemsWithPermissions,
             pagination: {
                 page,
                 pageSize,

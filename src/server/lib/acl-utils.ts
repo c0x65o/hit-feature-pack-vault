@@ -313,13 +313,10 @@ export async function checkFolderAccess(
     return { hasAccess: true };
   }
   
-  // For shared vaults: owners and admins need explicit ACL entries for specific permissions
-  // If no specific permissions required, grant access to owners/admins
+  // For shared vaults: admins have full access (all permissions) without needing explicit ACLs
+  // Owners of shared vaults also have full access
   if ((isOwner || isAdmin) && vault.type === 'shared') {
-    if (requiredPermissions.length === 0) {
-      return { hasAccess: true };
-    }
-    // For specific permissions, fall through to ACL check below
+    return { hasAccess: true };
   }
 
   // For non-owners and non-admins, check ACL permissions
