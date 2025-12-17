@@ -88,24 +88,35 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Target vault not found' }, { status: 404 });
       }
 
-      // CRITICAL: Prevent moving folders from shared vault to personal vault
-      if (sourceVault.type === 'shared' && targetVault.type === 'personal') {
-        return NextResponse.json({ error: 'Forbidden: Cannot move folders from shared vault to personal vault' }, { status: 403 });
+      // If moving to personal vault, verify user owns it
+      if (targetVault.type === 'personal' && targetVault.ownerUserId !== user.sub) {
+        return NextResponse.json({ error: 'Forbidden: You do not own the target personal vault' }, { status: 403 });
       }
 
-      // Ensure parent is in same vault (unless explicitly allowed cross-vault moves)
-      if (parent.vaultId !== existing.vaultId) {
-        return NextResponse.json({ error: 'Forbidden: Cannot move folder to different vault' }, { status: 403 });
-      }
-
-      // Check if user has READ_WRITE access to parent folder
+      // Allow cross-vault moves - check if user has READ_WRITE access to parent folder
       const parentAccessCheck = await checkFolderAccess(db, parentId, user, { requiredPermissions: ['READ_WRITE'] });
       if (!parentAccessCheck.hasAccess) {
         return NextResponse.json({ error: 'Forbidden: No write access to parent folder' }, { status: 403 });
       }
+
+      // If moving to a different vault, update the folder's vaultId
+      if (parent.vaultId !== existing.vaultId) {
+        // Update vaultId when moving to a different vault
+        const [updatedFolder] = await db
+          .update(vaultFolders)
+          .set({
+            parentId: parentId,
+            vaultId: parent.vaultId, // Update vaultId when moving to different vault
+          })
+          .where(eq(vaultFolders.id, id))
+          .returning();
+        
+        return NextResponse.json(updatedFolder);
+      }
     }
 
     // Update folder - vaultFolders doesn't have updatedAt field
+    // Note: If we already updated above (cross-vault move), this won't execute
     const [item] = await db
       .update(vaultFolders)
       .set({

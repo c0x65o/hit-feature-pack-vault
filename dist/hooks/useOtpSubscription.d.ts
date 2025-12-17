@@ -77,9 +77,11 @@ export declare function useOtpSubscription(options?: UseOtpSubscriptionOptions):
 /**
  * Get the current WebSocket connection status
  */
-export declare function getWebSocketStatus(): 'connected' | 'connecting' | 'disconnected' | 'error' | 'unavailable';
+export declare function getWebSocketStatus(): Promise<'connected' | 'connecting' | 'disconnected' | 'error' | 'unavailable'>;
 /**
  * Check if WebSocket is available
+ * Note: This is synchronous but may return false initially while SDK loads.
+ * The SDK loads in the background, so subsequent calls will return true if available.
  */
 export declare function isWebSocketAvailable(): boolean;
 //# sourceMappingURL=useOtpSubscription.d.ts.map

@@ -96,24 +96,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Target vault not found' }, { status: 404 });
       }
 
-      // CRITICAL: Prevent moving items from shared vault to personal vault
-      // Users should not be able to move shared items to their personal vault
-      if (sourceVault.type === 'shared' && targetVault.type === 'personal') {
-        return NextResponse.json({ error: 'Forbidden: Cannot move items from shared vault to personal vault' }, { status: 403 });
+      // If moving to personal vault, verify user owns it
+      if (targetVault.type === 'personal' && targetVault.ownerUserId !== user.sub) {
+        return NextResponse.json({ error: 'Forbidden: You do not own the target personal vault' }, { status: 403 });
       }
 
       // When moving to a folder in a different vault, update the item's vaultId
       targetVaultId = folder.vaultId;
     } else {
-      // Moving to root - check if user has access to root of target vault
-      // For now, allow if user owns the vault or has vault-level ACL
-      // But still prevent moving from shared to personal
-      if (sourceVault.type === 'shared') {
-        // Check if target vault is personal - if so, prevent
-        // For root moves within same vault, this is fine
-        // But we need to check if moving to a different vault's root
-        // Since folderId is null, we're moving to root of existing vault, which is fine
-      }
+      // Moving to root - if moving to a different vault's root, verify access
+      // Since folderId is null, we're moving to root of existing vault, which is fine
+      // The access check above already verified user has READ_WRITE on the item
     }
 
     const [item] = await db

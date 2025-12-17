@@ -374,10 +374,23 @@ export function VaultLanding({ onNavigate }: Props) {
             const revealResult = await vaultApi.revealSmsMessage(msg.id);
             const otpResult = extractOtpWithConfidence(revealResult.body);
             if (otpResult.code) {
-              await navigator.clipboard.writeText(otpResult.code);
+              // Try to copy to clipboard, but don't fail if document isn't focused
+              try {
+                // Check if document is focused before attempting clipboard write
+                if (document.hasFocus()) {
+                  await navigator.clipboard.writeText(otpResult.code);
+                  setEmailOtpCopiedFor(item.id);
+                  setTimeout(() => setEmailOtpCopiedFor(null), 2000);
+                } else {
+                  // Document not focused - log but don't error
+                  console.log('Document not focused, OTP code found but not copied:', otpResult.code);
+                }
+              } catch (clipboardErr: any) {
+                // Clipboard write failed (e.g., document not focused, permission denied)
+                // Log but don't throw - OTP was still found
+                console.log('Could not copy to clipboard (document may not be focused), OTP code:', otpResult.code);
+              }
               setEmailOtpPollingFor(null);
-              setEmailOtpCopiedFor(item.id);
-              setTimeout(() => setEmailOtpCopiedFor(null), 2000);
               return true;
             }
           } catch (err) {

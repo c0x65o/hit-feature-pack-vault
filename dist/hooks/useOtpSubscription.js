@@ -8,16 +8,72 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
 // Try to import HIT SDK events - may not be available in all setups
-let eventsClient = null;
-try {
-    // Dynamic import to avoid build errors when SDK not installed
-    const hitSdk = require('@hit/sdk');
-    eventsClient = hitSdk.events;
-    console.log('[useOtpSubscription] HIT SDK loaded successfully, eventsClient available:', !!eventsClient);
+// Use ES6 imports (not require) for browser compatibility
+let HitEventsClass = null;
+let getWebSocketUrlFn = null;
+let sdkLoadPromise = null;
+// Use a function to lazily import the SDK (avoids top-level await issues)
+async function loadHitSdk() {
+    if (HitEventsClass) {
+        return; // Already loaded
+    }
+    if (sdkLoadPromise) {
+        return sdkLoadPromise; // Already loading
+    }
+    sdkLoadPromise = (async () => {
+        try {
+            // Dynamic import - works in browser environments (Next.js client components)
+            const hitSdk = await import('@hit/sdk');
+            HitEventsClass = hitSdk.HitEvents;
+            getWebSocketUrlFn = hitSdk.getWebSocketUrl;
+            console.log('[useOtpSubscription] HIT SDK loaded successfully, HitEvents available:', !!HitEventsClass);
+        }
+        catch (e) {
+            // SDK not available - will use polling fallback
+            console.log('[useOtpSubscription] HIT SDK not available, will use polling fallback. Error:', e);
+        }
+    })();
+    return sdkLoadPromise;
 }
-catch (e) {
-    // SDK not available - will use polling fallback
-    console.log('[useOtpSubscription] HIT SDK not available, will use polling fallback. Error:', e);
+// Pre-load SDK in the background (non-blocking)
+if (typeof window !== 'undefined') {
+    loadHitSdk().catch(() => {
+        // Ignore errors - will fall back to polling
+    });
+}
+// Global events client instance (created lazily when needed)
+let eventsClientInstance = null;
+/**
+ * Get or create the events client instance
+ */
+async function getEventsClient() {
+    // Ensure SDK is loaded
+    await loadHitSdk();
+    if (!HitEventsClass) {
+        return null;
+    }
+    if (!eventsClientInstance) {
+        // Get WebSocket URL from environment (same approach as hit-hello-world-ts)
+        const EVENTS_WS_URL = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_EVENTS_WS_URL
+            ? process.env.NEXT_PUBLIC_HIT_EVENTS_WS_URL
+            : (getWebSocketUrlFn ? getWebSocketUrlFn('events') : '');
+        // Get project slug/channel from environment
+        const EVENTS_CHANNEL = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_EVENTS_CHANNEL
+            ? process.env.NEXT_PUBLIC_HIT_EVENTS_CHANNEL
+            : 'shared-events';
+        eventsClientInstance = new HitEventsClass({
+            baseUrl: EVENTS_WS_URL,
+            projectSlug: EVENTS_CHANNEL,
+            useSSE: false, // Use WebSocket
+            onStatusChange: (status) => {
+                console.log('[useOtpSubscription] WebSocket status:', status);
+            },
+            onError: (error) => {
+                console.warn('[useOtpSubscription] WebSocket error:', error.message);
+            },
+        });
+    }
+    return eventsClientInstance;
 }
 /**
  * Hook for subscribing to OTP notifications
@@ -113,13 +169,14 @@ export function useOtpSubscription(options = {}) {
         setIsListening(false);
         setConnectionType('disconnected');
     }, []);
-    const startListeningWebSocket = useCallback(() => {
-        console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
-        if (!eventsClient) {
-            console.log('[useOtpSubscription] WebSocket not attempted: eventsClient is null/undefined. HIT SDK may not be installed or initialized.');
-            return false;
-        }
+    const startListeningWebSocket = useCallback(async () => {
         try {
+            const eventsClient = await getEventsClient();
+            console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
+            if (!eventsClient) {
+                console.log('[useOtpSubscription] WebSocket not attempted: eventsClient is null/undefined. HIT SDK may not be installed or initialized.');
+                return false;
+            }
             console.log('[useOtpSubscription] Subscribing to vault.otp_received event via WebSocket');
             // Subscribe to vault OTP events
             subscriptionRef.current = eventsClient.subscribe('vault.otp_received', (event) => {
@@ -184,7 +241,7 @@ export function useOtpSubscription(options = {}) {
         setConnectionType('polling');
         console.log('[useOtpSubscription] Connected via polling');
     }, [type, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, otpCode]);
-    const startListening = useCallback(() => {
+    const startListening = useCallback(async () => {
         if (isListening)
             return;
         setIsListening(true);
@@ -192,7 +249,8 @@ export function useOtpSubscription(options = {}) {
         clearOtp();
         console.log('[useOtpSubscription] Starting to listen, attempting WebSocket first...');
         // Try WebSocket first, fall back to polling
-        if (!startListeningWebSocket()) {
+        const websocketSuccess = await startListeningWebSocket();
+        if (!websocketSuccess) {
             console.log('[useOtpSubscription] WebSocket attempt failed, falling back to polling');
             startListeningPolling();
         }
@@ -231,7 +289,9 @@ export function useOtpSubscription(options = {}) {
 /**
  * Get the current WebSocket connection status
  */
-export function getWebSocketStatus() {
+export async function getWebSocketStatus() {
+    await loadHitSdk();
+    const eventsClient = await getEventsClient();
     if (!eventsClient) {
         return 'unavailable';
     }
@@ -239,7 +299,15 @@ export function getWebSocketStatus() {
 }
 /**
  * Check if WebSocket is available
+ * Note: This is synchronous but may return false initially while SDK loads.
+ * The SDK loads in the background, so subsequent calls will return true if available.
  */
 export function isWebSocketAvailable() {
-    return eventsClient !== null;
+    // Trigger background load if not already started
+    if (!sdkLoadPromise && typeof window !== 'undefined') {
+        loadHitSdk().catch(() => {
+            // Ignore errors
+        });
+    }
+    return HitEventsClass !== null;
 }
