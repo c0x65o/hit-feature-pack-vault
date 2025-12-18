@@ -2,7 +2,6 @@
 # Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
 
 name: vault
-version: 1.0.0
 description: Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
 
 # ─────────────────────────────────────────────────────────────────────────────
