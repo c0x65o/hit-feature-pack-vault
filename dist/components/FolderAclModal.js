@@ -1,33 +1,22 @@
 'use client';
-import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { useState, useEffect } from 'react';
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState, useEffect, useMemo } from 'react';
 import { useUi } from '@hit/ui-kit';
+import { AclPicker } from '@hit/ui-kit';
 import { vaultApi } from '../services/vault-api';
 import { VAULT_PERMISSIONS } from '../schema/vault';
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
-    const { Modal, Button, Alert, Spinner, Input, Select, Badge } = useUi();
+    const { Modal, Alert } = useUi();
     const [acls, setAcls] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [saving, setSaving] = useState(false);
-    // New ACL form state
-    const [showAddForm, setShowAddForm] = useState(false);
-    const [newPrincipalType, setNewPrincipalType] = useState('user');
-    const [newPrincipalId, setNewPrincipalId] = useState('');
-    const [newPermissionLevel, setNewPermissionLevel] = useState('');
     const [isRootFolder, setIsRootFolder] = useState(null);
-    // Principal options state
-    const [users, setUsers] = useState([]);
-    const [groups, setGroups] = useState([]);
-    const [roles, setRoles] = useState([]);
-    const [loadingOptions, setLoadingOptions] = useState(false);
-    // Principal name lookup maps (for displaying names instead of IDs)
-    const [principalNameMap, setPrincipalNameMap] = useState({});
+    const [staticGroups, setStaticGroups] = useState([]);
     useEffect(() => {
         if (isOpen && folderId) {
             checkIfRootFolder();
             loadAcls();
-            loadAllPrincipalsForDisplay();
+            loadStaticGroups();
         }
     }, [isOpen, folderId]);
     async function checkIfRootFolder() {
@@ -40,274 +29,14 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setIsRootFolder(null);
         }
     }
-    // Load principal options when principal type changes
-    useEffect(() => {
-        if (showAddForm) {
-            loadPrincipalOptions();
-        }
-    }, [newPrincipalType, showAddForm]);
-    async function loadPrincipalOptions() {
-        setLoadingOptions(true);
+    async function loadStaticGroups() {
         try {
-            if (newPrincipalType === 'user') {
-                // Use auth module directly (same approach as auth admin feature pack)
-                const authUrl = typeof window !== 'undefined'
-                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                    : '/api/proxy/auth';
-                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                const headers = {
-                    'Content-Type': 'application/json',
-                };
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-                // Fetch users directly from auth module (requires admin permissions)
-                const response = await fetch(`${authUrl}/users`, {
-                    credentials: 'include',
-                    headers,
-                });
-                if (response.ok) {
-                    const authUsers = await response.json();
-                    if (Array.isArray(authUsers) && authUsers.length > 0) {
-                        const userOptions = authUsers.map((user) => {
-                            const firstName = user.profile_fields?.first_name || null;
-                            const lastName = user.profile_fields?.last_name || null;
-                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
-                            return {
-                                value: user.email,
-                                label: displayName || user.email,
-                            };
-                        });
-                        setUsers(userOptions);
-                    }
-                    else {
-                        console.warn('[FolderAclModal] Auth module returned no users');
-                        setUsers([]);
-                    }
-                }
-                else {
-                    const errorText = await response.text();
-                    let errorMessage = `Failed to load users: ${response.status} ${response.statusText}`;
-                    // Provide helpful error message for permission issues
-                    if (response.status === 403 || response.status === 401) {
-                        errorMessage = 'You do not have permission to view all users. Admin role required.';
-                    }
-                    console.error('[FolderAclModal] Failed to fetch users:', response.status, errorText);
-                    setError(new Error(errorMessage));
-                    setUsers([]);
-                }
-            }
-            else if (newPrincipalType === 'group') {
-                // Fetch groups from both auth module (dynamic) and vault API (static)
-                try {
-                    const allGroupOptions = [];
-                    // Fetch dynamic groups from auth module
-                    try {
-                        const authUrl = typeof window !== 'undefined'
-                            ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                            : '/api/proxy/auth';
-                        const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                        const headers = {
-                            'Content-Type': 'application/json',
-                        };
-                        if (token) {
-                            headers['Authorization'] = `Bearer ${token}`;
-                        }
-                        const authResponse = await fetch(`${authUrl}/admin/groups`, { headers });
-                        if (authResponse.ok) {
-                            const authGroups = await authResponse.json();
-                            const dynamicGroupOptions = (Array.isArray(authGroups) ? authGroups : []).map((group) => ({
-                                value: group.id,
-                                label: group.description ? `${group.name} - ${group.description}` : group.name,
-                            }));
-                            allGroupOptions.push(...dynamicGroupOptions);
-                        }
-                    }
-                    catch (err) {
-                        console.warn('Failed to load dynamic groups from auth module:', err);
-                    }
-                    // Fetch static groups from vault API
-                    try {
-                        const vaultGroupsData = await vaultApi.getGroups();
-                        const staticGroupOptions = vaultGroupsData.map((group) => ({
-                            value: group.id,
-                            label: group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`,
-                        }));
-                        allGroupOptions.push(...staticGroupOptions);
-                    }
-                    catch (err) {
-                        console.warn('Failed to load static groups from vault:', err);
-                    }
-                    setGroups(allGroupOptions);
-                }
-                catch (err) {
-                    console.error('Failed to load groups:', err);
-                    setGroups([]);
-                }
-            }
-            else if (newPrincipalType === 'role') {
-                // Fetch roles from auth module features endpoint
-                try {
-                    const authUrl = typeof window !== 'undefined'
-                        ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                        : '/api/proxy/auth';
-                    const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                    const headers = {
-                        'Content-Type': 'application/json',
-                    };
-                    if (token) {
-                        headers['Authorization'] = `Bearer ${token}`;
-                    }
-                    const response = await fetch(`${authUrl}/features`, { headers });
-                    if (response.ok) {
-                        const data = await response.json();
-                        const availableRoles = data.features?.available_roles || ['admin', 'user'];
-                        const roleOptions = availableRoles.map((role) => ({
-                            value: role,
-                            label: role.charAt(0).toUpperCase() + role.slice(1),
-                        }));
-                        setRoles(roleOptions);
-                    }
-                    else {
-                        // Fallback: try to extract roles from users (use auth module directly)
-                        const fallbackToken = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                        const fallbackHeaders = {
-                            'Content-Type': 'application/json',
-                        };
-                        if (fallbackToken) {
-                            fallbackHeaders['Authorization'] = `Bearer ${fallbackToken}`;
-                        }
-                        const userResponse = await fetch(`${authUrl}/users`, {
-                            credentials: 'include',
-                            headers: fallbackHeaders,
-                        });
-                        if (userResponse.ok) {
-                            const authUsers = await userResponse.json();
-                            if (Array.isArray(authUsers) && authUsers.length > 0) {
-                                const roleSet = new Set();
-                                authUsers.forEach((user) => {
-                                    const role = user.role || 'user';
-                                    roleSet.add(role);
-                                });
-                                const roleOptions = Array.from(roleSet).sort().map((role) => ({
-                                    value: role,
-                                    label: role.charAt(0).toUpperCase() + role.slice(1),
-                                }));
-                                setRoles(roleOptions);
-                            }
-                            else {
-                                setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
-                            }
-                        }
-                        else {
-                            setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
-                        }
-                    }
-                }
-                catch (err) {
-                    console.error('Failed to load roles:', err);
-                    setRoles([{ value: 'admin', label: 'Admin' }, { value: 'user', label: 'User' }]);
-                }
-            }
+            const groups = await vaultApi.getGroups();
+            setStaticGroups(groups);
         }
         catch (err) {
-            console.error('Failed to load principal options:', err);
-        }
-        finally {
-            setLoadingOptions(false);
-        }
-    }
-    async function loadAllPrincipalsForDisplay() {
-        // Load all principals to build name lookup map for display
-        const nameMap = {};
-        try {
-            // Load users
-            const authUrl = typeof window !== 'undefined'
-                ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                : '/api/proxy/auth';
-            const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-            const headers = {
-                'Content-Type': 'application/json',
-            };
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-            // Load users
-            try {
-                const userResponse = await fetch(`${authUrl}/users`, {
-                    credentials: 'include',
-                    headers,
-                });
-                if (userResponse.ok) {
-                    const authUsers = await userResponse.json();
-                    if (Array.isArray(authUsers)) {
-                        authUsers.forEach((user) => {
-                            const firstName = user.profile_fields?.first_name || null;
-                            const lastName = user.profile_fields?.last_name || null;
-                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || null;
-                            nameMap[`user:${user.email}`] = displayName || user.email;
-                        });
-                    }
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load users for display:', err);
-            }
-            // Load groups (both dynamic and static)
-            try {
-                // Dynamic groups from auth module
-                const authGroupResponse = await fetch(`${authUrl}/admin/groups`, { headers });
-                if (authGroupResponse.ok) {
-                    const authGroups = await authGroupResponse.json();
-                    if (Array.isArray(authGroups)) {
-                        authGroups.forEach((group) => {
-                            nameMap[`group:${group.id}`] = group.description ? `${group.name} - ${group.description}` : group.name;
-                        });
-                    }
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load dynamic groups for display:', err);
-            }
-            // Static groups from vault API
-            try {
-                const vaultGroupsData = await vaultApi.getGroups();
-                if (Array.isArray(vaultGroupsData)) {
-                    vaultGroupsData.forEach((group) => {
-                        const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
-                        nameMap[`group:${group.id}`] = displayName;
-                    });
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load static groups for display:', err);
-            }
-            // Load roles
-            try {
-                const roleResponse = await fetch(`${authUrl}/features`, { headers });
-                if (roleResponse.ok) {
-                    const data = await roleResponse.json();
-                    const availableRoles = data.features?.available_roles || ['admin', 'user'];
-                    availableRoles.forEach((role) => {
-                        nameMap[`role:${role}`] = role.charAt(0).toUpperCase() + role.slice(1);
-                    });
-                }
-                else {
-                    // Fallback roles
-                    nameMap['role:admin'] = 'Admin';
-                    nameMap['role:user'] = 'User';
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load roles for display:', err);
-                // Fallback roles
-                nameMap['role:admin'] = 'Admin';
-                nameMap['role:user'] = 'User';
-            }
-            setPrincipalNameMap(nameMap);
-        }
-        catch (err) {
-            console.error('Failed to load principals for display:', err);
+            console.warn('Failed to load static groups:', err);
+            setStaticGroups([]);
         }
     }
     async function loadAcls() {
@@ -324,121 +53,228 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             setLoading(false);
         }
     }
-    async function handleCreateAcl() {
-        if (!newPrincipalId.trim()) {
-            setError(new Error('Principal ID is required'));
-            return;
+    // Convert VaultAcl to AclEntry
+    const aclEntries = useMemo(() => {
+        return acls.map(acl => ({
+            id: acl.id,
+            principalType: acl.principalType,
+            principalId: acl.principalId,
+            permissions: Array.isArray(acl.permissions) ? acl.permissions : [],
+        }));
+    }, [acls]);
+    // Custom principal fetcher that combines auth-core principals with static groups
+    const customFetchPrincipals = async (type, search) => {
+        const principals = [];
+        if (type === 'user') {
+            // Use auth-core hook via direct API call (since we can't call hooks conditionally)
+            try {
+                const authUrl = typeof window !== 'undefined'
+                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+                    : '/api/proxy/auth';
+                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${authUrl}/users`, {
+                    credentials: 'include',
+                    headers,
+                });
+                if (response.ok) {
+                    const authUsers = await response.json();
+                    if (Array.isArray(authUsers)) {
+                        authUsers.forEach((user) => {
+                            const firstName = user.profile_fields?.first_name || null;
+                            const lastName = user.profile_fields?.last_name || null;
+                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || user.email;
+                            if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || user.email.toLowerCase().includes(search.toLowerCase())) {
+                                principals.push({
+                                    type: 'user',
+                                    id: user.email,
+                                    displayName,
+                                    metadata: { email: user.email, profile_fields: user.profile_fields },
+                                });
+                            }
+                        });
+                    }
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load users:', err);
+            }
         }
-        if (!newPermissionLevel) {
-            setError(new Error('Permission level is required'));
-            return;
+        else if (type === 'group') {
+            // Combine dynamic groups from auth-core with static groups from vault
+            try {
+                // Dynamic groups from auth module
+                const authUrl = typeof window !== 'undefined'
+                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+                    : '/api/proxy/auth';
+                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const authResponse = await fetch(`${authUrl}/admin/groups`, { headers });
+                if (authResponse.ok) {
+                    const authGroups = await authResponse.json();
+                    if (Array.isArray(authGroups)) {
+                        authGroups.forEach((group) => {
+                            const displayName = group.description ? `${group.name} - ${group.description}` : group.name;
+                            if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
+                                principals.push({
+                                    type: 'group',
+                                    id: group.id,
+                                    displayName,
+                                    metadata: { name: group.name, description: group.description },
+                                });
+                            }
+                        });
+                    }
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load dynamic groups:', err);
+            }
+            // Static groups from vault
+            staticGroups.forEach(group => {
+                const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
+                if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
+                    principals.push({
+                        type: 'group',
+                        id: group.id,
+                        displayName,
+                        metadata: { name: group.name, description: group.description, static: true },
+                    });
+                }
+            });
         }
+        else if (type === 'role') {
+            // Roles from auth module
+            try {
+                const authUrl = typeof window !== 'undefined'
+                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+                    : '/api/proxy/auth';
+                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${authUrl}/features`, { headers });
+                if (response.ok) {
+                    const data = await response.json();
+                    const availableRoles = data.features?.available_roles || ['admin', 'user'];
+                    availableRoles.forEach((role) => {
+                        const displayName = role.charAt(0).toUpperCase() + role.slice(1);
+                        if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || role.toLowerCase().includes(search.toLowerCase())) {
+                            principals.push({
+                                type: 'role',
+                                id: role,
+                                displayName,
+                            });
+                        }
+                    });
+                }
+            }
+            catch (err) {
+                console.warn('Failed to load roles:', err);
+                // Fallback
+                ['admin', 'user'].forEach(role => {
+                    principals.push({
+                        type: 'role',
+                        id: role,
+                        displayName: role.charAt(0).toUpperCase() + role.slice(1),
+                    });
+                });
+            }
+        }
+        return principals;
+    };
+    async function handleAdd(entry) {
         try {
-            setSaving(true);
             setError(null);
-            const permissions = getPermissionsFromLevel(newPermissionLevel);
             const newAcl = {
                 resourceType: 'folder',
                 resourceId: folderId,
-                principalType: newPrincipalType,
-                principalId: newPrincipalId.trim(),
-                permissions: permissions,
+                principalType: entry.principalType,
+                principalId: entry.principalId,
+                permissions: entry.permissions,
                 inherit: false, // No inheritance allowed - only root folders can have ACLs
                 createdBy: '', // Will be set by backend
             };
             await vaultApi.createAcl(newAcl);
-            // Reset form
-            setNewPrincipalType('user');
-            setNewPrincipalId('');
-            setNewPermissionLevel('');
-            setShowAddForm(false);
-            // Reload ACLs
             await loadAcls();
             onUpdate?.();
         }
         catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to create ACL'));
-        }
-        finally {
-            setSaving(false);
+            throw err;
         }
     }
-    async function handleDeleteAcl(aclId) {
-        if (!confirm('Are you sure you want to remove this access?')) {
-            return;
+    async function handleRemove(entry) {
+        if (!entry.id) {
+            throw new Error('Cannot remove entry without ID');
         }
         try {
-            setSaving(true);
-            setError(null);
-            await vaultApi.deleteAcl(aclId);
+            await vaultApi.deleteAcl(entry.id);
             await loadAcls();
             onUpdate?.();
         }
         catch (err) {
-            setError(err instanceof Error ? err : new Error('Failed to delete ACL'));
-        }
-        finally {
-            setSaving(false);
+            setError(err instanceof Error ? err : new Error('Failed to remove ACL'));
+            throw err;
         }
     }
-    // Map permission level to actual permissions array
-    function getPermissionsFromLevel(level) {
-        switch (level) {
-            case 'full':
-                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE, VAULT_PERMISSIONS.MANAGE_ACL];
-            case 'read_write_delete':
-                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE];
-            case 'read_write':
-                return [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE];
-            case 'read_only':
-                return [VAULT_PERMISSIONS.READ_ONLY];
-            default:
-                return [];
-        }
-    }
-    const permissionLabels = {
-        READ_ONLY: 'Read Only (view passwords)',
-        READ_WRITE: 'Read & Write (add/edit items)',
-        DELETE: 'Delete (remove items)',
-        MANAGE_ACL: 'Manage ACL (grant/revoke access)',
-    };
-    // Get display name for a principal (name if available, otherwise ID)
-    function getPrincipalDisplayName(principalType, principalId) {
-        const key = `${principalType}:${principalId}`;
-        return principalNameMap[key] || principalId;
-    }
-    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { className: "space-y-4", children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), isRootFolder === false && (_jsx(Alert, { variant: "error", title: "Invalid Folder", children: "Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions." })), loading ? (_jsx("div", { className: "flex justify-center py-8", children: _jsx(Spinner, {}) })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "flex justify-between items-center", children: [_jsx("h3", { className: "text-lg font-semibold", children: "Access Permissions" }), isRootFolder !== false && (_jsx(Button, { onClick: () => setShowAddForm(!showAddForm), variant: "secondary", size: "sm", children: showAddForm ? 'Cancel' : 'Add Access' }))] }), showAddForm && isRootFolder !== false && (_jsxs("div", { className: "border rounded-lg p-4 space-y-4 bg-muted/30", children: [_jsx("h4", { className: "font-medium", children: "Add New Access" }), _jsxs("div", { className: "grid grid-cols-2 gap-4", children: [_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Principal Type" }), _jsx(Select, { value: newPrincipalType, onChange: (value) => {
-                                                        setNewPrincipalType(value);
-                                                        setNewPrincipalId(''); // Reset when type changes
-                                                    }, options: [
-                                                        { value: 'user', label: 'User' },
-                                                        { value: 'group', label: 'Group' },
-                                                        { value: 'role', label: 'Role' },
-                                                    ] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: newPrincipalType === 'user' ? 'User' :
-                                                        newPrincipalType === 'group' ? 'Group' : 'Role' }), loadingOptions ? (_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Spinner, { size: "sm" }), _jsx("span", { className: "text-sm text-muted-foreground", children: "Loading options..." })] })) : ((() => {
-                                                    const options = newPrincipalType === 'user' ? users :
-                                                        newPrincipalType === 'group' ? groups :
-                                                            roles;
-                                                    if (options.length > 0) {
-                                                        return (_jsx(Select, { value: newPrincipalId, onChange: (value) => setNewPrincipalId(value), options: options, placeholder: `Select ${newPrincipalType}` }));
-                                                    }
-                                                    else {
-                                                        // Fallback to input if no options available
-                                                        return (_jsx(Input, { value: newPrincipalId, onChange: (value) => setNewPrincipalId(value), placeholder: newPrincipalType === 'user' ? 'user@example.com' :
-                                                                newPrincipalType === 'group' ? 'group-id' : 'role-name' }));
-                                                    }
-                                                })())] })] }), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium mb-1 block", children: "Permissions" }), _jsx(Select, { value: newPermissionLevel, onChange: (value) => setNewPermissionLevel(value), options: [
-                                                { value: 'full', label: 'Full Control (read, write, delete, manage ACL)' },
-                                                { value: 'read_write_delete', label: 'Read, Write & Delete' },
-                                                { value: 'read_write', label: 'Read and Write' },
-                                                { value: 'read_only', label: 'Read Only' },
-                                            ], placeholder: "Select permission level" })] }), _jsxs("div", { className: "flex justify-end gap-2", children: [_jsx(Button, { onClick: () => {
-                                                setShowAddForm(false);
-                                                setNewPrincipalId('');
-                                                setNewPermissionLevel('');
-                                                setError(null);
-                                                setUsers([]);
-                                                setGroups([]);
-                                                setRoles([]);
-                                            }, variant: "secondary", size: "sm", children: "Cancel" }), _jsx(Button, { onClick: handleCreateAcl, disabled: saving || !newPrincipalId.trim() || !newPermissionLevel, size: "sm", children: saving ? 'Adding...' : 'Add Access' })] })] })), acls.length === 0 ? (_jsx("div", { className: "text-center py-8 text-muted-foreground", children: "No access permissions set. Click \"Add Access\" to grant permissions." })) : (_jsx("div", { className: "space-y-2", children: acls.map(acl => (_jsxs("div", { className: "border rounded-lg p-4 flex items-start justify-between", children: [_jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-2", children: [_jsx(Badge, { variant: "default", children: acl.principalType }), _jsx("span", { className: "font-medium", children: getPrincipalDisplayName(acl.principalType, acl.principalId) })] }), _jsx("div", { className: "flex flex-wrap gap-1", children: Array.isArray(acl.permissions) && acl.permissions.map(perm => (_jsx(Badge, { variant: "info", className: "text-xs", children: permissionLabels[perm] || perm }, perm))) })] }), _jsx(Button, { onClick: () => handleDeleteAcl(acl.id), variant: "ghost", size: "sm", disabled: saving, children: "Remove" })] }, acl.id))) }))] })), _jsx("div", { className: "flex justify-end pt-4 border-t", children: _jsx(Button, { onClick: onClose, variant: "secondary", children: "Close" }) })] }) }));
+    // Vault hierarchical permissions configuration
+    const vaultAclConfig = useMemo(() => ({
+        principals: {
+            users: true,
+            groups: true,
+            roles: true,
+        },
+        mode: 'hierarchical',
+        hierarchicalPermissions: [
+            {
+                key: 'full',
+                label: 'Full Control',
+                description: 'Read, write, delete, and manage access',
+                priority: 100,
+                includes: [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE, VAULT_PERMISSIONS.MANAGE_ACL],
+            },
+            {
+                key: 'read_write_delete',
+                label: 'Read, Write & Delete',
+                description: 'Read, write, and delete items',
+                priority: 75,
+                includes: [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE, VAULT_PERMISSIONS.DELETE],
+            },
+            {
+                key: 'read_write',
+                label: 'Read & Write',
+                description: 'Read and edit items',
+                priority: 50,
+                includes: [VAULT_PERMISSIONS.READ_ONLY, VAULT_PERMISSIONS.READ_WRITE],
+            },
+            {
+                key: 'read_only',
+                label: 'Read Only',
+                description: 'View items only',
+                priority: 25,
+                includes: [VAULT_PERMISSIONS.READ_ONLY],
+            },
+        ],
+        labels: {
+            title: 'Folder Access Control',
+            addButton: 'Add Access',
+            removeButton: 'Remove',
+            emptyMessage: 'No access permissions set. Click "Add Access" to grant permissions.',
+        },
+    }), []);
+    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: '1rem' }, children: [error && (_jsx(Alert, { variant: "error", title: "Error", children: error.message })), isRootFolder === false && (_jsx(Alert, { variant: "error", title: "Invalid Folder", children: "Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions." })), _jsx(AclPicker, { config: vaultAclConfig, entries: aclEntries, loading: loading, error: error?.message || null, onAdd: handleAdd, onRemove: handleRemove, fetchPrincipals: customFetchPrincipals, disabled: isRootFolder === false })] }) }));
 }

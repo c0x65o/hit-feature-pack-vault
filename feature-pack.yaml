@@ -276,7 +276,7 @@ metrics:
       unit: count
       rollup_strategy: last
       entity_kinds: [project]
-      default_granularity: daily
+      time_kind: realtime
 
 config:
   schema:
