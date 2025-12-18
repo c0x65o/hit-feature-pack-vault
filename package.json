@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "description": "Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,6 +23,12 @@
       "import": "./dist/schema/vault.js",
       "require": "./dist/schema/vault.js",
       "default": "./dist/schema/vault.js"
+    },
+    "./hooks": {
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks/index.js",
+      "require": "./dist/hooks/index.js",
+      "default": "./dist/hooks/index.js"
     },
     "./server/api/*": {
       "types": "./dist/server/api/*.d.ts",
