@@ -266,6 +266,18 @@ dependencies:
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION OPTIONS
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# METRICS - Feature pack metric definitions
+# ─────────────────────────────────────────────────────────────────────────────
+metrics:
+  definitions:
+    - key: fp.vault.shared_folder_count
+      label: Shared Folder Count
+      unit: count
+      rollup_strategy: last
+      entity_kinds: [project]
+      default_granularity: daily
+
 config:
   schema:
     use_dynamic_groups:
