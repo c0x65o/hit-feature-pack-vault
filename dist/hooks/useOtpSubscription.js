@@ -7,8 +7,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { HIT_CONFIG } from '@/lib/hit-config.generated';
 // OTP codes older than this are considered stale and not treated as "new"
 const OTP_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+function getVaultRealtimeOtpConfig() {
+    try {
+        const opts = HIT_CONFIG?.featurePacks?.vault ?? {};
+        const enabled = opts.realtime_otp_enabled ?? true;
+        const eventType = opts.realtime_otp_event_type ?? 'vault.otp_received';
+        return { enabled: Boolean(enabled), eventType: eventType || 'vault.otp_received' };
+    }
+    catch {
+        return { enabled: true, eventType: 'vault.otp_received' };
+    }
+}
 // Try to import HIT SDK events - may not be available in all setups
 // Use ES6 imports (not require) for browser compatibility
 let HitEventsClass = null;
@@ -56,6 +68,48 @@ function notifyWsStatusChange(status) {
     }
 }
 /**
+ * Subscribe to global WebSocket status changes (shared across all vault OTP subscribers).
+ */
+export function subscribeGlobalWsStatus(listener) {
+    wsStatusListeners.add(listener);
+    // Immediately emit current value
+    try {
+        listener(globalWsStatus);
+    }
+    catch {
+        // ignore
+    }
+    return () => wsStatusListeners.delete(listener);
+}
+/**
+ * Get the current global WebSocket status (shared across all vault OTP subscribers).
+ */
+export function getGlobalWsStatus() {
+    return globalWsStatus;
+}
+// Global OTP connection type (derived from the hook's connectionType state)
+let globalOtpConnectionType = 'disconnected';
+const otpConnectionTypeListeners = new Set();
+function notifyOtpConnectionTypeChange(t) {
+    globalOtpConnectionType = t;
+    for (const listener of otpConnectionTypeListeners) {
+        listener(t);
+    }
+}
+export function getGlobalOtpConnectionType() {
+    return globalOtpConnectionType;
+}
+export function subscribeGlobalOtpConnectionType(listener) {
+    otpConnectionTypeListeners.add(listener);
+    try {
+        listener(globalOtpConnectionType);
+    }
+    catch {
+        // ignore
+    }
+    return () => otpConnectionTypeListeners.delete(listener);
+}
+/**
  * Get or create the events client instance
  */
 async function getEventsClient() {
@@ -95,12 +149,6 @@ async function getEventsClient() {
         });
     }
     return eventsClientInstance;
-}
-/**
- * Get the current global WebSocket connection status
- */
-export function getGlobalWsStatus() {
-    return globalWsStatus;
 }
 /**
  * Hook for subscribing to OTP notifications
@@ -163,6 +211,10 @@ export function useOtpSubscription(options = {}) {
             wsStatusListeners.delete(handleStatusChange);
         };
     }, [isListening]);
+    // Keep a global view of OTP connection type for hosts (like dashboard shell footer).
+    useEffect(() => {
+        notifyOtpConnectionTypeChange(connectionType);
+    }, [connectionType]);
     const clearOtp = useCallback(() => {
         setOtpCode(null);
         setOtpConfidence('none');
@@ -257,6 +309,12 @@ export function useOtpSubscription(options = {}) {
     }, [type, toFilter, onOtpReceived, stopListeningInternal, keepListening]);
     const startListeningWebSocket = useCallback(async () => {
         try {
+            const realtimeCfg = getVaultRealtimeOtpConfig();
+            if (!realtimeCfg.enabled) {
+                console.log('[useOtpSubscription] WebSocket realtime disabled by vault config (realtime_otp_enabled=false)');
+                usingWebSocketRef.current = false;
+                return false;
+            }
             const eventsClient = await getEventsClient();
             console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
             if (!eventsClient) {
@@ -266,9 +324,9 @@ export function useOtpSubscription(options = {}) {
             }
             // Mark that we're attempting WebSocket
             usingWebSocketRef.current = true;
-            console.log('[useOtpSubscription] Subscribing to vault.otp_received event via WebSocket');
+            console.log('[useOtpSubscription] Subscribing to OTP event via WebSocket:', realtimeCfg.eventType);
             // Subscribe to vault OTP events - this triggers the WebSocket connection
-            subscriptionRef.current = eventsClient.subscribe('vault.otp_received', (event) => {
+            subscriptionRef.current = eventsClient.subscribe(realtimeCfg.eventType, (event) => {
                 handleOtpNotification(event.payload);
             });
             // Check the actual WebSocket status from the client

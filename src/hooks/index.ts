@@ -7,6 +7,10 @@ export {
   useOtpSubscription,
   getWebSocketStatus,
   isWebSocketAvailable,
+  getGlobalWsStatus,
+  subscribeGlobalWsStatus,
+  getGlobalOtpConnectionType,
+  subscribeGlobalOtpConnectionType,
 } from './useOtpSubscription';
 
 export type {

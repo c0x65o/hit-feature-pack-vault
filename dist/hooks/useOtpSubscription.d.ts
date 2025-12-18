@@ -6,9 +6,18 @@
  */
 import { type OtpExtractionResult } from '../utils/otp-extractor';
 /**
- * Get the current global WebSocket connection status
+ * Subscribe to global WebSocket status changes (shared across all vault OTP subscribers).
+ */
+export declare function subscribeGlobalWsStatus(listener: (status: 'connecting' | 'connected' | 'disconnected' | 'error') => void): () => void;
+/**
+ * Get the current global WebSocket status (shared across all vault OTP subscribers).
  */
 export declare function getGlobalWsStatus(): 'connecting' | 'connected' | 'disconnected' | 'error';
+export declare function getGlobalOtpConnectionType(): 'websocket' | 'polling' | 'disconnected';
+export declare function subscribeGlobalOtpConnectionType(listener: (t: 'websocket' | 'polling' | 'disconnected') => void): () => void;
+/**
+ * Get the current global WebSocket connection status
+ */
 export interface OtpNotification {
     messageId: string;
     type: 'sms' | 'email';

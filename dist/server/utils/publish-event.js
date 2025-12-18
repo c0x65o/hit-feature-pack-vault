@@ -4,6 +4,7 @@
  * Publishes events to the HIT Events Module for real-time WebSocket delivery.
  * Used for instant OTP code notifications.
  */
+import { getVaultRealtimeConfig } from './vault-config';
 /**
  * Publish a vault event to the events module
  *
@@ -11,6 +12,10 @@
  * @param payload - Event payload
  */
 export async function publishVaultEvent(eventType, payload) {
+    const { realtimeOtpEnabled } = getVaultRealtimeConfig();
+    if (!realtimeOtpEnabled) {
+        return { success: false, error: 'Vault realtime OTP is disabled' };
+    }
     const eventsUrl = process.env.HIT_EVENTS_URL || process.env.NEXT_PUBLIC_HIT_EVENTS_URL;
     if (!eventsUrl) {
         console.log('[vault] Events module not configured - skipping event publish');
@@ -54,7 +59,11 @@ export async function publishVaultEvent(eventType, payload) {
  * The actual OTP code is NOT included - clients must call reveal API to decrypt.
  */
 export async function publishOtpReceived(event) {
-    await publishVaultEvent('vault.otp_received', {
+    const { realtimeOtpEventType, realtimeOtpEnabled } = getVaultRealtimeConfig();
+    if (!realtimeOtpEnabled) {
+        return;
+    }
+    await publishVaultEvent(realtimeOtpEventType, {
         messageId: event.messageId,
         type: event.type,
         from: event.from,

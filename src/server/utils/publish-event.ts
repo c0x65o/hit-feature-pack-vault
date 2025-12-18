@@ -15,6 +15,8 @@ export interface VaultOtpEvent {
   // OTP code is NOT included here for security - client must reveal via API
 }
 
+import { getVaultRealtimeConfig } from './vault-config';
+
 /**
  * Publish a vault event to the events module
  * 
@@ -25,6 +27,11 @@ export async function publishVaultEvent(
   eventType: string,
   payload: Record<string, unknown>
 ): Promise<{ success: boolean; subscribers?: number; error?: string }> {
+  const { realtimeOtpEnabled } = getVaultRealtimeConfig();
+  if (!realtimeOtpEnabled) {
+    return { success: false, error: 'Vault realtime OTP is disabled' };
+  }
+
   const eventsUrl = process.env.HIT_EVENTS_URL || process.env.NEXT_PUBLIC_HIT_EVENTS_URL;
   
   if (!eventsUrl) {
@@ -77,7 +84,11 @@ export async function publishVaultEvent(
  * The actual OTP code is NOT included - clients must call reveal API to decrypt.
  */
 export async function publishOtpReceived(event: VaultOtpEvent): Promise<void> {
-  await publishVaultEvent('vault.otp_received', {
+  const { realtimeOtpEventType, realtimeOtpEnabled } = getVaultRealtimeConfig();
+  if (!realtimeOtpEnabled) {
+    return;
+  }
+  await publishVaultEvent(realtimeOtpEventType, {
     messageId: event.messageId,
     type: event.type,
     from: event.from,
