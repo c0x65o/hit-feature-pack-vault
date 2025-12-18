@@ -44,14 +44,23 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
     const [lastOtpNotification, setLastOtpNotification] = useState(null);
     // Track the initial message ID loaded on modal open to prevent duplicate "received" events
     const [initialMessageId, setInitialMessageId] = useState(null);
+    // Track if we've finished loading the initial message ID (so we can enable subscription)
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+    // Only treat OTP notifications as "new" if they arrive after this baseline timestamp.
+    // Initialized on modal open; if we discover the latest message on load, we set it to that message's receivedAt.
+    const [minReceivedAt, setMinReceivedAt] = useState(null);
     // Use OTP subscription hook - keep listening for new OTPs
+    // Only enable after we've loaded the initial message ID to avoid race condition
     const otpSubscription = useOtpSubscription({
         type: mode,
         toFilter: mode === 'email' ? (emailAddress || undefined) : undefined,
-        enabled: open,
+        enabled: open && initialLoadComplete, // Wait until initial load is complete
         keepListening: true, // Keep listening for new OTPs even after receiving one
+        skipMessageId: initialMessageId, // Pass initial message ID to skip it
+        minReceivedAt, // Stronger guard: don't treat old notifications as new
         onOtpReceived: (result) => {
             // Skip if this is the same message we already loaded on modal open
+            // (This is a double-check, but the hook should already skip it)
             if (initialMessageId && result.notification.messageId === initialMessageId) {
                 return;
             }
@@ -85,12 +94,17 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
     // Load last OTP when modal opens
     useEffect(() => {
         if (!open) {
-            // Reset initial message ID when modal closes
+            // Reset initial message ID and load state when modal closes
             setInitialMessageId(null);
+            setInitialLoadComplete(false);
+            setMinReceivedAt(null);
             return;
         }
         async function loadLastOtp() {
             try {
+                // Default baseline: from the moment the modal is opened.
+                // If we discover an existing latest message, we'll move this baseline to that message's receivedAt.
+                setMinReceivedAt(new Date());
                 if (mode === 'email') {
                     const result = await vaultApi.getLatestEmailMessages();
                     if (result.messages.length > 0) {
@@ -99,11 +113,15 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
                         const receivedAt = typeof latestMsg.receivedAt === 'string'
                             ? new Date(latestMsg.receivedAt)
                             : latestMsg.receivedAt;
-                        // Track the initial message ID to prevent duplicate events from polling
+                        // Track the initial message ID FIRST to prevent duplicate events from polling
+                        // This must be set before enabling the subscription
                         setInitialMessageId(latestMsg.id);
+                        // Strong baseline: anything at/before the latest message is not "new"
+                        setMinReceivedAt(receivedAt);
                         // Only show the code if it's fresh (less than 5 minutes old)
                         if (!isCodeFresh(receivedAt)) {
                             console.log('[OtpWaitingModal] Last email code is older than 5 minutes, not displaying');
+                            setInitialLoadComplete(true); // Still mark as complete so subscription can start
                             return;
                         }
                         try {
@@ -120,6 +138,8 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
                             console.error('Failed to reveal last email message:', err);
                         }
                     }
+                    // Mark initial load as complete so subscription can start (even if no messages)
+                    setInitialLoadComplete(true);
                 }
                 else {
                     // SMS mode
@@ -130,11 +150,15 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
                         const receivedAt = typeof latestMsg.receivedAt === 'string'
                             ? new Date(latestMsg.receivedAt)
                             : latestMsg.receivedAt;
-                        // Track the initial message ID to prevent duplicate events from polling
+                        // Track the initial message ID FIRST to prevent duplicate events from polling
+                        // This must be set before enabling the subscription
                         setInitialMessageId(latestMsg.id);
+                        // Strong baseline: anything at/before the latest message is not "new"
+                        setMinReceivedAt(receivedAt);
                         // Only show the code if it's fresh (less than 5 minutes old)
                         if (!isCodeFresh(receivedAt)) {
                             console.log('[OtpWaitingModal] Last SMS code is older than 5 minutes, not displaying');
+                            setInitialLoadComplete(true); // Still mark as complete so subscription can start
                             return;
                         }
                         try {
@@ -151,10 +175,14 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
                             console.error('Failed to reveal last SMS message:', err);
                         }
                     }
+                    // Mark initial load as complete so subscription can start (even if no messages)
+                    setInitialLoadComplete(true);
                 }
             }
             catch (err) {
                 console.error(`Failed to load last OTP ${mode}:`, err);
+                // Even on error, mark as complete so subscription can start
+                setInitialLoadComplete(true);
             }
         }
         loadLastOtp();

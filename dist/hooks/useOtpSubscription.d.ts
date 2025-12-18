@@ -43,6 +43,13 @@ export interface UseOtpSubscriptionOptions {
     maxPollTime?: number;
     /** Keep listening after receiving OTP (default: false - stops after first OTP) */
     keepListening?: boolean;
+    /** Message ID to skip (e.g., already loaded when modal opened) */
+    skipMessageId?: string | null;
+    /**
+     * Only treat notifications as "new" if received strictly after this time.
+     * This is the strongest guard against "old message re-emitted as new event".
+     */
+    minReceivedAt?: Date | string | null;
 }
 export interface UseOtpSubscriptionResult {
     /** Whether actively listening for OTP */

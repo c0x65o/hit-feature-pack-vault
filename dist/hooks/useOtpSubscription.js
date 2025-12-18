@@ -173,7 +173,7 @@ async function getEventsClient() {
  * ```
  */
 export function useOtpSubscription(options = {}) {
-    const { type = 'all', toFilter, onOtpReceived, enabled = true, pollingInterval = 2000, maxPollTime = 5 * 60 * 1000, keepListening = false, } = options;
+    const { type = 'all', toFilter, onOtpReceived, enabled = true, pollingInterval = 2000, maxPollTime = 5 * 60 * 1000, keepListening = false, skipMessageId, minReceivedAt, } = options;
     const [isListening, setIsListening] = useState(false);
     const [connectionType, setConnectionType] = useState('disconnected');
     const [realWsStatus, setRealWsStatus] = useState(globalWsStatus);
@@ -188,6 +188,13 @@ export function useOtpSubscription(options = {}) {
     const lastPollTimeRef = useRef(null);
     const usingWebSocketRef = useRef(false);
     const processedMessageIdsRef = useRef(new Set());
+    // Update processed IDs when skipMessageId changes
+    useEffect(() => {
+        if (skipMessageId && isListening) {
+            processedMessageIdsRef.current.add(skipMessageId);
+            console.log('[useOtpSubscription] Added skipMessageId to processed set:', skipMessageId);
+        }
+    }, [skipMessageId, isListening]);
     // Subscribe to global WebSocket status changes
     useEffect(() => {
         const handleStatusChange = (status) => {
@@ -243,6 +250,27 @@ export function useOtpSubscription(options = {}) {
         setConnectionType('disconnected');
     }, []);
     const handleOtpNotification = useCallback(async (notification) => {
+        // Skip if this is the message ID we're supposed to skip (e.g., already loaded on modal open)
+        if (skipMessageId && notification.messageId === skipMessageId) {
+            console.log('[useOtpSubscription] Skipping message (matches skipMessageId):', notification.messageId);
+            return;
+        }
+        // Skip any notifications received at/before the baseline (prevents old OTPs from being treated as new)
+        if (minReceivedAt) {
+            const baseline = typeof minReceivedAt === 'string' ? new Date(minReceivedAt) : minReceivedAt;
+            const baselineMs = baseline?.getTime?.();
+            if (Number.isFinite(baselineMs)) {
+                const receivedAtMs = new Date(notification.receivedAt).getTime();
+                if (Number.isFinite(receivedAtMs) && receivedAtMs <= baselineMs) {
+                    console.log('[useOtpSubscription] Skipping message (receivedAt <= minReceivedAt):', {
+                        messageId: notification.messageId,
+                        receivedAt: notification.receivedAt,
+                        minReceivedAt: typeof minReceivedAt === 'string' ? minReceivedAt : baseline.toISOString(),
+                    });
+                    return;
+                }
+            }
+        }
         // Filter by type if specified
         if (type !== 'all' && notification.type !== type) {
             return;
@@ -306,7 +334,7 @@ export function useOtpSubscription(options = {}) {
                 notification,
             });
         }
-    }, [type, toFilter, onOtpReceived, stopListeningInternal, keepListening]);
+    }, [type, toFilter, skipMessageId, minReceivedAt, onOtpReceived, stopListeningInternal, keepListening]);
     const startListeningWebSocket = useCallback(async () => {
         try {
             const realtimeCfg = getVaultRealtimeOtpConfig();
@@ -363,8 +391,12 @@ export function useOtpSubscription(options = {}) {
         const CLOCK_SKEW_BUFFER_MS = 30000; // 30 seconds buffer
         const initialTime = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS);
         lastPollTimeRef.current = initialTime;
-        // Clear processed IDs on start
+        // Clear processed IDs on start, but mark skipMessageId as already processed
         processedMessageIdsRef.current.clear();
+        if (skipMessageId) {
+            processedMessageIdsRef.current.add(skipMessageId);
+            console.log('[useOtpSubscription] Marking skipMessageId as already processed:', skipMessageId);
+        }
         pollingIntervalRef.current = setInterval(async () => {
             try {
                 // Poll for new messages based on type
@@ -435,7 +467,7 @@ export function useOtpSubscription(options = {}) {
         }, maxPollTime);
         setConnectionType('polling');
         console.log('[useOtpSubscription] Connected via polling');
-    }, [type, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, keepListening]);
+    }, [type, skipMessageId, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, keepListening]);
     const startListening = useCallback(async () => {
         if (isListening)
             return;
