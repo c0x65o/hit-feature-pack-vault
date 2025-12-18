@@ -9,6 +9,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence, type OtpExtractionResult } from '../utils/otp-extractor';
 
+// OTP codes older than this are considered stale and not treated as "new"
+const OTP_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
 // Try to import HIT SDK events - may not be available in all setups
 // Use ES6 imports (not require) for browser compatibility
 let HitEventsClass: any = null;
@@ -287,6 +290,14 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
       if (!toLower.includes(filterLower) && !filterLower.includes(toLower.split('@')[0])) {
         return;
       }
+    }
+
+    // Skip messages that are too old (> 5 minutes) - these are stale OTPs
+    const receivedAt = new Date(notification.receivedAt);
+    const messageAgeMs = Date.now() - receivedAt.getTime();
+    if (messageAgeMs > OTP_FRESHNESS_THRESHOLD_MS) {
+      console.log(`[useOtpSubscription] Skipping stale message (${Math.round(messageAgeMs / 1000 / 60)} mins old):`, notification.messageId);
+      return;
     }
 
     // Always track the latest notification, even if extraction fails

@@ -18,6 +18,9 @@ interface Props {
   phoneNumber?: string | null;
 }
 
+// OTP codes older than this are considered stale and not shown
+const OTP_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
 function formatTimeAgo(date: Date | string): string {
   const now = new Date();
   const then = typeof date === 'string' ? new Date(date) : date;
@@ -38,6 +41,13 @@ function formatTimeAgo(date: Date | string): string {
   }
 }
 
+function isCodeFresh(receivedAt: Date | string): boolean {
+  const now = new Date();
+  const then = typeof receivedAt === 'string' ? new Date(receivedAt) : receivedAt;
+  const diffMs = now.getTime() - then.getTime();
+  return diffMs <= OTP_FRESHNESS_THRESHOLD_MS;
+}
+
 export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, phoneNumber }: Props) {
   const { Modal, Button, Alert } = useUi();
   const [copied, setCopied] = useState(false);
@@ -50,6 +60,8 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
     receivedAt: Date | null;
     messageId: string | null;
   } | null>(null);
+  // Track the initial message ID loaded on modal open to prevent duplicate "received" events
+  const [initialMessageId, setInitialMessageId] = useState<string | null>(null);
 
   // Use OTP subscription hook - keep listening for new OTPs
   const otpSubscription = useOtpSubscription({
@@ -58,6 +70,10 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
     enabled: open,
     keepListening: true, // Keep listening for new OTPs even after receiving one
     onOtpReceived: (result) => {
+      // Skip if this is the same message we already loaded on modal open
+      if (initialMessageId && result.notification.messageId === initialMessageId) {
+        return;
+      }
       // Update last notification when OTP is received
       // This ensures the UI updates immediately when a new OTP arrives
       setLastOtpNotification({
@@ -72,6 +88,10 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
   // Sync subscription OTP code to last notification for display
   useEffect(() => {
     if (otpSubscription.otpCode && otpSubscription.latestNotification) {
+      // Skip if this is the same message we already loaded on modal open
+      if (initialMessageId && otpSubscription.latestNotification.messageId === initialMessageId) {
+        return;
+      }
       setLastOtpNotification({
         code: otpSubscription.otpCode,
         confidence: otpSubscription.otpConfidence,
@@ -81,11 +101,15 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
         messageId: otpSubscription.latestNotification.messageId,
       });
     }
-  }, [otpSubscription.otpCode, otpSubscription.otpConfidence, otpSubscription.latestNotification]);
+  }, [otpSubscription.otpCode, otpSubscription.otpConfidence, otpSubscription.latestNotification, initialMessageId]);
 
   // Load last OTP when modal opens
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset initial message ID when modal closes
+      setInitialMessageId(null);
+      return;
+    }
 
     async function loadLastOtp() {
       try {
@@ -94,6 +118,19 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
           if (result.messages.length > 0) {
             // Get the most recent message
             const latestMsg = result.messages[0];
+            const receivedAt = typeof latestMsg.receivedAt === 'string' 
+              ? new Date(latestMsg.receivedAt) 
+              : latestMsg.receivedAt;
+            
+            // Track the initial message ID to prevent duplicate events from polling
+            setInitialMessageId(latestMsg.id);
+            
+            // Only show the code if it's fresh (less than 5 minutes old)
+            if (!isCodeFresh(receivedAt)) {
+              console.log('[OtpWaitingModal] Last email code is older than 5 minutes, not displaying');
+              return;
+            }
+            
             try {
               const revealResult = await vaultApi.revealSmsMessage(latestMsg.id);
               const otpResult = extractOtpWithConfidence(revealResult.body);
@@ -101,9 +138,7 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
               setLastOtpNotification({
                 code: otpResult.code,
                 confidence: otpResult.confidence,
-                receivedAt: typeof latestMsg.receivedAt === 'string' 
-                  ? new Date(latestMsg.receivedAt) 
-                  : latestMsg.receivedAt,
+                receivedAt: receivedAt,
                 messageId: latestMsg.id,
               });
             } catch (err) {
@@ -116,6 +151,19 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
           if (result.messages.length > 0) {
             // Get the most recent message
             const latestMsg = result.messages[0];
+            const receivedAt = typeof latestMsg.receivedAt === 'string' 
+              ? new Date(latestMsg.receivedAt) 
+              : latestMsg.receivedAt;
+            
+            // Track the initial message ID to prevent duplicate events from polling
+            setInitialMessageId(latestMsg.id);
+            
+            // Only show the code if it's fresh (less than 5 minutes old)
+            if (!isCodeFresh(receivedAt)) {
+              console.log('[OtpWaitingModal] Last SMS code is older than 5 minutes, not displaying');
+              return;
+            }
+            
             try {
               const revealResult = await vaultApi.revealSmsMessage(latestMsg.id);
               const otpResult = extractOtpWithConfidence(revealResult.body);
@@ -123,9 +171,7 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
               setLastOtpNotification({
                 code: otpResult.code,
                 confidence: otpResult.confidence,
-                receivedAt: typeof latestMsg.receivedAt === 'string' 
-                  ? new Date(latestMsg.receivedAt) 
-                  : latestMsg.receivedAt,
+                receivedAt: receivedAt,
                 messageId: latestMsg.id,
               });
             } catch (err) {
