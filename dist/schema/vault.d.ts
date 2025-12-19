@@ -24,6 +24,7 @@ export declare const vaultTypeEnum: import("drizzle-orm/pg-core").PgEnum<["perso
 export declare const itemTypeEnum: import("drizzle-orm/pg-core").PgEnum<["credential", "api_key", "secure_note"]>;
 /**
  * Principal Types for ACL
+ * Shared enum used across all feature packs (forms, vault, notepad, etc.)
  */
 export declare const principalTypeEnum: import("drizzle-orm/pg-core").PgEnum<["user", "group", "role"]>;
 /**

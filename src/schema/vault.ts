@@ -43,6 +43,7 @@ export const itemTypeEnum = pgEnum("item_type", ["credential", "api_key", "secur
 
 /**
  * Principal Types for ACL
+ * Shared enum used across all feature packs (forms, vault, notepad, etc.)
  */
 export const principalTypeEnum = pgEnum("principal_type", ["user", "group", "role"]);
 
