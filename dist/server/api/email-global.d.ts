@@ -3,7 +3,7 @@ export declare const dynamic = "force-dynamic";
 export declare const runtime = "nodejs";
 /**
  * GET /api/vault/email/global
- * Get the global 2FA email address (admin only)
+ * Get the global 2FA email address (any authenticated user)
  */
 export declare function GET(request: NextRequest): Promise<NextResponse<{
     error: string;

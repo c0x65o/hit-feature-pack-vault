@@ -1,9 +1,10 @@
 // src/server/api/sms-messages-reveal.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultSmsMessages, vaultSmsNumbers, vaultVaults, vaultAuditEvents } from '@/lib/feature-pack-schemas';
-import { eq, and } from 'drizzle-orm';
-import { getUserId } from '../auth';
+import { vaultSmsMessages, vaultSmsNumbers, vaultVaults, vaultAuditEvents, vaultItems } from '@/lib/feature-pack-schemas';
+import { eq, and, ilike } from 'drizzle-orm';
+import { getUserId, extractUserFromRequest } from '../auth';
+import { checkItemAccess } from '../lib/acl-utils';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -54,16 +55,55 @@ export async function POST(request) {
         if (!smsNumber) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        // Verify user owns the vault the SMS number belongs to
-        if (smsNumber.vaultId) {
-            const [vault] = await db
-                .select()
-                .from(vaultVaults)
-                .where(and(eq(vaultVaults.id, smsNumber.vaultId), eq(vaultVaults.ownerUserId, userId)))
-                .limit(1);
-            if (!vault) {
-                return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        // Get user for permission checks
+        const user = extractUserFromRequest(request);
+        if (!user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        // Check if message is email or SMS
+        const isEmail = message.metadataEncrypted &&
+            typeof message.metadataEncrypted === 'object' &&
+            'type' in message.metadataEncrypted &&
+            message.metadataEncrypted.type === 'email';
+        let hasAccess = false;
+        if (isEmail) {
+            // For email messages: check if user has READ_ONLY access to any item with matching username
+            const emailAddress = message.toNumber;
+            if (emailAddress) {
+                const matchingItems = await db
+                    .select({ id: vaultItems.id })
+                    .from(vaultItems)
+                    .where(ilike(vaultItems.username, emailAddress));
+                // Check access to at least one matching item
+                for (const item of matchingItems) {
+                    const accessCheck = await checkItemAccess(db, item.id, user, { requiredPermissions: ['READ_ONLY'] });
+                    if (accessCheck.hasAccess) {
+                        hasAccess = true;
+                        break;
+                    }
+                }
             }
+        }
+        else {
+            // For SMS messages: check via smsNumber.itemId
+            if (smsNumber.itemId) {
+                const accessCheck = await checkItemAccess(db, smsNumber.itemId, user, { requiredPermissions: ['READ_ONLY'] });
+                hasAccess = accessCheck.hasAccess;
+            }
+            else {
+                // Legacy: if no itemId, check vault ownership (backward compatibility)
+                if (smsNumber.vaultId) {
+                    const [vault] = await db
+                        .select()
+                        .from(vaultVaults)
+                        .where(and(eq(vaultVaults.id, smsNumber.vaultId), eq(vaultVaults.ownerUserId, userId)))
+                        .limit(1);
+                    hasAccess = !!vault;
+                }
+            }
+        }
+        if (!hasAccess) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
         // Create audit event for SMS read action
         await db.insert(vaultAuditEvents).values({

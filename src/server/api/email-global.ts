@@ -13,19 +13,13 @@ const GLOBAL_EMAIL_SETTING_KEY = 'global_2fa_email';
 
 /**
  * GET /api/vault/email/global
- * Get the global 2FA email address (admin only)
+ * Get the global 2FA email address (any authenticated user)
  */
 export async function GET(request: NextRequest) {
   try {
     const user = extractUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user is admin
-    const isAdmin = user.roles?.includes('admin') || false;
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     const db = getDb();
