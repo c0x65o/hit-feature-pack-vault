@@ -199,6 +199,10 @@ api:
       methods: [POST]
       handler: "@hit/feature-pack-vault/server/api/email-webhook-inbound"
       description: "Inbound Email webhook (Power Automate/Custom)"
+    - path: /api/vault/email/global
+      methods: [GET, POST, DELETE]
+      handler: "@hit/feature-pack-vault/server/api/email-global"
+      description: "Get, set, or delete global 2FA email address (admin only)"
     - path: /api/vault/sms/numbers/[id]/messages
       methods: [GET]
       handler: "@hit/feature-pack-vault/server/api/sms-numbers-messages"
