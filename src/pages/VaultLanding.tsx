@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare, Copy, User, KeyRound } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
@@ -1163,6 +1163,130 @@ function FolderSection({
   );
 }
 
+function CopyDropdown({ item }: { item: VaultItemRow }) {
+  const { Button } = useUi();
+  const [expanded, setExpanded] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setExpanded(false);
+      }
+    }
+    if (expanded) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [expanded]);
+
+  async function handleCopy(field: 'username' | 'password') {
+    try {
+      setLoading(true);
+      let value: string | undefined;
+
+      if (field === 'username') {
+        value = item.username || undefined;
+      } else if (field === 'password') {
+        // Need to reveal the item to get the password
+        const revealed = await vaultApi.revealItem(item.id);
+        value = revealed.password || revealed.secret;
+      }
+
+      if (value) {
+        await navigator.clipboard.writeText(value);
+        setCopiedField(field);
+        setTimeout(() => {
+          setCopiedField(null);
+          setExpanded(false);
+        }, 1500);
+      }
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Don't show copy dropdown for secure notes (no username/password)
+  if (item.type === 'secure_note') {
+    return null;
+  }
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        title="Copy credentials"
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded(!expanded);
+        }}
+      >
+        <Copy size={16} className="text-muted-foreground" />
+      </Button>
+
+      {expanded && (
+        <div 
+          className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {item.username && (
+            <button
+              className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors"
+              onClick={() => handleCopy('username')}
+              disabled={loading}
+            >
+              {copiedField === 'username' ? (
+                <Check size={14} className="text-green-600" />
+              ) : (
+                <User size={14} className="text-muted-foreground" />
+              )}
+              <span>{copiedField === 'username' ? 'Copied!' : 'Username'}</span>
+            </button>
+          )}
+          {item.type === 'credential' && (
+            <button
+              className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors"
+              onClick={() => handleCopy('password')}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 size={14} className="animate-spin text-muted-foreground" />
+              ) : copiedField === 'password' ? (
+                <Check size={14} className="text-green-600" />
+              ) : (
+                <KeyRound size={14} className="text-muted-foreground" />
+              )}
+              <span>{copiedField === 'password' ? 'Copied!' : 'Password'}</span>
+            </button>
+          )}
+          {item.type === 'api_key' && (
+            <button
+              className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors"
+              onClick={() => handleCopy('password')}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 size={14} className="animate-spin text-muted-foreground" />
+              ) : copiedField === 'password' ? (
+                <Check size={14} className="text-green-600" />
+              ) : (
+                <Key size={14} className="text-muted-foreground" />
+              )}
+              <span>{copiedField === 'password' ? 'Copied!' : 'Secret/Key'}</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ItemRow({
   item,
   folders,
@@ -1284,6 +1408,9 @@ function ItemRow({
       </div>
 
       <div className="flex items-center gap-2 ml-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Copy dropdown for username/password */}
+        <CopyDropdown item={item} />
+
         {/* URL launch button - show if item has a URL */}
         {item.url && (
           <Button

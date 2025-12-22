@@ -2,7 +2,7 @@
 import { jsxs as _jsxs, Fragment as _Fragment, jsx as _jsx } from "react/jsx-runtime";
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare, Copy, User, KeyRound } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
@@ -585,6 +585,61 @@ function FolderSection({ folder, allFolders, allItems, vaultTypeById, onNavigate
                             onAddItem(folderId);
                         }, expandedFolderIds: expandedFolderIds, onToggleExpanded: onToggleExpanded, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopiedFor: totpCopiedFor, onMoveFolder: onMoveFolder, showMoveModal: showMoveModal, onShowMoveModal: onShowMoveModal, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, onShowAclModal: onShowAclModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPollingFor: emailOtpPollingFor, emailOtpCopiedFor: emailOtpCopiedFor, isAdmin: isAdmin, level: level + 1, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, subfolder.id))), subfolders.length > 0 && directItems.length > 0 && (_jsx("div", { className: "h-px bg-border/50" })), directItems.map((item, index) => (_jsx(ItemRow, { item: item, folders: allFolders, onNavigate: onNavigate, onMoveItem: onMoveItem, onQuickTotp: onQuickTotp, totpCopied: totpCopiedFor === item.id, index: index, indentLevel: indentLevel + 1, onDeleteItem: onDeleteItem, showMoveItemModal: showMoveItemModal, onShowMoveItemModal: onShowMoveItemModal, globalEmailAddress: globalEmailAddress, onQuickEmailOtp: onQuickEmailOtp, emailOtpPolling: emailOtpPollingFor === item.id, emailOtpCopied: emailOtpCopiedFor === item.id, isAdmin: isAdmin, itemsWithSms: itemsWithSms, setSmsOtpModalItemId: setSmsOtpModalItemId }, item.id))), subfolders.length === 0 && directItems.length === 0 && (_jsx("div", { className: "text-sm text-muted-foreground text-center py-6 bg-muted/20", children: "Empty folder" }))] }))] }));
 }
+function CopyDropdown({ item }) {
+    const { Button } = useUi();
+    const [expanded, setExpanded] = useState(false);
+    const [copiedField, setCopiedField] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const dropdownRef = React.useRef(null);
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setExpanded(false);
+            }
+        }
+        if (expanded) {
+            document.addEventListener('mousedown', handleClickOutside);
+            return () => document.removeEventListener('mousedown', handleClickOutside);
+        }
+    }, [expanded]);
+    async function handleCopy(field) {
+        try {
+            setLoading(true);
+            let value;
+            if (field === 'username') {
+                value = item.username || undefined;
+            }
+            else if (field === 'password') {
+                // Need to reveal the item to get the password
+                const revealed = await vaultApi.revealItem(item.id);
+                value = revealed.password || revealed.secret;
+            }
+            if (value) {
+                await navigator.clipboard.writeText(value);
+                setCopiedField(field);
+                setTimeout(() => {
+                    setCopiedField(null);
+                    setExpanded(false);
+                }, 1500);
+            }
+        }
+        catch (err) {
+            console.error('Failed to copy:', err);
+        }
+        finally {
+            setLoading(false);
+        }
+    }
+    // Don't show copy dropdown for secure notes (no username/password)
+    if (item.type === 'secure_note') {
+        return null;
+    }
+    return (_jsxs("div", { ref: dropdownRef, className: "relative", children: [_jsx(Button, { variant: "ghost", size: "sm", title: "Copy credentials", onClick: (e) => {
+                    e.stopPropagation();
+                    setExpanded(!expanded);
+                }, children: _jsx(Copy, { size: 16, className: "text-muted-foreground" }) }), expanded && (_jsxs("div", { className: "absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]", onClick: (e) => e.stopPropagation(), children: [item.username && (_jsxs("button", { className: "w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors", onClick: () => handleCopy('username'), disabled: loading, children: [copiedField === 'username' ? (_jsx(Check, { size: 14, className: "text-green-600" })) : (_jsx(User, { size: 14, className: "text-muted-foreground" })), _jsx("span", { children: copiedField === 'username' ? 'Copied!' : 'Username' })] })), item.type === 'credential' && (_jsxs("button", { className: "w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors", onClick: () => handleCopy('password'), disabled: loading, children: [loading ? (_jsx(Loader2, { size: 14, className: "animate-spin text-muted-foreground" })) : copiedField === 'password' ? (_jsx(Check, { size: 14, className: "text-green-600" })) : (_jsx(KeyRound, { size: 14, className: "text-muted-foreground" })), _jsx("span", { children: copiedField === 'password' ? 'Copied!' : 'Password' })] })), item.type === 'api_key' && (_jsxs("button", { className: "w-full px-3 py-2 text-left text-sm hover:bg-muted/50 flex items-center gap-2 transition-colors", onClick: () => handleCopy('password'), disabled: loading, children: [loading ? (_jsx(Loader2, { size: 14, className: "animate-spin text-muted-foreground" })) : copiedField === 'password' ? (_jsx(Check, { size: 14, className: "text-green-600" })) : (_jsx(Key, { size: 14, className: "text-muted-foreground" })), _jsx("span", { children: copiedField === 'password' ? 'Copied!' : 'Secret/Key' })] }))] }))] }));
+}
 function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopied, index = 0, indentLevel = 0, onDeleteItem, showMoveItemModal, onShowMoveItemModal, globalEmailAddress, onQuickEmailOtp, emailOtpPolling, emailOtpCopied, isAdmin = false, itemsWithSms, setSmsOtpModalItemId, }) {
     const { Button, Select } = useUi();
     // Drag and drop setup for items
@@ -639,7 +694,7 @@ function ItemRow({ item, folders, onNavigate, onMoveItem, onQuickTotp, totpCopie
             if (!target.closest('button') && !target.closest('select')) {
                 onNavigate(`/vault/items/${item.id}`);
             }
-        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2 ml-auto", onClick: (e) => e.stopPropagation(), children: [item.url && (_jsx(Button, { variant: "ghost", size: "sm", title: `Open ${item.url} in new tab`, onClick: (e) => {
+        }, children: [_jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [getItemIcon(), _jsxs("div", { className: "flex items-center gap-2 flex-1 min-w-0", children: [_jsx("span", { className: "text-sm font-medium truncate", children: item.title }), item.username && (_jsxs("span", { className: "text-xs text-muted-foreground truncate", children: ["\u2022 ", item.username] }))] })] }), _jsxs("div", { className: "flex items-center gap-2 ml-auto", onClick: (e) => e.stopPropagation(), children: [_jsx(CopyDropdown, { item: item }), item.url && (_jsx(Button, { variant: "ghost", size: "sm", title: `Open ${item.url} in new tab`, onClick: (e) => {
                             e.stopPropagation();
                             // Ensure URL has protocol, default to https if missing
                             let urlToOpen = item.url || '';
