@@ -241,6 +241,17 @@ export async function POST(request: NextRequest) {
     const messageSid = body.MessageSid || body.messageSid;
     const accountSid = body.AccountSid || body.accountSid;
     const timestamp = body.timestamp || body.Timestamp;
+    // Optional subject field (some email forwarders may send it even when hitting this endpoint)
+    const subject = body.Subject || body.subject || body.title || body.Topic;
+
+    // Sometimes email forwarders are accidentally configured to hit the SMS webhook endpoint.
+    // If it looks like email, treat it as email so:
+    // - realtime event payload matches (UI filters by type)
+    // - email polling endpoint can find it (filters metadataEncrypted.type === 'email')
+    const looksLikeEmail = (value: unknown): boolean =>
+      typeof value === 'string' && value.includes('@') && value.includes('.');
+    const inferredType: 'sms' | 'email' =
+      looksLikeEmail(fromNumber) || looksLikeEmail(toNumber) ? 'email' : 'sms';
 
     // Sanitize body for logging (don't log full message body)
     const sanitizedBody: Record<string, any> = { ...body };
@@ -373,7 +384,7 @@ export async function POST(request: NextRequest) {
     // If no global number exists, create one with a placeholder
     if (!smsNumber) {
       const [newSmsNumber] = await db.insert(vaultSmsNumbers).values({
-        phoneNumber: toNumber || '[global-inbox]',
+        phoneNumber: inferredType === 'email' ? '[email-inbox]' : (toNumber || '[global-inbox]'),
         provider: 'fdroid',
         status: 'active',
       }).returning();
@@ -417,22 +428,27 @@ export async function POST(request: NextRequest) {
       bodyEncrypted: encryptedBody,
       receivedAt: receivedAt,
       metadataEncrypted: {
+        type: inferredType,
         messageSid: messageSid,
         accountSid: accountSid,
         provider: smsNumber.provider,
+        subject: inferredType === 'email' ? (subject || null) : undefined,
         receivedAt: receivedAt.toISOString(),
       },
       retentionExpiresAt: retentionExpiresAt,
     }).returning({ id: vaultSmsMessages.id });
 
-    console.log(`[vault] Stored SMS message from ${fromNumber} to ${toNumber}`);
+    console.log(
+      `[vault] Stored ${inferredType === 'email' ? 'email' : 'SMS'} message from ${fromNumber} to ${toNumber}`
+    );
 
     // Publish real-time event for WebSocket clients
     await publishOtpReceived({
       messageId: insertedMessage.id,
-      type: 'sms',
+      type: inferredType,
       from: fromNumber,
       to: toNumber,
+      subject: inferredType === 'email' ? (subject || undefined) : undefined,
       receivedAt: receivedAt.toISOString(),
     });
 
