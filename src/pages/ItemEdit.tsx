@@ -274,7 +274,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
             <label className="text-sm font-medium">Type</label>
             <Select
               value={itemType}
-              onChange={(value) => setItemType(value as ItemType)}
+              onChange={(value: string) => setItemType(value as ItemType)}
               options={[
                 { value: 'credential', label: 'Login' },
                 { value: 'api_key', label: 'SSH Key / API Key' },

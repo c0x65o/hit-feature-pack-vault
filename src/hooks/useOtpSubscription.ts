@@ -280,6 +280,11 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
   const subscriptionRef = useRef<any>(null);
   const usingWebSocketRef = useRef(false);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  const isListeningRef = useRef(false);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
   
   // Update processed IDs when skipMessageId changes
   useEffect(() => {
@@ -489,7 +494,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
   }, [handleOtpNotification]);
 
   const startListening = useCallback(async () => {
-    if (isListening) return;
+    if (isListeningRef.current) return;
 
     setIsListening(true);
     setError(null);
@@ -503,29 +508,25 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
       setError(new Error('WebSocket unavailable or not connected'));
       console.log('[useOtpSubscription] WebSocket unavailable; staying disconnected (no polling fallback)');
     }
-  }, [isListening, clearOtp, startListeningWebSocket]);
+  }, [clearOtp, startListeningWebSocket]);
 
   const stopListening = useCallback(() => {
     stopListeningInternal();
   }, [stopListeningInternal]);
 
-  // Auto-start if enabled
+  // Auto-start/stop based on enabled. This must NOT depend on changing callback identities,
+  // otherwise it can thrash (cleanup → restart) and spam subscriptions.
   useEffect(() => {
-    if (enabled && !isListening) {
+    if (enabled) {
       startListening();
+    } else {
+      stopListeningInternal();
     }
 
     return () => {
       stopListeningInternal();
     };
-  }, [enabled, isListening, startListening, stopListeningInternal]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopListeningInternal();
-    };
-  }, [stopListeningInternal]);
+  }, [enabled, startListening, stopListeningInternal]);
 
   return {
     isListening,

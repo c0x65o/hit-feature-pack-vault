@@ -186,6 +186,10 @@ export function useOtpSubscription(options = {}) {
     const subscriptionRef = useRef(null);
     const usingWebSocketRef = useRef(false);
     const processedMessageIdsRef = useRef(new Set());
+    const isListeningRef = useRef(false);
+    useEffect(() => {
+        isListeningRef.current = isListening;
+    }, [isListening]);
     // Update processed IDs when skipMessageId changes
     useEffect(() => {
         if (skipMessageId && isListening) {
@@ -371,7 +375,7 @@ export function useOtpSubscription(options = {}) {
         }
     }, [handleOtpNotification]);
     const startListening = useCallback(async () => {
-        if (isListening)
+        if (isListeningRef.current)
             return;
         setIsListening(true);
         setError(null);
@@ -383,25 +387,23 @@ export function useOtpSubscription(options = {}) {
             setError(new Error('WebSocket unavailable or not connected'));
             console.log('[useOtpSubscription] WebSocket unavailable; staying disconnected (no polling fallback)');
         }
-    }, [isListening, clearOtp, startListeningWebSocket]);
+    }, [clearOtp, startListeningWebSocket]);
     const stopListening = useCallback(() => {
         stopListeningInternal();
     }, [stopListeningInternal]);
-    // Auto-start if enabled
+    // Auto-start/stop based on enabled. This must NOT depend on changing callback identities,
+    // otherwise it can thrash (cleanup → restart) and spam subscriptions.
     useEffect(() => {
-        if (enabled && !isListening) {
+        if (enabled) {
             startListening();
+        }
+        else {
+            stopListeningInternal();
         }
         return () => {
             stopListeningInternal();
         };
-    }, [enabled, isListening, startListening, stopListeningInternal]);
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            stopListeningInternal();
-        };
-    }, [stopListeningInternal]);
+    }, [enabled, startListening, stopListeningInternal]);
     return {
         isListening,
         connectionType,

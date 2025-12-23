@@ -101,7 +101,7 @@ export function FolderModal({ onClose, onSave, vaults, folders, isAdmin = false 
             </p>
             <Select
               value={scope}
-              onChange={(value) => setScope(value as 'personal' | 'shared')}
+              onChange={(value: string) => setScope(value as 'personal' | 'shared')}
               options={[
                 { value: 'personal', label: 'Personal (only you can access)' },
                 { value: 'shared', label: 'Shared (controlled by folder sharing)' },
@@ -128,7 +128,7 @@ export function FolderModal({ onClose, onSave, vaults, folders, isAdmin = false 
             <label className="text-sm font-medium">Parent Folder (Optional)</label>
             <Select
               value={parentId || ''}
-              onChange={(value) => setParentId(value || null)}
+              onChange={(value: string) => setParentId(value || null)}
               options={[
                 { value: '', label: 'Root (no parent)' },
                 ...rootFolders.map(f => ({

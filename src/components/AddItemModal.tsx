@@ -157,7 +157,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
           <label className="text-sm font-medium">Type</label>
           <Select
             value={itemType}
-            onChange={(value) => setItemType(value as ItemType)}
+            onChange={(value: string) => setItemType(value as ItemType)}
             options={[
               { value: 'credential', label: 'Login' },
               { value: 'api_key', label: 'SSH Key / API Key' },
@@ -219,7 +219,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
               <label className="text-sm font-medium">2FA</label>
               <Select
                 value={twoFactorType}
-                onChange={(value) => setTwoFactorType(value as TwoFactorType)}
+                onChange={(value: string) => setTwoFactorType(value as TwoFactorType)}
                 options={[
                   { value: 'off', label: 'Off' },
                   { value: 'qr', label: 'QR Code (TOTP)' },

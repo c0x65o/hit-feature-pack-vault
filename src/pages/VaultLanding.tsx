@@ -488,7 +488,7 @@ export function VaultLanding({ onNavigate }: Props) {
           <div className="[&>div]:!mb-0">
             <Select
               value={vaultFilter}
-              onChange={(value) => setVaultFilter(value as VaultFilter)}
+              onChange={(value: string) => setVaultFilter(value as VaultFilter)}
               options={[
                 { value: 'all', label: 'All Vaults' },
                 { value: 'personal', label: 'Personal Only' },
@@ -1007,7 +1007,7 @@ function FolderSection({
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={(e) => {
+              onClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
                 onShowAclModal(folder.id);
               }}
@@ -1033,7 +1033,7 @@ function FolderSection({
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={(e) => {
+              onClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
                 onShowMoveModal(folder.id);
               }}
@@ -1068,7 +1068,7 @@ function FolderSection({
           <div className="flex-1 min-w-[200px]">
             <Select
               value={folder.parentId || ''}
-              onChange={(value) => {
+              onChange={(value: string) => {
                 // Explicitly handle empty string as root (null parentId)
                 const newParentId = value === '' ? null : value;
                 // Only move if the value actually changed
@@ -1222,7 +1222,7 @@ function CopyDropdown({ item }: { item: VaultItemRow }) {
         variant="ghost"
         size="sm"
         title="Copy credentials"
-        onClick={(e) => {
+        onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           setExpanded(!expanded);
         }}
@@ -1417,7 +1417,7 @@ function ItemRow({
             variant="ghost"
             size="sm"
             title={`Open ${item.url} in new tab`}
-            onClick={(e) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation();
               // Ensure URL has protocol, default to https if missing
               let urlToOpen = item.url || '';
@@ -1451,7 +1451,7 @@ function ItemRow({
             variant="ghost"
             size="sm"
             title="Get SMS OTP code"
-            onClick={(e) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation();
               setSmsOtpModalItemId(item.id);
             }}
@@ -1486,7 +1486,7 @@ function ItemRow({
           <Button
             variant="ghost"
             size="sm"
-            onClick={(e) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation();
               onShowMoveItemModal(item.id);
             }}
@@ -1501,7 +1501,7 @@ function ItemRow({
           <Button
             variant="ghost"
             size="sm"
-            onClick={(e) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation();
               onDeleteItem(item);
             }}
@@ -1519,7 +1519,7 @@ function ItemRow({
           <div className="flex-1 min-w-[200px]">
             <Select
               value={item.folderId || ''}
-              onChange={(value) => {
+              onChange={(value: string) => {
                 // Explicitly handle empty string as root (null folderId)
                 const newFolderId = value === '' ? null : value;
                 // Only move if the value actually changed
