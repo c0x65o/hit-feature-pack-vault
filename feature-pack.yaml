@@ -46,6 +46,12 @@ nav:
     showWhen: authenticated
     weight: 200
     children:
+      - id: vault-dashboards
+        label: Dashboard
+        path: /dashboards?pack=vault
+        icon: LayoutDashboard
+        weight: 0
+        showWhen: authenticated
       - id: vault-main
         label: Vault
         path: /vault
