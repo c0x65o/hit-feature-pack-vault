@@ -246,11 +246,7 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
     }
   };
 
-  const connectionStatus = otpSubscription.connectionType === 'websocket' 
-    ? 'connected' 
-    : otpSubscription.connectionType === 'polling' 
-      ? 'polling' 
-      : 'disconnected';
+  const connectionStatus = otpSubscription.connectionType === 'websocket' ? 'connected' : 'disconnected';
 
   const wsAvailable = isWebSocketAvailable();
   const isWaiting = otpSubscription.isListening && !otpSubscription.otpCode;
@@ -279,11 +275,6 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
             <>
               <Wifi size={16} className="text-green-600" />
               <span className="text-green-600 font-medium">WebSocket Connected</span>
-            </>
-          ) : connectionStatus === 'polling' ? (
-            <>
-              <Loader2 size={16} className="text-blue-600 animate-spin" />
-              <span className="text-blue-600 font-medium">Polling for Messages</span>
             </>
           ) : (
             <>

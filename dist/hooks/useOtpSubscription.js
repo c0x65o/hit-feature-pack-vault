@@ -1,8 +1,9 @@
 /**
  * OTP Subscription Hook
  *
- * Provides real-time OTP code notifications via WebSocket with polling fallback.
- * Uses the HIT Events SDK when available, falls back to API polling otherwise.
+ * Provides real-time OTP code notifications via WebSocket.
+ * Uses the HIT Events SDK when available; if WebSocket isn't available/connected,
+ * we surface a disconnected state (no polling fallback).
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
@@ -43,8 +44,8 @@ async function loadHitSdk() {
             console.log('[useOtpSubscription] HIT SDK loaded successfully, HitEvents available:', !!HitEventsClass);
         }
         catch (e) {
-            // SDK not available - will use polling fallback
-            console.log('[useOtpSubscription] HIT SDK not available, will use polling fallback. Error:', e);
+            // SDK not available - realtime will remain disconnected
+            console.log('[useOtpSubscription] HIT SDK not available, realtime will remain disconnected. Error:', e);
         }
     })();
     return sdkLoadPromise;
@@ -52,7 +53,7 @@ async function loadHitSdk() {
 // Pre-load SDK in the background (non-blocking)
 if (typeof window !== 'undefined') {
     loadHitSdk().catch(() => {
-        // Ignore errors - will fall back to polling
+        // Ignore errors - realtime will remain disconnected
     });
 }
 // Global events client instance (created lazily when needed)
@@ -153,7 +154,7 @@ async function getEventsClient() {
 /**
  * Hook for subscribing to OTP notifications
  *
- * Automatically uses WebSocket when HIT SDK is available, otherwise falls back to polling.
+ * Uses WebSocket when HIT SDK is available; otherwise stays disconnected (no polling fallback).
  *
  * @example
  * ```tsx
@@ -173,7 +174,7 @@ async function getEventsClient() {
  * ```
  */
 export function useOtpSubscription(options = {}) {
-    const { type = 'all', toFilter, onOtpReceived, enabled = true, pollingInterval = 2000, maxPollTime = 5 * 60 * 1000, keepListening = false, skipMessageId, minReceivedAt, } = options;
+    const { type = 'all', toFilter, onOtpReceived, enabled = true, keepListening = false, skipMessageId, minReceivedAt, } = options;
     const [isListening, setIsListening] = useState(false);
     const [connectionType, setConnectionType] = useState('disconnected');
     const [realWsStatus, setRealWsStatus] = useState(globalWsStatus);
@@ -182,10 +183,7 @@ export function useOtpSubscription(options = {}) {
     const [fullMessage, setFullMessage] = useState(null);
     const [latestNotification, setLatestNotification] = useState(null);
     const [error, setError] = useState(null);
-    const pollingIntervalRef = useRef(null);
-    const pollingTimeoutRef = useRef(null);
     const subscriptionRef = useRef(null);
-    const lastPollTimeRef = useRef(null);
     const usingWebSocketRef = useRef(false);
     const processedMessageIdsRef = useRef(new Set());
     // Update processed IDs when skipMessageId changes
@@ -205,11 +203,7 @@ export function useOtpSubscription(options = {}) {
                     setConnectionType('websocket');
                 }
                 else if (status === 'error' || status === 'disconnected') {
-                    // WebSocket failed/disconnected, show polling status if polling is active
-                    if (isListening && pollingIntervalRef.current) {
-                        console.log('[useOtpSubscription] WebSocket disconnected/error, showing polling status');
-                        setConnectionType('polling');
-                    }
+                    setConnectionType('disconnected');
                 }
             }
         };
@@ -235,15 +229,6 @@ export function useOtpSubscription(options = {}) {
             subscriptionRef.current = null;
         }
         usingWebSocketRef.current = false;
-        // Clean up polling
-        if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-        }
-        if (pollingTimeoutRef.current) {
-            clearTimeout(pollingTimeoutRef.current);
-            pollingTimeoutRef.current = null;
-        }
         // Clear processed message IDs
         processedMessageIdsRef.current.clear();
         setIsListening(false);
@@ -372,7 +357,7 @@ export function useOtpSubscription(options = {}) {
                 console.log('[useOtpSubscription] WebSocket is connecting...');
             }
             else {
-                // Disconnected or error - will need polling fallback
+                // Disconnected or error
                 console.log('[useOtpSubscription] WebSocket not connected, status:', actualStatus);
                 usingWebSocketRef.current = false;
                 return false;
@@ -385,89 +370,6 @@ export function useOtpSubscription(options = {}) {
             return false;
         }
     }, [handleOtpNotification]);
-    const startListeningPolling = useCallback(() => {
-        // Initialize with current time minus a buffer for clock skew between client and server
-        // This ensures we don't miss messages if server clock is behind client clock
-        const CLOCK_SKEW_BUFFER_MS = 30000; // 30 seconds buffer
-        const initialTime = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS);
-        lastPollTimeRef.current = initialTime;
-        // Clear processed IDs on start, but mark skipMessageId as already processed
-        processedMessageIdsRef.current.clear();
-        if (skipMessageId) {
-            processedMessageIdsRef.current.add(skipMessageId);
-            console.log('[useOtpSubscription] Marking skipMessageId as already processed:', skipMessageId);
-        }
-        pollingIntervalRef.current = setInterval(async () => {
-            try {
-                // Poll for new messages based on type
-                // Use the last poll time with buffer to avoid missing messages due to clock skew
-                let messages = [];
-                // Apply buffer to since time to account for clock skew
-                const sinceTime = lastPollTimeRef.current
-                    ? new Date(lastPollTimeRef.current.getTime() - CLOCK_SKEW_BUFFER_MS)
-                    : null;
-                const since = sinceTime?.toISOString();
-                // Update poll time BEFORE fetching to ensure we don't miss messages
-                // that arrive during processing
-                const pollStartTime = new Date();
-                if (type === 'email' || type === 'all') {
-                    const emailResult = await vaultApi.getLatestEmailMessages({ since });
-                    messages = messages.concat(emailResult.messages.map((m) => ({ ...m, type: 'email' })));
-                }
-                if (type === 'sms' || type === 'all') {
-                    const smsResult = await vaultApi.getLatestSmsMessages(since);
-                    messages = messages.concat(smsResult.messages.map((m) => ({
-                        id: m.id,
-                        from: m.fromNumber,
-                        to: m.toNumber,
-                        receivedAt: m.receivedAt,
-                        type: 'sms',
-                    })));
-                }
-                // Filter out already-processed messages (prevents duplicates from clock skew buffer)
-                const newMessages = messages.filter(msg => !processedMessageIdsRef.current.has(msg.id));
-                if (newMessages.length > 0) {
-                    console.log(`[useOtpSubscription] Found ${newMessages.length} new messages to process`);
-                }
-                // Process each NEW message
-                for (const msg of newMessages) {
-                    // Mark as processed immediately to avoid duplicates
-                    processedMessageIdsRef.current.add(msg.id);
-                    await handleOtpNotification({
-                        messageId: msg.id,
-                        type: msg.type,
-                        from: msg.from,
-                        to: msg.to,
-                        subject: msg.subject,
-                        receivedAt: typeof msg.receivedAt === 'string' ? msg.receivedAt : msg.receivedAt.toISOString(),
-                    });
-                    // When keepListening is false, stop after processing first message that might have OTP
-                    // When keepListening is true, continue processing all messages to catch multiple OTPs
-                    // Note: We can't check otpCode here because it's a stale closure value,
-                    // but handleOtpNotification will update state and call onOtpReceived callback
-                    if (!keepListening) {
-                        // For non-keepListening mode, process one message per poll cycle
-                        // This allows the state to update before the next poll
-                        break;
-                    }
-                    // When keepListening is true, continue processing all messages in this batch
-                }
-                // Update last poll time AFTER processing messages
-                // This ensures we don't miss messages that arrive during processing
-                lastPollTimeRef.current = pollStartTime;
-            }
-            catch (err) {
-                console.error('[useOtpSubscription] Polling error:', err);
-            }
-        }, pollingInterval);
-        // Auto-stop after max time
-        pollingTimeoutRef.current = setTimeout(() => {
-            console.log('[useOtpSubscription] Polling timeout reached');
-            stopListeningInternal();
-        }, maxPollTime);
-        setConnectionType('polling');
-        console.log('[useOtpSubscription] Connected via polling');
-    }, [type, skipMessageId, pollingInterval, maxPollTime, handleOtpNotification, stopListeningInternal, keepListening]);
     const startListening = useCallback(async () => {
         if (isListening)
             return;
@@ -475,19 +377,13 @@ export function useOtpSubscription(options = {}) {
         setError(null);
         clearOtp();
         console.log('[useOtpSubscription] Starting to listen...');
-        // Always start polling as the reliable fallback
-        // This ensures updates even if WebSocket fails
-        startListeningPolling();
-        // Also try WebSocket for instant updates (enhancement on top of polling)
-        // WebSocket will override connectionType to 'websocket' if successful
         const websocketSuccess = await startListeningWebSocket();
-        if (websocketSuccess) {
-            console.log('[useOtpSubscription] WebSocket subscription active (polling still running as fallback)');
+        if (!websocketSuccess) {
+            setConnectionType('disconnected');
+            setError(new Error('WebSocket unavailable or not connected'));
+            console.log('[useOtpSubscription] WebSocket unavailable; staying disconnected (no polling fallback)');
         }
-        else {
-            console.log('[useOtpSubscription] WebSocket unavailable, polling only');
-        }
-    }, [isListening, clearOtp, startListeningWebSocket, startListeningPolling]);
+    }, [isListening, clearOtp, startListeningWebSocket]);
     const stopListening = useCallback(() => {
         stopListeningInternal();
     }, [stopListeningInternal]);
@@ -499,7 +395,7 @@ export function useOtpSubscription(options = {}) {
         return () => {
             stopListeningInternal();
         };
-    }, [enabled]);
+    }, [enabled, isListening, startListening, stopListeningInternal]);
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -543,4 +439,43 @@ export function isWebSocketAvailable() {
         });
     }
     return HitEventsClass !== null;
+}
+// -----------------------------------------------------------------------------
+// Global connection bootstrap (for dashboard shell / app-level initialization)
+// -----------------------------------------------------------------------------
+let _keepaliveSub = null;
+/**
+ * Ensure the vault events WebSocket is connected by installing a lightweight
+ * subscription to the vault OTP event type. This keeps a single global Events
+ * client connected so feature-pack UIs can "hand off" without re-connecting.
+ *
+ * Call this once at app startup (e.g., dashboard shell layout).
+ */
+export async function ensureVaultRealtimeConnection() {
+    const realtimeCfg = getVaultRealtimeOtpConfig();
+    if (!realtimeCfg.enabled) {
+        return () => { };
+    }
+    const eventsClient = await getEventsClient();
+    if (!eventsClient) {
+        return () => { };
+    }
+    if (!_keepaliveSub) {
+        try {
+            _keepaliveSub = eventsClient.subscribe(realtimeCfg.eventType, 
+            // Keepalive subscription: no-op handler (we only want the connection)
+            () => { });
+        }
+        catch {
+            _keepaliveSub = null;
+        }
+    }
+    return () => {
+        try {
+            _keepaliveSub?.unsubscribe();
+        }
+        finally {
+            _keepaliveSub = null;
+        }
+    };
 }

@@ -11,6 +11,7 @@ export {
   subscribeGlobalWsStatus,
   getGlobalOtpConnectionType,
   subscribeGlobalOtpConnectionType,
+  ensureVaultRealtimeConnection,
 } from './useOtpSubscription';
 
 export type {

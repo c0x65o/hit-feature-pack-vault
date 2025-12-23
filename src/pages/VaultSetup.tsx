@@ -59,11 +59,7 @@ export function VaultSetup({ onNavigate }: Props) {
   });
   
   // WebSocket status from the subscription
-  const wsStatus = otpSubscription.connectionType === 'websocket' 
-    ? 'connected' 
-    : otpSubscription.connectionType === 'polling' 
-      ? 'polling' as const
-      : 'disconnected';
+  const wsStatus = otpSubscription.connectionType === 'websocket' ? 'connected' : 'disconnected';
   const wsAvailable = isWebSocketAvailable();
 
   const navigate = (path: string) => {
@@ -426,17 +422,6 @@ export function VaultSetup({ onNavigate }: Props) {
                   WebSocket Connected
                 </span>
               </>
-            ) : wsStatus === 'polling' ? (
-              <>
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
-                </span>
-                <RefreshCw size={18} className="text-yellow-500 animate-spin" style={{ animationDuration: '2s' }} />
-                <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
-                  Polling Active
-                </span>
-              </>
             ) : !wsAvailable ? (
               <>
                 <span className="relative flex h-3 w-3">
@@ -462,9 +447,7 @@ export function VaultSetup({ onNavigate }: Props) {
           <span className="text-xs text-muted-foreground">
             {wsStatus === 'connected' 
               ? 'OTP codes will appear instantly when received'
-              : wsStatus === 'polling'
-                ? 'OTP codes detected via polling (every 2s)'
-                : 'Waiting for connection...'}
+              : 'Waiting for connection...'}
           </span>
         </div>
 

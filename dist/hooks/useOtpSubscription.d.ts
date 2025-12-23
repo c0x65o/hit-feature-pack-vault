@@ -1,8 +1,9 @@
 /**
  * OTP Subscription Hook
  *
- * Provides real-time OTP code notifications via WebSocket with polling fallback.
- * Uses the HIT Events SDK when available, falls back to API polling otherwise.
+ * Provides real-time OTP code notifications via WebSocket.
+ * Uses the HIT Events SDK when available; if WebSocket isn't available/connected,
+ * we surface a disconnected state (no polling fallback).
  */
 import { type OtpExtractionResult } from '../utils/otp-extractor';
 /**
@@ -13,8 +14,8 @@ export declare function subscribeGlobalWsStatus(listener: (status: 'connecting' 
  * Get the current global WebSocket status (shared across all vault OTP subscribers).
  */
 export declare function getGlobalWsStatus(): 'connecting' | 'connected' | 'disconnected' | 'error';
-export declare function getGlobalOtpConnectionType(): 'websocket' | 'polling' | 'disconnected';
-export declare function subscribeGlobalOtpConnectionType(listener: (t: 'websocket' | 'polling' | 'disconnected') => void): () => void;
+export declare function getGlobalOtpConnectionType(): 'websocket' | 'disconnected';
+export declare function subscribeGlobalOtpConnectionType(listener: (t: 'websocket' | 'disconnected') => void): () => void;
 /**
  * Get the current global WebSocket connection status
  */
@@ -37,10 +38,6 @@ export interface UseOtpSubscriptionOptions {
     }) => void;
     /** Enable subscription (default: true) */
     enabled?: boolean;
-    /** Polling interval in ms when WebSocket not available (default: 2000) */
-    pollingInterval?: number;
-    /** Max time to poll in ms (default: 5 minutes) */
-    maxPollTime?: number;
     /** Keep listening after receiving OTP (default: false - stops after first OTP) */
     keepListening?: boolean;
     /** Message ID to skip (e.g., already loaded when modal opened) */
@@ -55,7 +52,7 @@ export interface UseOtpSubscriptionResult {
     /** Whether actively listening for OTP */
     isListening: boolean;
     /** Connection method being used */
-    connectionType: 'websocket' | 'polling' | 'disconnected';
+    connectionType: 'websocket' | 'disconnected';
     /** Latest OTP code extracted */
     otpCode: string | null;
     /** Confidence level of OTP extraction */
@@ -76,7 +73,7 @@ export interface UseOtpSubscriptionResult {
 /**
  * Hook for subscribing to OTP notifications
  *
- * Automatically uses WebSocket when HIT SDK is available, otherwise falls back to polling.
+ * Uses WebSocket when HIT SDK is available; otherwise stays disconnected (no polling fallback).
  *
  * @example
  * ```tsx
@@ -106,4 +103,12 @@ export declare function getWebSocketStatus(): Promise<'connected' | 'connecting'
  * The SDK loads in the background, so subsequent calls will return true if available.
  */
 export declare function isWebSocketAvailable(): boolean;
+/**
+ * Ensure the vault events WebSocket is connected by installing a lightweight
+ * subscription to the vault OTP event type. This keeps a single global Events
+ * client connected so feature-pack UIs can "hand off" without re-connecting.
+ *
+ * Call this once at app startup (e.g., dashboard shell layout).
+ */
+export declare function ensureVaultRealtimeConnection(): Promise<() => void>;
 //# sourceMappingURL=useOtpSubscription.d.ts.map
