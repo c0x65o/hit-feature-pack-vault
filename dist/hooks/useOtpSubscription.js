@@ -8,10 +8,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
-import { HIT_CONFIG } from '@/lib/hit-config.generated';
 // OTP codes older than this are considered stale and not treated as "new"
 const OTP_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+// Lazy load HIT_CONFIG to avoid breaking Turbopack resolution
+// Feature packs shouldn't directly import @/ but this is legacy code
+let HIT_CONFIG = null;
+async function loadHitConfig() {
+    if (HIT_CONFIG !== null)
+        return HIT_CONFIG;
+    try {
+        // Dynamic import works in Next.js client components
+        const mod = await import('@/lib/hit-config.generated');
+        HIT_CONFIG = mod.HIT_CONFIG;
+        return HIT_CONFIG;
+    }
+    catch (err) {
+        console.warn('[useOtpSubscription] Could not load HIT_CONFIG:', err);
+        HIT_CONFIG = {};
+        return HIT_CONFIG;
+    }
+}
 function getVaultRealtimeOtpConfig() {
+    // Use synchronous default values; the actual config is loaded async
+    // This function is kept for backwards compatibility but relies on HIT_CONFIG being loaded
     try {
         const opts = HIT_CONFIG?.featurePacks?.vault ?? {};
         const enabled = opts.realtime_otp_enabled ?? true;
@@ -345,6 +364,8 @@ export function useOtpSubscription(options = {}) {
     }, [stopListeningInternal]);
     const startListeningWebSocket = useCallback(async () => {
         try {
+            // Ensure config is loaded before checking
+            await loadHitConfig();
             const realtimeCfg = getVaultRealtimeOtpConfig();
             if (!realtimeCfg.enabled) {
                 console.log('[useOtpSubscription] WebSocket realtime disabled by vault config (realtime_otp_enabled=false)');
@@ -490,6 +511,8 @@ let _keepaliveSub = null;
  * Call this once at app startup (e.g., dashboard shell layout).
  */
 export async function ensureVaultRealtimeConnection() {
+    // Ensure config is loaded before checking
+    await loadHitConfig();
     const realtimeCfg = getVaultRealtimeOtpConfig();
     if (!realtimeCfg.enabled) {
         return () => { };

@@ -207,6 +207,10 @@ api:
       methods: [GET]
       handler: "@hit/feature-pack-vault/server/api/email-messages-latest"
       description: "Get latest email messages that user has access to via item permissions"
+    - path: /api/vault/sms/messages/latest
+      methods: [GET]
+      handler: "@hit/feature-pack-vault/server/api/sms-messages-latest"
+      description: "Get latest SMS messages (global inbox) for OTP detection"
     - path: /api/vault/sms/numbers/[id]/messages
       methods: [GET]
       handler: "@hit/feature-pack-vault/server/api/sms-numbers-messages"
