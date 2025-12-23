@@ -40,46 +40,18 @@ export * from './hooks/index';
 // Navigation config
 export { navContributions as nav } from './nav';
 
-// Schema exports - for projects to import into their schema
-export {
-  vaultVaults,
-  vaultFolders,
-  vaultItems,
-  vaultAcls,
-  vaultSmsNumbers,
-  vaultSmsMessages,
-  vaultAuditEvents,
-  vaultStaticGroups,
-  vaultGroupMembers,
-  vaultSettings,
-  vaultTypeEnum,
-  itemTypeEnum,
-  principalTypeEnum,
-  smsStatusEnum,
-  auditActionEnum,
-  type VaultVault,
-  type VaultFolder,
-  type VaultItem,
-  type VaultAcl,
-  type VaultSmsNumber,
-  type VaultSmsMessage,
-  type VaultAuditEvent,
-  type VaultStaticGroup,
-  type VaultGroupMember,
-  type VaultSetting,
-  type InsertVaultVault,
-  type InsertVaultFolder,
-  type InsertVaultItem,
-  type InsertVaultAcl,
-  type InsertVaultSmsNumber,
-  type InsertVaultSmsMessage,
-  type InsertVaultAuditEvent,
-  type InsertVaultStaticGroup,
-  type InsertVaultGroupMember,
-  type InsertVaultSetting,
-  VAULT_PERMISSIONS,
-  type VaultPermission,
-} from './schema/vault';
+// Schema exports - MOVED to @hit/feature-pack-vault/schema to avoid bundling drizzle-orm in client
+// Type-only exports are safe (erased at compile time) - BUT importing from schema file still pulls in drizzle
+// So we don't re-export anything from schema here. Use @hit/feature-pack-vault/schema for server code.
+
+// Permission constants - defined inline to avoid pulling in schema file
+export const VAULT_PERMISSIONS = {
+  READ: 'READ',
+  WRITE: 'WRITE',
+  DELETE: 'DELETE',
+  MANAGE_ACL: 'MANAGE_ACL',
+} as const;
+export type VaultPermission = keyof typeof VAULT_PERMISSIONS;
 
 // Services
 export { VaultApiClient, vaultApi } from './services/vault-api';

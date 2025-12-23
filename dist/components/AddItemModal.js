@@ -103,6 +103,11 @@ export function AddItemModal({ onClose, onSave, folderId }) {
                 itemData.password = secret.trim();
             }
             itemData.notes = notes.trim() || null;
+            // Store 2FA type preference in the secret blob (same behavior as ItemEdit).
+            // This should persist even if no OTP has ever been received.
+            if (itemType === 'credential') {
+                itemData.twoFactorType = twoFactorType;
+            }
             // 2FA data - store TOTP secret separately to import after item creation
             if (twoFactorType === 'qr' && qrCodeInput.trim()) {
                 itemData.totpSecret = qrCodeInput.trim();

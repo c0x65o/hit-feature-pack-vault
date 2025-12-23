@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "description": "Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

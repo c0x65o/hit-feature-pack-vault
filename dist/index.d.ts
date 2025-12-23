@@ -10,7 +10,13 @@ export { VaultLanding, VaultLandingPage, PersonalVault, PersonalVaultPage, Share
 export * from './components/index';
 export * from './hooks/index';
 export { navContributions as nav } from './nav';
-export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, vaultStaticGroups, vaultGroupMembers, vaultSettings, vaultTypeEnum, itemTypeEnum, principalTypeEnum, smsStatusEnum, auditActionEnum, type VaultVault, type VaultFolder, type VaultItem, type VaultAcl, type VaultSmsNumber, type VaultSmsMessage, type VaultAuditEvent, type VaultStaticGroup, type VaultGroupMember, type VaultSetting, type InsertVaultVault, type InsertVaultFolder, type InsertVaultItem, type InsertVaultAcl, type InsertVaultSmsNumber, type InsertVaultSmsMessage, type InsertVaultAuditEvent, type InsertVaultStaticGroup, type InsertVaultGroupMember, type InsertVaultSetting, VAULT_PERMISSIONS, type VaultPermission, } from './schema/vault';
+export declare const VAULT_PERMISSIONS: {
+    readonly READ: "READ";
+    readonly WRITE: "WRITE";
+    readonly DELETE: "DELETE";
+    readonly MANAGE_ACL: "MANAGE_ACL";
+};
+export type VaultPermission = keyof typeof VAULT_PERMISSIONS;
 export { VaultApiClient, vaultApi } from './services/vault-api';
 export { extractOtpCode, extractOtpWithConfidence, isOtpMessage, OTP_KEYWORDS, } from './utils/otp-extractor';
 export type { OtpExtractionResult } from './utils/otp-extractor';

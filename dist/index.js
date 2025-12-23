@@ -14,8 +14,16 @@ export * from './components/index';
 export * from './hooks/index';
 // Navigation config
 export { navContributions as nav } from './nav';
-// Schema exports - for projects to import into their schema
-export { vaultVaults, vaultFolders, vaultItems, vaultAcls, vaultSmsNumbers, vaultSmsMessages, vaultAuditEvents, vaultStaticGroups, vaultGroupMembers, vaultSettings, vaultTypeEnum, itemTypeEnum, principalTypeEnum, smsStatusEnum, auditActionEnum, VAULT_PERMISSIONS, } from './schema/vault';
+// Schema exports - MOVED to @hit/feature-pack-vault/schema to avoid bundling drizzle-orm in client
+// Type-only exports are safe (erased at compile time) - BUT importing from schema file still pulls in drizzle
+// So we don't re-export anything from schema here. Use @hit/feature-pack-vault/schema for server code.
+// Permission constants - defined inline to avoid pulling in schema file
+export const VAULT_PERMISSIONS = {
+    READ: 'READ',
+    WRITE: 'WRITE',
+    DELETE: 'DELETE',
+    MANAGE_ACL: 'MANAGE_ACL',
+};
 // Services
 export { VaultApiClient, vaultApi } from './services/vault-api';
 // Utilities
