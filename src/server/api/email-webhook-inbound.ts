@@ -216,9 +216,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!fromEmail || !emailBody) {
+    if (!fromEmail || !toEmail || !emailBody) {
       const missingFields: string[] = [];
       if (!fromEmail) missingFields.push('from');
+      if (!toEmail) missingFields.push('to');
       if (!emailBody) missingFields.push('body');
       
       console.error('[vault] Email webhook missing required fields:', missingFields.join(', '));
@@ -240,7 +241,7 @@ export async function POST(request: NextRequest) {
       }
       
       return NextResponse.json(
-        { error: 'Missing required fields: from and body are required', missing: missingFields, received: Object.keys(body) },
+        { error: 'Missing required fields: from, to, and body are required', missing: missingFields, received: Object.keys(body) },
         { status: 400 }
       );
     }
@@ -268,23 +269,8 @@ export async function POST(request: NextRequest) {
       smsNumber = newSmsNumber;
     }
 
-    // If toEmail is not provided, try to use the global email address as fallback
-    let finalToEmail = toEmail;
-    if (!finalToEmail) {
-      const [emailSetting] = await db
-        .select()
-        .from(vaultSettings)
-        .where(eq(vaultSettings.key, 'global_2fa_email'))
-        .limit(1);
-      
-      if (emailSetting) {
-        try {
-          finalToEmail = decrypt(emailSetting.valueEncrypted);
-        } catch (err) {
-          console.error('[vault] Failed to decrypt global email setting:', err);
-        }
-      }
-    }
+    // No "magic" fallback. This endpoint requires `to` in the payload.
+    const finalToEmail = toEmail;
 
     // Combine subject and body for storage
     const fullMessage = subject ? `Subject: ${subject}\n\n${emailBody}` : emailBody;
@@ -322,7 +308,7 @@ export async function POST(request: NextRequest) {
     const [insertedMessage] = await db.insert(vaultSmsMessages).values({
       smsNumberId: smsNumber.id,
       fromNumber: fromEmail,
-      toNumber: finalToEmail || '[email-inbox]',
+      toNumber: finalToEmail,
       bodyEncrypted: encryptedBody,
       receivedAt: receivedAt,
       metadataEncrypted: {
@@ -341,7 +327,7 @@ export async function POST(request: NextRequest) {
       messageId: insertedMessage.id,
       type: 'email',
       from: fromEmail,
-      to: toEmail || '[email-inbox]',
+      to: finalToEmail,
       subject: subject || undefined,
       receivedAt: receivedAt.toISOString(),
     });

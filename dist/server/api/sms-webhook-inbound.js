@@ -210,12 +210,8 @@ export async function POST(request) {
         const timestamp = body.timestamp || body.Timestamp;
         // Optional subject field (some email forwarders may send it even when hitting this endpoint)
         const subject = body.Subject || body.subject || body.title || body.Topic;
-        // Sometimes email forwarders are accidentally configured to hit the SMS webhook endpoint.
-        // If it looks like email, treat it as email so:
-        // - realtime event payload matches (UI filters by type)
-        // - email polling endpoint can find it (filters metadataEncrypted.type === 'email')
-        const looksLikeEmail = (value) => typeof value === 'string' && value.includes('@') && value.includes('.');
-        const inferredType = looksLikeEmail(fromNumber) || looksLikeEmail(toNumber) ? 'email' : 'sms';
+        // No "magic": this endpoint is SMS. If you want email, use /api/vault/email/webhook/inbound.
+        const inferredType = 'sms';
         // Sanitize body for logging (don't log full message body)
         const sanitizedBody = { ...body };
         if (sanitizedBody.Body)
@@ -315,6 +311,24 @@ export async function POST(request) {
             }
             return NextResponse.json({ error: 'Missing required fields: from, to, and body are required', missing: missingFields, received: Object.keys(body) }, { status: 400 });
         }
+        // Guard against misconfigured email forwarders hitting the SMS endpoint.
+        // Reject explicitly rather than silently changing types.
+        const looksLikeEmail = (value) => typeof value === 'string' && value.includes('@') && value.includes('.');
+        if (looksLikeEmail(fromNumber) || looksLikeEmail(toNumber)) {
+            const processingTime = Date.now() - startTime;
+            const errorMsg = 'Payload looks like email (contains "@"). Use /api/vault/email/webhook/inbound instead.';
+            if (webhookLogId) {
+                await db.update(vaultWebhookLogs)
+                    .set({
+                    statusCode: 400,
+                    success: false,
+                    error: errorMsg,
+                    processingTimeMs: processingTime,
+                })
+                    .where(eq(vaultWebhookLogs.id, webhookLogId));
+            }
+            return NextResponse.json({ error: errorMsg }, { status: 400 });
+        }
         // Find or create global SMS number (phone number doesn't matter, we use a global inbox)
         // Look for a global SMS number (no vaultId or itemId)
         let [smsNumber] = await db
@@ -325,7 +339,7 @@ export async function POST(request) {
         // If no global number exists, create one with a placeholder
         if (!smsNumber) {
             const [newSmsNumber] = await db.insert(vaultSmsNumbers).values({
-                phoneNumber: inferredType === 'email' ? '[email-inbox]' : (toNumber || '[global-inbox]'),
+                phoneNumber: toNumber || '[global-inbox]',
                 provider: 'fdroid',
                 status: 'active',
             }).returning();
@@ -371,19 +385,19 @@ export async function POST(request) {
                 messageSid: messageSid,
                 accountSid: accountSid,
                 provider: smsNumber.provider,
-                subject: inferredType === 'email' ? (subject || null) : undefined,
+                subject: undefined,
                 receivedAt: receivedAt.toISOString(),
             },
             retentionExpiresAt: retentionExpiresAt,
         }).returning({ id: vaultSmsMessages.id });
-        console.log(`[vault] Stored ${inferredType === 'email' ? 'email' : 'SMS'} message from ${fromNumber} to ${toNumber}`);
+        console.log(`[vault] Stored SMS message from ${fromNumber} to ${toNumber}`);
         // Publish real-time event for WebSocket clients
         await publishOtpReceived({
             messageId: insertedMessage.id,
             type: inferredType,
             from: fromNumber,
             to: toNumber,
-            subject: inferredType === 'email' ? (subject || undefined) : undefined,
+            subject: undefined,
             receivedAt: receivedAt.toISOString(),
         });
         // Update webhook log with success

@@ -192,10 +192,12 @@ export async function POST(request) {
             }
             return NextResponse.json({ error: 'Unauthorized', reason: authResult.reason }, { status: 401 });
         }
-        if (!fromEmail || !emailBody) {
+        if (!fromEmail || !toEmail || !emailBody) {
             const missingFields = [];
             if (!fromEmail)
                 missingFields.push('from');
+            if (!toEmail)
+                missingFields.push('to');
             if (!emailBody)
                 missingFields.push('body');
             console.error('[vault] Email webhook missing required fields:', missingFields.join(', '));
@@ -213,7 +215,7 @@ export async function POST(request) {
                 })
                     .where(eq(vaultWebhookLogs.id, webhookLogId));
             }
-            return NextResponse.json({ error: 'Missing required fields: from and body are required', missing: missingFields, received: Object.keys(body) }, { status: 400 });
+            return NextResponse.json({ error: 'Missing required fields: from, to, and body are required', missing: missingFields, received: Object.keys(body) }, { status: 400 });
         }
         // Find or create global SMS number (reuse SMS inbox structure for emails)
         // Look for a global SMS number (no vaultId or itemId)
@@ -231,23 +233,8 @@ export async function POST(request) {
             }).returning();
             smsNumber = newSmsNumber;
         }
-        // If toEmail is not provided, try to use the global email address as fallback
-        let finalToEmail = toEmail;
-        if (!finalToEmail) {
-            const [emailSetting] = await db
-                .select()
-                .from(vaultSettings)
-                .where(eq(vaultSettings.key, 'global_2fa_email'))
-                .limit(1);
-            if (emailSetting) {
-                try {
-                    finalToEmail = decrypt(emailSetting.valueEncrypted);
-                }
-                catch (err) {
-                    console.error('[vault] Failed to decrypt global email setting:', err);
-                }
-            }
-        }
+        // No "magic" fallback. This endpoint requires `to` in the payload.
+        const finalToEmail = toEmail;
         // Combine subject and body for storage
         const fullMessage = subject ? `Subject: ${subject}\n\n${emailBody}` : emailBody;
         // Encrypt the message body
@@ -282,7 +269,7 @@ export async function POST(request) {
         const [insertedMessage] = await db.insert(vaultSmsMessages).values({
             smsNumberId: smsNumber.id,
             fromNumber: fromEmail,
-            toNumber: finalToEmail || '[email-inbox]',
+            toNumber: finalToEmail,
             bodyEncrypted: encryptedBody,
             receivedAt: receivedAt,
             metadataEncrypted: {
@@ -299,7 +286,7 @@ export async function POST(request) {
             messageId: insertedMessage.id,
             type: 'email',
             from: fromEmail,
-            to: toEmail || '[email-inbox]',
+            to: finalToEmail,
             subject: subject || undefined,
             receivedAt: receivedAt.toISOString(),
         });
