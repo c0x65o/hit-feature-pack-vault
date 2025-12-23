@@ -187,6 +187,8 @@ export function useOtpSubscription(options = {}) {
     const usingWebSocketRef = useRef(false);
     const processedMessageIdsRef = useRef(new Set());
     const isListeningRef = useRef(false);
+    const startListeningRef = useRef(null);
+    const stopListeningRef = useRef(null);
     // Keep dynamic options in a ref so we don't rebuild callbacks every render.
     // This prevents render loops when callers pass inline functions (e.g., VaultSetup).
     const optionsRef = useRef({
@@ -217,9 +219,9 @@ export function useOtpSubscription(options = {}) {
             console.log('[useOtpSubscription] Added skipMessageId to processed set:', skipMessageId);
         }
     }, [skipMessageId, isListening]);
-    // Subscribe to global WebSocket status changes
+    // Subscribe to global WebSocket status changes (once; shared across subscribers)
     useEffect(() => {
-        const handleStatusChange = (status) => {
+        return subscribeGlobalWsStatus((status) => {
             setRealWsStatus(status);
             // Only update connectionType if we're trying to use WebSocket
             if (usingWebSocketRef.current) {
@@ -230,12 +232,8 @@ export function useOtpSubscription(options = {}) {
                     setConnectionType('disconnected');
                 }
             }
-        };
-        wsStatusListeners.add(handleStatusChange);
-        return () => {
-            wsStatusListeners.delete(handleStatusChange);
-        };
-    }, [isListening]);
+        });
+    }, []);
     // Keep a global view of OTP connection type for hosts (like dashboard shell footer).
     useEffect(() => {
         notifyOtpConnectionTypeChange(connectionType);
@@ -353,6 +351,16 @@ export function useOtpSubscription(options = {}) {
                 usingWebSocketRef.current = false;
                 return false;
             }
+            // If we already have a subscription, don't re-subscribe.
+            if (subscriptionRef.current) {
+                const eventsClient = await getEventsClient();
+                const actualStatus = eventsClient?.getStatus?.() || globalWsStatus;
+                console.log('[useOtpSubscription] WebSocket already has an active subscription; status:', actualStatus);
+                usingWebSocketRef.current = actualStatus === 'connected' || actualStatus === 'connecting';
+                if (actualStatus === 'connected')
+                    setConnectionType('websocket');
+                return actualStatus === 'connected' || actualStatus === 'connecting';
+            }
             const eventsClient = await getEventsClient();
             console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
             if (!eventsClient) {
@@ -412,19 +420,26 @@ export function useOtpSubscription(options = {}) {
     const stopListening = useCallback(() => {
         stopListeningInternal();
     }, [stopListeningInternal]);
-    // Auto-start/stop based on enabled. This must NOT depend on changing callback identities,
-    // otherwise it can thrash (cleanup → restart) and spam subscriptions.
+    // Keep stable refs to the latest start/stop logic.
+    useEffect(() => {
+        startListeningRef.current = startListening;
+        stopListeningRef.current = stopListeningInternal;
+    }, [startListening, stopListeningInternal]);
+    // Auto-start/stop based on enabled.
+    // Key property: this effect only depends on `enabled`, so it cannot thrash due to callback identity changes
+    // (which can happen via re-mount patterns, bundler transforms, or other indirect causes).
     useEffect(() => {
         if (enabled) {
-            startListening();
+            void startListeningRef.current?.();
+            return () => {
+                // When enabled flips false or component unmounts, clean up subscription.
+                stopListeningRef.current?.();
+            };
         }
-        else {
-            stopListeningInternal();
-        }
-        return () => {
-            stopListeningInternal();
-        };
-    }, [enabled, startListening, stopListeningInternal]);
+        // If disabled, ensure we're not listening.
+        stopListeningRef.current?.();
+        return () => { };
+    }, [enabled]);
     return {
         isListening,
         connectionType,
