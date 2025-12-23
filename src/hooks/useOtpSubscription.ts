@@ -281,6 +281,30 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
   const usingWebSocketRef = useRef(false);
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
   const isListeningRef = useRef(false);
+  // Keep dynamic options in a ref so we don't rebuild callbacks every render.
+  // This prevents render loops when callers pass inline functions (e.g., VaultSetup).
+  const optionsRef = useRef<Pick<
+    UseOtpSubscriptionOptions,
+    'type' | 'toFilter' | 'onOtpReceived' | 'keepListening' | 'skipMessageId' | 'minReceivedAt'
+  >>({
+    type,
+    toFilter,
+    onOtpReceived,
+    keepListening,
+    skipMessageId,
+    minReceivedAt,
+  });
+
+  useEffect(() => {
+    optionsRef.current = {
+      type,
+      toFilter,
+      onOtpReceived,
+      keepListening,
+      skipMessageId,
+      minReceivedAt,
+    };
+  }, [type, toFilter, onOtpReceived, keepListening, skipMessageId, minReceivedAt]);
 
   useEffect(() => {
     isListeningRef.current = isListening;
@@ -342,15 +366,25 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
   }, []);
 
   const handleOtpNotification = useCallback(async (notification: OtpNotification) => {
+    const {
+      type: optType = 'all',
+      toFilter: optToFilter,
+      onOtpReceived: optOnOtpReceived,
+      keepListening: optKeepListening = false,
+      skipMessageId: optSkipMessageId,
+      minReceivedAt: optMinReceivedAt,
+    } = optionsRef.current || {};
+
     // Skip if this is the message ID we're supposed to skip (e.g., already loaded on modal open)
-    if (skipMessageId && notification.messageId === skipMessageId) {
+    if (optSkipMessageId && notification.messageId === optSkipMessageId) {
       console.log('[useOtpSubscription] Skipping message (matches skipMessageId):', notification.messageId);
       return;
     }
 
     // Skip any notifications received at/before the baseline (prevents old OTPs from being treated as new)
-    if (minReceivedAt) {
-      const baseline = typeof minReceivedAt === 'string' ? new Date(minReceivedAt) : minReceivedAt;
+    if (optMinReceivedAt) {
+      const baseline =
+        typeof optMinReceivedAt === 'string' ? new Date(optMinReceivedAt) : optMinReceivedAt;
       const baselineMs = baseline?.getTime?.();
       if (Number.isFinite(baselineMs)) {
         const receivedAtMs = new Date(notification.receivedAt).getTime();
@@ -358,7 +392,8 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
           console.log('[useOtpSubscription] Skipping message (receivedAt <= minReceivedAt):', {
             messageId: notification.messageId,
             receivedAt: notification.receivedAt,
-            minReceivedAt: typeof minReceivedAt === 'string' ? minReceivedAt : baseline.toISOString(),
+            minReceivedAt:
+              typeof optMinReceivedAt === 'string' ? optMinReceivedAt : baseline.toISOString(),
           });
           return;
         }
@@ -366,13 +401,13 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
     }
 
     // Filter by type if specified
-    if (type !== 'all' && notification.type !== type) {
+    if (optType !== 'all' && notification.type !== optType) {
       return;
     }
 
     // Filter by 'to' address if specified
-    if (toFilter) {
-      const filterLower = toFilter.toLowerCase();
+    if (optToFilter) {
+      const filterLower = optToFilter.toLowerCase();
       const toLower = notification.to.toLowerCase();
       // Partial match (e.g., "operations" matches "operations@example.com")
       if (!toLower.includes(filterLower) && !filterLower.includes(toLower.split('@')[0])) {
@@ -402,19 +437,19 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
         setOtpConfidence(otpResult.confidence);
         setFullMessage(otpResult.fullMessage);
         
-        onOtpReceived?.({
+        optOnOtpReceived?.({
           ...otpResult,
           notification,
         });
 
         // Stop listening after receiving OTP unless keepListening is true
-        if (!keepListening) {
+        if (!optKeepListening) {
           stopListeningInternal();
         }
       } else {
         // No code extracted, but still notify about the message
         // This allows UI to show that a message was received but extraction failed
-        onOtpReceived?.({
+        optOnOtpReceived?.({
           code: null,
           confidence: 'none',
           pattern: null,
@@ -425,7 +460,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
     } catch (err) {
       console.error('[useOtpSubscription] Failed to reveal message:', err);
       // Still notify about the notification even if reveal failed
-      onOtpReceived?.({
+      optOnOtpReceived?.({
         code: null,
         confidence: 'none',
         pattern: null,
@@ -433,7 +468,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
         notification,
       });
     }
-  }, [type, toFilter, skipMessageId, minReceivedAt, onOtpReceived, stopListeningInternal, keepListening]);
+  }, [stopListeningInternal]);
 
   const startListeningWebSocket = useCallback(async () => {
     try {
