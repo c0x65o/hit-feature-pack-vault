@@ -3,7 +3,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
 import { Copy, Check, Eye, Wifi, WifiOff, Loader2, X } from 'lucide-react';
-import { useOtpSubscription, isWebSocketAvailable } from '../hooks/useOtpSubscription';
+import { useOtpSubscription, isWebSocketAvailable, getGlobalWsStatus, subscribeGlobalWsStatus } from '../hooks/useOtpSubscription';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
 // OTP codes older than this are considered stale and not shown
@@ -217,7 +217,15 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
             setLoadingFullMessage(false);
         }
     };
-    const connectionStatus = otpSubscription.connectionType === 'websocket' ? 'connected' : 'disconnected';
+    // Use the same WebSocket status approach as the dashboard shell
+    const [wsStatus, setWsStatus] = useState(getGlobalWsStatus());
+    useEffect(() => {
+        const unsubscribe = subscribeGlobalWsStatus((status) => {
+            setWsStatus(status);
+        });
+        return unsubscribe;
+    }, []);
+    const connectionStatus = wsStatus === 'connected' ? 'connected' : 'disconnected';
     const wsAvailable = isWebSocketAvailable();
     const isWaiting = otpSubscription.isListening && !otpSubscription.otpCode;
     const hasOtp = otpSubscription.otpCode || lastOtpNotification?.code;

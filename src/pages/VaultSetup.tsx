@@ -6,7 +6,7 @@ import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Phone, Che
 import { vaultApi } from '../services/vault-api';
 import type { VaultSmsNumber, VaultSmsMessage, VaultWebhookLog } from '../schema/vault';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
-import { useOtpSubscription, getWebSocketStatus, isWebSocketAvailable } from '../hooks/useOtpSubscription';
+import { useOtpSubscription, getGlobalWsStatus, subscribeGlobalWsStatus, isWebSocketAvailable } from '../hooks/useOtpSubscription';
 
 interface Props {
   onNavigate?: (path: string) => void;
@@ -58,8 +58,16 @@ export function VaultSetup({ onNavigate }: Props) {
     },
   });
   
-  // WebSocket status from the subscription
-  const wsStatus = otpSubscription.connectionType === 'websocket' ? 'connected' : 'disconnected';
+  // Use the same WebSocket status approach as the dashboard shell
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>(getGlobalWsStatus());
+  
+  useEffect(() => {
+    const unsubscribe = subscribeGlobalWsStatus((status) => {
+      setWsStatus(status);
+    });
+    return unsubscribe;
+  }, []);
+
   const wsAvailable = isWebSocketAvailable();
 
   const navigate = (path: string) => {

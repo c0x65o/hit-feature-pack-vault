@@ -5,7 +5,7 @@ import { useUi } from '@hit/ui-kit';
 import { Copy, RefreshCw, Lock as LockIcon, Settings, Activity, Mail, Check, Edit2, X, ChevronDown, Wifi, WifiOff, CheckCircle2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence } from '../utils/otp-extractor';
-import { useOtpSubscription, isWebSocketAvailable } from '../hooks/useOtpSubscription';
+import { useOtpSubscription, getGlobalWsStatus, subscribeGlobalWsStatus, isWebSocketAvailable } from '../hooks/useOtpSubscription';
 export function VaultSetup({ onNavigate }) {
     const { Page, Card, Button, Alert, Input } = useUi();
     const [loading, setLoading] = useState(true);
@@ -42,8 +42,14 @@ export function VaultSetup({ onNavigate }) {
             // Note: Email inbox is not auto-refreshed - user can manually refresh if needed
         },
     });
-    // WebSocket status from the subscription
-    const wsStatus = otpSubscription.connectionType === 'websocket' ? 'connected' : 'disconnected';
+    // Use the same WebSocket status approach as the dashboard shell
+    const [wsStatus, setWsStatus] = useState(getGlobalWsStatus());
+    useEffect(() => {
+        const unsubscribe = subscribeGlobalWsStatus((status) => {
+            setWsStatus(status);
+        });
+        return unsubscribe;
+    }, []);
     const wsAvailable = isWebSocketAvailable();
     const navigate = (path) => {
         if (onNavigate)
