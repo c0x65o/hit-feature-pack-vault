@@ -96,6 +96,11 @@ export function extractOtpWithConfidence(messageBody) {
             if (code.length < 5) {
                 continue; // Skip this match, try next pattern
             }
+            // Reject letter-only matches (e.g. "codes") — they are far more likely to be normal words.
+            // Exception: Steam Guard codes are 5-character alphanumeric and may be letter-only.
+            if (!/[\d]/.test(code) && !name.startsWith('steam-guard')) {
+                continue;
+            }
             return {
                 code,
                 confidence,
@@ -104,14 +109,70 @@ export function extractOtpWithConfidence(messageBody) {
             };
         }
     }
-    // Fallback: look for any 5-8 digit sequence (minimum 5 chars)
-    // Only use this as last resort - digits are safer than alphanumeric
-    const digitMatch = cleaned.match(/\d{5,8}/);
-    if (digitMatch) {
+    // Fallback: look for digit sequences (minimum 5 chars) and pick the best candidate.
+    // Important: a naive "first match wins" often grabs ZIP codes / street numbers in emails.
+    const digitCandidates = Array.from(cleaned.matchAll(/\b\d{5,8}\b/g)).map((m) => ({
+        value: m[0],
+        index: m.index ?? -1,
+    }));
+    if (digitCandidates.length > 0) {
+        const KEYWORDS = [
+            'verification',
+            'verify',
+            'code',
+            'otp',
+            'pin',
+            'security',
+            'auth',
+            '2fa',
+            'two-factor',
+            'login',
+            'sign-in',
+            'signin',
+        ];
+        const score = (cand) => {
+            let s = 0;
+            // Prefer 6-digit codes (most common), then 5/8.
+            if (cand.value.length === 6)
+                s += 4;
+            else if (cand.value.length === 5)
+                s += 2;
+            else if (cand.value.length === 8)
+                s += 1;
+            // Keyword proximity: look ±40 chars around the candidate.
+            if (cand.index >= 0) {
+                const start = Math.max(0, cand.index - 40);
+                const end = Math.min(cleaned.length, cand.index + cand.value.length + 40);
+                const window = cleaned.slice(start, end).toLowerCase();
+                for (const k of KEYWORDS) {
+                    if (window.includes(k))
+                        s += 2;
+                }
+                // Common “code in app: 123456” pattern includes a colon near the number.
+                if (window.includes(':'))
+                    s += 1;
+            }
+            // Avoid obvious “address-like” context: Penalize if nearby contains common address tokens.
+            if (cand.index >= 0) {
+                const start = Math.max(0, cand.index - 60);
+                const end = Math.min(cleaned.length, cand.index + cand.value.length + 60);
+                const window = cleaned.slice(start, end).toLowerCase();
+                if (window.includes('blvd') || window.includes('ave') || window.includes('street') || window.includes('st ')) {
+                    s -= 3;
+                }
+                if (window.includes('ca ') || window.includes('ny ') || window.includes('tx ')) {
+                    s -= 1;
+                }
+            }
+            return s;
+        };
+        const best = digitCandidates
+            .slice()
+            .sort((a, b) => score(b) - score(a))[0];
         return {
-            code: digitMatch[0],
+            code: best.value,
             confidence: 'low',
-            pattern: 'fallback-digit-sequence',
+            pattern: 'fallback-digit-best-candidate',
             fullMessage: cleaned,
         };
     }
