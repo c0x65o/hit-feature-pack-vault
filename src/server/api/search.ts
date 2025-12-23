@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
     const { getUserPrincipals } = await import('../lib/acl-utils');
-    const principals = await getUserPrincipals(db, user);
+    const principals = await getUserPrincipals(db, user, request);
     const userPrincipalIds = [
       principals.userId,
       principals.userEmail,

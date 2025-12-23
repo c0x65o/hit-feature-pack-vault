@@ -15,11 +15,11 @@ function extractId(request) {
 /**
  * Get item if user has access (via ACL check)
  */
-async function getItemIfAccessible(db, itemId, user) {
+async function getItemIfAccessible(db, itemId, user, request) {
     if (!user)
         return null;
     // Check ACL access
-    const accessCheck = await checkItemAccess(db, itemId, user);
+    const accessCheck = await checkItemAccess(db, itemId, user, {}, request);
     if (!accessCheck.hasAccess) {
         return null;
     }
@@ -46,7 +46,7 @@ export async function GET(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const item = await getItemIfAccessible(db, id, user);
+        const item = await getItemIfAccessible(db, id, user, request);
         if (!item) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -80,7 +80,7 @@ export async function PUT(request) {
         if (!accessCheck.hasAccess) {
             return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }
-        const existing = await getItemIfAccessible(db, id, user);
+        const existing = await getItemIfAccessible(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -188,7 +188,7 @@ export async function DELETE(request) {
         if (!accessCheck.hasAccess) {
             return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }
-        const existing = await getItemIfAccessible(db, id, user);
+        const existing = await getItemIfAccessible(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }

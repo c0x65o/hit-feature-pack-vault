@@ -18,11 +18,16 @@ function extractId(request: NextRequest): string | null {
 /**
  * Get item if user has access (via ACL check)
  */
-async function getItemIfAccessible(db: ReturnType<typeof getDb>, itemId: string, user: ReturnType<typeof extractUserFromRequest>) {
+async function getItemIfAccessible(
+  db: ReturnType<typeof getDb>,
+  itemId: string,
+  user: ReturnType<typeof extractUserFromRequest>,
+  request: NextRequest
+) {
   if (!user) return null;
   
   // Check ACL access
-  const accessCheck = await checkItemAccess(db, itemId, user);
+  const accessCheck = await checkItemAccess(db, itemId, user, {}, request);
   if (!accessCheck.hasAccess) {
     return null;
   }
@@ -54,7 +59,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const item = await getItemIfAccessible(db, id, user);
+    const item = await getItemIfAccessible(db, id, user, request);
     if (!item) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -96,7 +101,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
     }
 
-    const existing = await getItemIfAccessible(db, id, user);
+    const existing = await getItemIfAccessible(db, id, user, request);
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -219,7 +224,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
     }
 
-    const existing = await getItemIfAccessible(db, id, user);
+    const existing = await getItemIfAccessible(db, id, user, request);
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }

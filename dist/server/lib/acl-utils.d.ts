@@ -1,3 +1,4 @@
+import type { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 import type { User } from '../auth';
 export interface AclCheckOptions {
@@ -10,10 +11,7 @@ export interface AclCheckOptions {
  * Note: MANAGE_ACL is independent and doesn't imply other permissions
  */
 export declare function mergePermissions(permissionSets: string[][]): string[];
-/**
- * Get user's groups and roles for ACL checking
- */
-export declare function getUserPrincipals(db: ReturnType<typeof getDb>, user: User): Promise<{
+export declare function getUserPrincipals(db: ReturnType<typeof getDb>, user: User, request?: NextRequest): Promise<{
     userId: string;
     userEmail: string;
     groupIds: string[];
@@ -27,7 +25,7 @@ export declare function getDescendantFolderIds(db: ReturnType<typeof getDb>, par
 /**
  * Check if user has access to a vault (ownership or ACL)
  */
-export declare function checkVaultAccess(db: ReturnType<typeof getDb>, vaultId: string, user: User, requiredPermissions?: string[]): Promise<{
+export declare function checkVaultAccess(db: ReturnType<typeof getDb>, vaultId: string, user: User, requiredPermissions?: string[], request?: NextRequest): Promise<{
     hasAccess: boolean;
     reason?: string;
 }>;
@@ -47,14 +45,14 @@ export declare function getEffectiveFolderAcls(db: ReturnType<typeof getDb>, fol
 /**
  * Check if user has access to a folder (ownership or ACL with inheritance)
  */
-export declare function checkFolderAccess(db: ReturnType<typeof getDb>, folderId: string, user: User, options?: AclCheckOptions): Promise<{
+export declare function checkFolderAccess(db: ReturnType<typeof getDb>, folderId: string, user: User, options?: AclCheckOptions, request?: NextRequest): Promise<{
     hasAccess: boolean;
     reason?: string;
 }>;
 /**
  * Check if user has access to an item (ownership or ACL with inheritance)
  */
-export declare function checkItemAccess(db: ReturnType<typeof getDb>, itemId: string, user: User, options?: AclCheckOptions): Promise<{
+export declare function checkItemAccess(db: ReturnType<typeof getDb>, itemId: string, user: User, options?: AclCheckOptions, request?: NextRequest): Promise<{
     hasAccess: boolean;
     reason?: string;
 }>;

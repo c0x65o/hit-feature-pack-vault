@@ -1,3 +1,4 @@
+import type { NextRequest } from 'next/server';
 // src/server/lib/acl-utils.ts
 import { getDb } from '@/lib/db';
 import { vaultAcls, vaultFolders, vaultVaults, vaultItems, vaultGroupMembers } from '@/lib/feature-pack-schemas';
@@ -76,7 +77,23 @@ export function mergePermissions(permissionSets: string[][]): string[] {
 /**
  * Get user's groups and roles for ACL checking
  */
-export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User): Promise<{
+let _lastAuthDynGroupsWarnAt = 0;
+function warnAuthDynGroups(msg: string, extra?: unknown) {
+  const now = Date.now();
+  // throttle to avoid log spam (Vault APIs call this a lot)
+  if (now - _lastAuthDynGroupsWarnAt < 30_000) return;
+  _lastAuthDynGroupsWarnAt = now;
+  if (extra !== undefined) console.warn(msg, extra);
+  else console.warn(msg);
+}
+
+function baseUrlFromRequest(request: NextRequest): string {
+  const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '') || 'http';
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host;
+  return `${proto}://${host}`;
+}
+
+export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User, request?: NextRequest): Promise<{
   userId: string;
   userEmail: string;
   groupIds: string[];
@@ -113,7 +130,10 @@ export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User
   // Dynamic groups are stored in the auth module's database, not in vault_group_members
   if (userEmail) {
     try {
-      const authUrl = process.env.HIT_AUTH_URL || process.env.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth';
+      // Always prefer the app-local auth proxy (avoids misconfigured localhost ports in dev).
+      // This expects the app to provide `/api/proxy/auth/*` (hit-dashboard does).
+      const authUrl = request ? `${baseUrlFromRequest(request)}/api/proxy/auth` : null;
+      if (!authUrl) return { userId, userEmail, groupIds, roles };
       const serviceToken = process.env.HIT_SERVICE_TOKEN;
       
       const headers: Record<string, string> = {
@@ -123,6 +143,13 @@ export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User
       // Use service token if available, otherwise rely on proxy authentication
       if (serviceToken) {
         headers['X-HIT-Service-Token'] = serviceToken;
+      }
+      // Forward caller auth (cookie/bearer) so proxy can authenticate without service token.
+      if (!serviceToken && request) {
+        const cookie = request.headers.get('cookie');
+        if (cookie) headers['cookie'] = cookie;
+        const authz = request.headers.get('authorization');
+        if (authz) headers['authorization'] = authz;
       }
 
       const response = await fetch(`${authUrl.replace(/\/$/, '')}/admin/users/${encodeURIComponent(userEmail.toLowerCase())}/groups`, {
@@ -141,12 +168,12 @@ export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User
         }
       } else if (response.status !== 404) {
         // 404 is expected if user has no groups, but log other errors
-        console.warn(`Failed to fetch dynamic groups from auth module: ${response.status} ${response.statusText}`);
+        warnAuthDynGroups(`Failed to fetch dynamic groups from auth module: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
       // If auth module is unavailable, continue with static groups only
       // This allows the system to work even if auth module is down
-      console.warn('Failed to fetch dynamic groups from auth module:', error);
+      warnAuthDynGroups('Failed to fetch dynamic groups from auth module:', error);
     }
   }
 
@@ -200,7 +227,8 @@ export async function checkVaultAccess(
   db: ReturnType<typeof getDb>,
   vaultId: string,
   user: User,
-  requiredPermissions?: string[]
+  requiredPermissions?: string[],
+  request?: NextRequest
 ): Promise<{ hasAccess: boolean; reason?: string }> {
   // Check vault ownership
   const [vault] = await db
@@ -226,7 +254,7 @@ export async function checkVaultAccess(
 
   // For shared vaults, even owners need explicit ACLs
   // Check ACL permissions
-  const principals = await getUserPrincipals(db, user);
+  const principals = await getUserPrincipals(db, user, request);
   const principalIds = [
     principals.userId,
     principals.userEmail,
@@ -344,7 +372,8 @@ export async function checkFolderAccess(
   db: ReturnType<typeof getDb>,
   folderId: string,
   user: User,
-  options: AclCheckOptions = {}
+  options: AclCheckOptions = {},
+  request?: NextRequest
 ): Promise<{ hasAccess: boolean; reason?: string }> {
   const { requiredPermissions = [], checkInheritance = true } = options;
 
@@ -385,7 +414,7 @@ export async function checkFolderAccess(
   }
 
   // Check ACL permissions
-  const principals = await getUserPrincipals(db, user);
+  const principals = await getUserPrincipals(db, user, request);
   const effectiveAcls = await getEffectiveFolderAcls(db, folderId, principals);
 
   if (effectiveAcls.length === 0) {
@@ -427,7 +456,8 @@ export async function checkItemAccess(
   db: ReturnType<typeof getDb>,
   itemId: string,
   user: User,
-  options: AclCheckOptions = {}
+  options: AclCheckOptions = {},
+  request?: NextRequest
 ): Promise<{ hasAccess: boolean; reason?: string }> {
   const { requiredPermissions = [] } = options;
 
@@ -466,7 +496,7 @@ export async function checkItemAccess(
 
   // For shared vaults, even owners need explicit ACLs
   // Check item-level ACLs
-  const principals = await getUserPrincipals(db, user);
+  const principals = await getUserPrincipals(db, user, request);
   const principalIds = [
     principals.userId,
     principals.userEmail,
@@ -495,7 +525,7 @@ export async function checkItemAccess(
   // Check folder ACLs if item is in a folder
   let folderAcls: typeof itemAcls = [];
   if (item.folderId) {
-    const folderAccess = await checkFolderAccess(db, item.folderId, user, { checkInheritance: true });
+    const folderAccess = await checkFolderAccess(db, item.folderId, user, { checkInheritance: true }, request);
     if (folderAccess.hasAccess) {
       // Get effective folder ACLs
       const effectiveFolderAcls = await getEffectiveFolderAcls(db, item.folderId, principals);

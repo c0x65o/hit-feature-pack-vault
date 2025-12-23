@@ -38,7 +38,7 @@ export async function GET(request) {
         let userPrincipalIds = [userId];
         if (user) {
             const { getUserPrincipals } = await import('../lib/acl-utils');
-            const principals = await getUserPrincipals(db, user);
+            const principals = await getUserPrincipals(db, user, request);
             userPrincipalIds = [
                 principals.userId,
                 principals.userEmail,

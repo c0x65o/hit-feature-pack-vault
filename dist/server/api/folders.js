@@ -39,7 +39,7 @@ export async function GET(request) {
         // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
         // Import ACL utilities once for use throughout the function
         const aclUtils = await import('../lib/acl-utils');
-        const principals = await aclUtils.getUserPrincipals(db, user);
+        const principals = await aclUtils.getUserPrincipals(db, user, request);
         const userPrincipalIds = [
             principals.userId,
             principals.userEmail,
@@ -195,7 +195,7 @@ export async function GET(request) {
             }
             else {
                 // For non-admin users or personal vaults, check ACL permissions
-                const folderPrincipals = await aclUtils.getUserPrincipals(db, user);
+                const folderPrincipals = await aclUtils.getUserPrincipals(db, user, request);
                 const effectiveAcls = await aclUtils.getEffectiveFolderAcls(db, folder.id, folderPrincipals);
                 if (effectiveAcls.length > 0) {
                     // Merge permissions from all ACLs

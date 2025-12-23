@@ -15,11 +15,11 @@ function extractId(request) {
 /**
  * Check if user has access to a folder (via vault ownership or ACL)
  */
-async function verifyFolderAccess(db, folderId, user) {
+async function verifyFolderAccess(db, folderId, user, request) {
     if (!user)
         return null;
     // Check ACL access
-    const accessCheck = await checkFolderAccess(db, folderId, user);
+    const accessCheck = await checkFolderAccess(db, folderId, user, {}, request);
     if (!accessCheck.hasAccess) {
         return null;
     }
@@ -45,7 +45,7 @@ export async function GET(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        const folder = await verifyFolderAccess(db, id, user);
+        const folder = await verifyFolderAccess(db, id, user, request);
         if (!folder) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -72,7 +72,7 @@ export async function GET(request) {
         }
         else {
             // For non-admin users or personal vaults, check ACL permissions
-            const principals = await getUserPrincipals(db, user);
+            const principals = await getUserPrincipals(db, user, request);
             const effectiveAcls = await getEffectiveFolderAcls(db, id, principals);
             if (effectiveAcls.length > 0) {
                 // Merge permissions from all ACLs
@@ -95,8 +95,8 @@ export async function GET(request) {
             }
         }
         // Use checkFolderAccess for the boolean flags (for backward compatibility)
-        const deleteCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] });
-        const writeCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+        const deleteCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] }, request);
+        const writeCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] }, request);
         return NextResponse.json({
             ...folder,
             canDelete: deleteCheck.hasAccess,
@@ -127,11 +127,11 @@ export async function PUT(request) {
         }
         const body = await request.json();
         // Check if user has READ_WRITE permission
-        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] });
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] }, request);
         if (!accessCheck.hasAccess) {
             return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }
-        const existing = await verifyFolderAccess(db, id, user);
+        const existing = await verifyFolderAccess(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
@@ -174,11 +174,11 @@ export async function DELETE(request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         // Check if user has DELETE permission
-        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] });
+        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] }, request);
         if (!accessCheck.hasAccess) {
             return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
         }
-        const existing = await verifyFolderAccess(db, id, user);
+        const existing = await verifyFolderAccess(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
