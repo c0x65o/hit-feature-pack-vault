@@ -1,1 +1,0 @@
-{"version":3,"file":"webhook-logs.d.ts","sourceRoot":"","sources":["../../../src/server/api/webhook-logs.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,WAAW,EAAE,YAAY,EAAE,MAAM,aAAa,CAAC;AAMxD,eAAO,MAAM,OAAO,kBAAkB,CAAC;AACvC,eAAO,MAAM,OAAO,WAAW,CAAC;AAEhC;;;GAGG;AACH,wBAAsB,GAAG,CAAC,OAAO,EAAE,WAAW;;;;;;;;;IA2C7C"}

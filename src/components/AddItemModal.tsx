@@ -2,12 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff, Mail, MessageSquare } from 'lucide-react';
+import { Save, Eye, EyeOff } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import { OtpWaitingModal } from './OtpWaitingModal';
 
 type ItemType = 'credential' | 'api_key' | 'secure_note';
-type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
+type TwoFactorType = 'off' | 'qr';
 
 interface Props {
   onClose: () => void;
@@ -27,51 +26,9 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
   const [secret, setSecret] = useState(''); // For SSH keys, API keys
   const [notes, setNotes] = useState('');
   const [twoFactorType, setTwoFactorType] = useState<TwoFactorType>('off');
-  const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
-  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  
-  // Email 2FA state
-  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
-  const [emailCopied, setEmailCopied] = useState(false);
-
-  useEffect(() => {
-    if (twoFactorType === 'email') {
-      loadGlobalEmailAddress();
-    }
-  }, [twoFactorType]);
-
-  async function loadGlobalEmailAddress() {
-    try {
-      const result = await vaultApi.getGlobalEmailAddress();
-      setGlobalEmailAddress(result.emailAddress);
-    } catch (err) {
-      console.error('Failed to load global email address:', err);
-    }
-  }
-
-  async function copyEmailAddress() {
-    if (!globalEmailAddress) return;
-    try {
-      await navigator.clipboard.writeText(globalEmailAddress);
-      setEmailCopied(true);
-      setTimeout(() => setEmailCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy email address:', err);
-    }
-  }
-
-  async function startSmsPolling() {
-    // Open the SMS OTP waiting modal instead of silent polling
-    setShowSmsOtpModal(true);
-  }
-
-  async function startEmailPolling() {
-    // Open the Email OTP waiting modal instead of manual polling
-    setShowEmailOtpModal(true);
-  }
 
   function formatTimeAgo(date: Date | null): string {
     if (!date) return '';
@@ -129,7 +86,7 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
       if (twoFactorType === 'qr' && qrCodeInput.trim()) {
         itemData.totpSecret = qrCodeInput.trim();
       }
-      // Phone 2FA doesn't need to store anything - messages come via SMS webhook
+      // NOTE: Inbound SMS/email OTP inbox was removed. Vault supports TOTP (QR) only.
 
       await onSave(itemData);
       handleClose();
@@ -229,71 +186,9 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
                 options={[
                   { value: 'off', label: 'Off' },
                   { value: 'qr', label: 'QR Code (TOTP)' },
-                  { value: 'phone', label: 'Phone Number (SMS)' },
-                  { value: 'email', label: 'Email' },
                 ]}
               />
             </div>
-
-            {twoFactorType === 'phone' && (
-              <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={startSmsPolling}
-                >
-                  <MessageSquare size={16} className="mr-2" />
-                  Start Waiting for SMS
-                </Button>
-              </div>
-            )}
-
-            {twoFactorType === 'email' && (
-              <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
-                {globalEmailAddress ? (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                        <Mail size={14} />
-                        2FA Email Address
-                      </label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <code className="text-sm font-mono bg-background px-2 py-1 rounded">
-                          {globalEmailAddress}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={copyEmailAddress}
-                        >
-                          {emailCopied ? (
-                            <Check size={16} className="text-green-600" />
-                          ) : (
-                            <Copy size={16} />
-                          )}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        When the service sends a 2FA code to this email, it will be automatically detected.
-                      </p>
-                    </div>
-                    
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={startEmailPolling}
-                    >
-                      <Mail size={16} className="mr-2" />
-                      Start Waiting for Email
-                    </Button>
-                  </>
-                ) : (
-                  <Alert variant="warning" title="No Email Address Configured">
-                    Admin must configure a 2FA email address in Setup.
-                  </Alert>
-                )}
-              </div>
-            )}
 
             {twoFactorType === 'qr' && (
               <div className="p-4 bg-secondary rounded-md space-y-3">
@@ -396,23 +291,6 @@ export function AddItemModal({ onClose, onSave, folderId }: Props) {
           </Button>
         </div>
       </div>
-      {showSmsOtpModal && (
-        <OtpWaitingModal
-          open={true}
-          mode="sms"
-          itemTitle={title || undefined}
-          onClose={() => setShowSmsOtpModal(false)}
-        />
-      )}
-      {showEmailOtpModal && (
-        <OtpWaitingModal
-          open={true}
-          mode="email"
-          itemTitle={title || undefined}
-          emailAddress={globalEmailAddress || undefined}
-          onClose={() => setShowEmailOtpModal(false)}
-        />
-      )}
     </Modal>
   );
 }

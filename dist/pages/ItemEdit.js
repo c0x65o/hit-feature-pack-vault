@@ -2,9 +2,8 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon, Mail, MessageSquare } from 'lucide-react';
+import { Save, Eye, EyeOff, Lock as LockIcon } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
-import { OtpWaitingModal } from '../components/OtpWaitingModal';
 export function ItemEdit({ itemId, onNavigate }) {
     const { Page, Card, Button, Input, Alert, Select } = useUi();
     const [loading, setLoading] = useState(!!itemId);
@@ -23,14 +22,8 @@ export function ItemEdit({ itemId, onNavigate }) {
     const [notes, setNotes] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [twoFactorType, setTwoFactorType] = useState('off');
-    const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
-    const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
     const [qrCodeInput, setQrCodeInput] = useState('');
     const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
-    // Email 2FA state
-    const [globalEmailAddress, setGlobalEmailAddress] = useState(null);
-    const [emailCopied, setEmailCopied] = useState(false);
-    const [globalPhoneNumber, setGlobalPhoneNumber] = useState(null);
     const navigate = (path) => {
         if (onNavigate)
             onNavigate(path);
@@ -41,8 +34,6 @@ export function ItemEdit({ itemId, onNavigate }) {
         if (itemId) {
             loadItem();
         }
-        loadGlobalEmailAddress();
-        loadGlobalPhoneNumber();
     }, [itemId]);
     async function loadItem() {
         try {
@@ -72,9 +63,10 @@ export function ItemEdit({ itemId, onNavigate }) {
                     hasTotp = true;
                     setQrCodeInput(revealed.totpSecret);
                 }
-                // Load 2FA type from secret blob
+                // Load 2FA type from secret blob (Vault supports TOTP only; coerce legacy values to 'off')
                 if (revealed.twoFactorType) {
-                    setTwoFactorType(revealed.twoFactorType);
+                    const t = String(revealed.twoFactorType);
+                    setTwoFactorType(t === 'qr' ? 'qr' : 'off');
                 }
                 else if (hasTotp) {
                     // Fallback: if TOTP exists but no preference, default to QR
@@ -93,40 +85,7 @@ export function ItemEdit({ itemId, onNavigate }) {
             setLoading(false);
         }
     }
-    async function loadGlobalEmailAddress() {
-        try {
-            const result = await vaultApi.getGlobalEmailAddress();
-            setGlobalEmailAddress(result.emailAddress);
-        }
-        catch (err) {
-            console.error('Failed to load global email address:', err);
-        }
-    }
-    async function loadGlobalPhoneNumber() {
-        try {
-            const result = await vaultApi.getGlobalPhoneNumber();
-            setGlobalPhoneNumber(result.phoneNumber);
-        }
-        catch (err) {
-            console.error('Failed to load global phone number:', err);
-        }
-    }
-    async function copyEmailAddress() {
-        if (!globalEmailAddress)
-            return;
-        try {
-            await navigator.clipboard.writeText(globalEmailAddress);
-            setEmailCopied(true);
-            setTimeout(() => setEmailCopied(false), 2000);
-        }
-        catch (err) {
-            console.error('Failed to copy email address:', err);
-        }
-    }
-    async function startSmsPolling() {
-        // Open the SMS OTP waiting modal instead of silent polling
-        setShowSmsOtpModal(true);
-    }
+    // NOTE: Inbound SMS/email OTP inbox was removed. Vault supports TOTP (QR) only.
     async function handleQrCodePaste() {
         if (!qrCodeInput.trim())
             return;
@@ -241,9 +200,7 @@ export function ItemEdit({ itemId, onNavigate }) {
                                             }, options: [
                                                 { value: 'off', label: 'Off' },
                                                 { value: 'qr', label: 'QR Code (TOTP)' },
-                                                { value: 'phone', label: 'Phone Number (SMS)' },
-                                                { value: 'email', label: 'Email' },
-                                            ] })] }), twoFactorType === 'phone' && (_jsxs("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: [_jsx("div", { className: "text-sm text-muted-foreground", children: "SMS 2FA is enabled. When you save this item, SMS messages sent to the configured phone number will be automatically detected for OTP codes." }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => setShowSmsOtpModal(true), children: [_jsx(MessageSquare, { size: 16, className: "mr-2" }), "View SMS OTP Codes"] })] })), twoFactorType === 'email' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: globalEmailAddress ? (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsxs("label", { className: "text-sm font-medium text-muted-foreground flex items-center gap-1", children: [_jsx(Mail, { size: 14 }), "2FA Email Address"] }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-background px-2 py-1 rounded", children: globalEmailAddress }), _jsx(Button, { variant: "ghost", size: "sm", onClick: copyEmailAddress, title: "Copy to clipboard", children: emailCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), _jsx("p", { className: "text-xs text-muted-foreground mt-2", children: "When the service sends a 2FA code to this email, it will be automatically detected." })] }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => setShowEmailOtpModal(true), children: [_jsx(Mail, { size: 16, className: "mr-2" }), "View Email OTP Codes"] })] })) : (_jsx(Alert, { variant: "warning", title: "No Email Address Configured", children: "A global admin must configure a 2FA email address in the vault settings." })) })), twoFactorType === 'qr' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "QR Code / TOTP Secret" }), _jsx("p", { className: "text-sm text-muted-foreground mt-1 mb-2", children: "Paste the TOTP secret URI (otpauth://totp/...) or base32 secret" }), _jsxs("div", { className: "flex gap-2", children: [_jsx(Input, { value: qrCodeInput, onChange: (value) => setQrCodeInput(value), placeholder: "otpauth://totp/... or paste secret", className: "flex-1" }), _jsx(Button, { variant: "secondary", size: "sm", onClick: handlePasteFromClipboard, children: "Paste from Clipboard" })] }), qrCodeInput && (_jsx(Button, { variant: "primary", size: "sm", onClick: handleQrCodePaste, disabled: saving || !itemId, className: "mt-2", children: "Import TOTP Secret" }))] }) }))] })), itemType === 'api_key' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Secret / Key" }), _jsxs("div", { className: "relative", children: [_jsx("textarea", { value: showPassword ? secret : secret ? '•'.repeat(Math.max(secret.length, 50)) : '', onChange: (e) => setSecret(e.target.value), placeholder: "Paste SSH key or API key", className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm", style: {
+                                            ] })] }), twoFactorType === 'qr' && (_jsx("div", { className: "mt-3 p-4 bg-secondary rounded-md space-y-3", children: _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "QR Code / TOTP Secret" }), _jsx("p", { className: "text-sm text-muted-foreground mt-1 mb-2", children: "Paste the TOTP secret URI (otpauth://totp/...) or base32 secret" }), _jsxs("div", { className: "flex gap-2", children: [_jsx(Input, { value: qrCodeInput, onChange: (value) => setQrCodeInput(value), placeholder: "otpauth://totp/... or paste secret", className: "flex-1" }), _jsx(Button, { variant: "secondary", size: "sm", onClick: handlePasteFromClipboard, children: "Paste from Clipboard" })] }), qrCodeInput && (_jsx(Button, { variant: "primary", size: "sm", onClick: handleQrCodePaste, disabled: saving || !itemId, className: "mt-2", children: "Import TOTP Secret" }))] }) }))] })), itemType === 'api_key' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium", children: "Secret / Key" }), _jsxs("div", { className: "relative", children: [_jsx("textarea", { value: showPassword ? secret : secret ? '•'.repeat(Math.max(secret.length, 50)) : '', onChange: (e) => setSecret(e.target.value), placeholder: "Paste SSH key or API key", className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm", style: {
                                                 ...(showPassword ? {} : {
                                                     caretColor: 'transparent',
                                                 })
@@ -254,6 +211,6 @@ export function ItemEdit({ itemId, onNavigate }) {
                                         else {
                                             navigate('/vault/');
                                         }
-                                    }, children: "Cancel" }), _jsxs(Button, { variant: "primary", onClick: handleSave, disabled: saving || !formData.title?.trim() || (itemType === 'credential' && !formData.url?.trim()), children: [_jsx(Save, { size: 16, className: "mr-2" }), saving ? 'Saving...' : 'Save'] })] })] }) }), showSmsOtpModal && (_jsx(OtpWaitingModal, { open: true, mode: "sms", itemTitle: item?.title, phoneNumber: globalPhoneNumber, onClose: () => setShowSmsOtpModal(false) })), showEmailOtpModal && (_jsx(OtpWaitingModal, { open: true, mode: "email", itemTitle: item?.title, emailAddress: globalEmailAddress, onClose: () => setShowEmailOtpModal(false) }))] }));
+                                    }, children: "Cancel" }), _jsxs(Button, { variant: "primary", onClick: handleSave, disabled: saving || !formData.title?.trim() || (itemType === 'credential' && !formData.url?.trim()), children: [_jsx(Save, { size: 16, className: "mr-2" }), saving ? 'Saving...' : 'Save'] })] })] }) })] }));
 }
 export default ItemEdit;

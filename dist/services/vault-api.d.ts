@@ -2,7 +2,7 @@
  * Vault API Service
  * Client for interacting with vault API endpoints
  */
-import type { VaultVault, VaultFolder, VaultItem, VaultAcl, VaultSmsNumber, VaultSmsMessage, VaultWebhookLog, VaultAuditEvent, VaultStaticGroup, InsertVaultVault, InsertVaultFolder, InsertVaultItem, InsertVaultAcl } from '../schema/vault';
+import type { VaultVault, VaultFolder, VaultItem, VaultAcl, VaultAuditEvent, VaultStaticGroup, InsertVaultVault, InsertVaultFolder, InsertVaultItem, InsertVaultAcl } from '../schema/vault';
 /**
  * Vault API Client
  */
@@ -45,60 +45,11 @@ export declare class VaultApiClient {
         expiresAt: string;
     }>;
     removeTotp(itemId: string): Promise<void>;
-    requestSms2fa(itemId: string, phoneNumber: string): Promise<{
-        success: boolean;
-        messageSid: string;
-        status: string;
-        message: string;
-    }>;
-    getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]>;
-    provisionSmsNumber(vaultId: string, itemId?: string): Promise<VaultSmsNumber>;
-    deleteSmsNumber(id: string): Promise<void>;
-    getSmsMessages(smsNumberId: string): Promise<VaultSmsMessage[]>;
-    revealSmsMessage(id: string): Promise<{
-        body: string;
-    }>;
-    getGlobalPhoneNumber(): Promise<{
-        phoneNumber: string | null;
-    }>;
-    setGlobalPhoneNumber(phoneNumber: string): Promise<{
-        phoneNumber: string;
-    }>;
-    deleteGlobalPhoneNumber(): Promise<void>;
-    getLatestSmsMessages(since?: string): Promise<{
-        messages: Array<{
-            id: string;
-            fromNumber: string;
-            toNumber: string;
-            receivedAt: Date;
-        }>;
-    }>;
-    getGlobalEmailAddress(): Promise<{
-        emailAddress: string | null;
-    }>;
-    setGlobalEmailAddress(emailAddress: string): Promise<{
-        emailAddress: string;
-    }>;
-    deleteGlobalEmailAddress(): Promise<void>;
-    getLatestEmailMessages(options?: {
-        since?: string;
-        email?: string;
-    }): Promise<{
-        messages: Array<{
-            id: string;
-            from: string;
-            to: string;
-            subject: string | null;
-            receivedAt: Date;
-        }>;
-        globalEmail: string | null;
-    }>;
     search(query: string, filters?: {
         vaultId?: string;
         folderId?: string;
         tags?: string[];
         hasTotp?: boolean;
-        hasSms?: boolean;
     }): Promise<VaultItem[]>;
     previewCsvImport(file: File, vaultId: string, folderId?: string): Promise<{
         preview: Array<Record<string, any>>;
@@ -125,25 +76,6 @@ export declare class VaultApiClient {
         actorUserId?: string;
         limit?: number;
     }): Promise<VaultAuditEvent[]>;
-    getWebhookLogs(options?: {
-        limit?: number;
-        offset?: number;
-    }): Promise<{
-        items: VaultWebhookLog[];
-        pagination: {
-            total: number;
-            limit: number;
-            offset: number;
-        };
-    }>;
-    getWebhookApiKey(): Promise<{
-        apiKey: string | null;
-        message?: string;
-    }>;
-    generateWebhookApiKey(): Promise<{
-        apiKey: string;
-        message?: string;
-    }>;
     getGroups(): Promise<VaultStaticGroup[]>;
     createGroup(name: string, description?: string): Promise<VaultStaticGroup>;
     updateGroup(id: string, data: Partial<VaultStaticGroup>): Promise<VaultStaticGroup>;

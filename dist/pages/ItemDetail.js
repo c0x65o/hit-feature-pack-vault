@@ -2,10 +2,9 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog } from '@hit/ui-kit';
-import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail, MessageSquare, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Trash2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import { isCurrentUserAdmin } from '../utils/user';
-import { OtpWaitingModal } from '../components/OtpWaitingModal';
 export function ItemDetail({ itemId, onNavigate }) {
     const { Page, Card, Button, Alert, AlertDialog } = useUi();
     const alertDialog = useAlertDialog();
@@ -18,12 +17,6 @@ export function ItemDetail({ itemId, onNavigate }) {
     const [copied, setCopied] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    // Email OTP state
-    const [globalEmailAddress, setGlobalEmailAddress] = useState(null);
-    const [emailCopied, setEmailCopied] = useState(false);
-    const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
-    const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
-    const [hasSms, setHasSms] = useState(false);
     const navigate = (path) => {
         if (onNavigate)
             onNavigate(path);
@@ -34,17 +27,7 @@ export function ItemDetail({ itemId, onNavigate }) {
         if (itemId) {
             loadItem();
         }
-        loadGlobalEmailAddress();
     }, [itemId]);
-    useEffect(() => {
-        // Update hasSms based on twoFactorType from revealed data
-        if (revealed?.twoFactorType === 'phone') {
-            setHasSms(true);
-        }
-        else {
-            setHasSms(false);
-        }
-    }, [revealed?.twoFactorType]);
     useEffect(() => {
         // Auto-reveal notes when item is loaded
         if (item && !revealed) {
@@ -76,38 +59,6 @@ export function ItemDetail({ itemId, onNavigate }) {
         finally {
             setLoading(false);
         }
-    }
-    async function loadGlobalEmailAddress() {
-        try {
-            const result = await vaultApi.getGlobalEmailAddress();
-            setGlobalEmailAddress(result.emailAddress);
-        }
-        catch (err) {
-            console.error('Failed to load global email address:', err);
-        }
-    }
-    async function copyEmailAddress() {
-        if (!globalEmailAddress)
-            return;
-        try {
-            await navigator.clipboard.writeText(globalEmailAddress);
-            setEmailCopied(true);
-            setTimeout(() => setEmailCopied(false), 2000);
-        }
-        catch (err) {
-            console.error('Failed to copy email address:', err);
-        }
-    }
-    async function startEmailPolling() {
-        if (!item || !globalEmailAddress)
-            return;
-        // Check if item username matches global email address
-        if (item.username?.toLowerCase() !== globalEmailAddress.toLowerCase()) {
-            setError(new Error('Item username does not match configured email address'));
-            return;
-        }
-        // Open the Email OTP waiting modal instead of manual polling
-        setShowEmailOtpModal(true);
     }
     async function handleReveal() {
         if (!item)
@@ -198,7 +149,6 @@ export function ItemDetail({ itemId, onNavigate }) {
                                                         ...(showPassword ? {} : {
                                                             caretColor: 'transparent',
                                                         })
-                                                    } }), _jsxs("div", { className: "absolute top-2 right-2 flex gap-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setShowPassword(!showPassword), title: showPassword ? 'Hide key' : 'Show key', children: showPassword ? _jsx(EyeOff, { size: 16 }) : _jsx(Eye, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('secret', revealed.secret || revealed.password), title: "Copy key", children: copied.secret ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })) : (_jsxs(_Fragment, { children: [_jsx("textarea", { value: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", readOnly: true, className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm" }), _jsx("div", { className: "absolute top-2 right-2", children: _jsx(Button, { variant: "ghost", size: "sm", onClick: handleReveal, title: "Reveal secret", children: _jsx(Eye, { size: 16 }) }) })] })) })] })), revealed?.totpSecret && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "2FA Code (TOTP)" }), _jsx("div", { className: "flex items-center gap-2 mt-1", children: totpCode ? (_jsxs(_Fragment, { children: [_jsx("code", { className: "text-2xl font-mono font-bold bg-secondary px-4 py-2 rounded", children: totpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: generateTotpCode, title: "Refresh code", children: _jsx(RefreshCw, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('totp', totpCode), children: copied.totp ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })) : (_jsx(Button, { variant: "secondary", onClick: generateTotpCode, children: "Generate TOTP Code" })) }), totpExpiresAt && (_jsxs("p", { className: "text-xs text-muted-foreground mt-1", children: ["Expires in ", Math.ceil((totpExpiresAt.getTime() - Date.now()) / 1000), "s"] }))] })), item.type === 'credential' && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "2FA Code" }), _jsxs("div", { className: "mt-1 space-y-3", children: [item.username && globalEmailAddress &&
-                                                item.username.toLowerCase() === globalEmailAddress.toLowerCase() && (_jsxs("div", { children: [_jsxs("label", { className: "text-sm font-medium text-muted-foreground flex items-center gap-1", children: [_jsx(Mail, { size: 14 }), "2FA Email Address"] }), _jsxs("div", { className: "flex items-center gap-2 mt-1", children: [_jsx("code", { className: "text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1", children: globalEmailAddress }), _jsx(Button, { variant: "ghost", size: "sm", onClick: copyEmailAddress, children: emailCopied ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] }), _jsx("p", { className: "text-xs text-muted-foreground mt-1", children: "When the service sends a 2FA code to this email, it will be automatically detected." }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: startEmailPolling, className: "mt-2", children: [_jsx(Mail, { size: 16, className: "mr-2" }), "Start Waiting for Email"] })] })), hasSms && (_jsxs("div", { children: [_jsxs("label", { className: "text-sm font-medium text-muted-foreground flex items-center gap-1", children: [_jsx(MessageSquare, { size: 14 }), "SMS 2FA"] }), _jsx("p", { className: "text-xs text-muted-foreground mt-1", children: "SMS messages sent to the configured phone number will be automatically detected for OTP codes." }), _jsxs(Button, { variant: "secondary", size: "sm", onClick: () => setShowSmsOtpModal(true), className: "mt-2", children: [_jsx(MessageSquare, { size: 16, className: "mr-2" }), "Start Waiting for SMS"] })] }))] })] })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: item.type === 'secure_note' ? 'Content' : 'Notes' }), _jsx("div", { className: "mt-1 p-3 border rounded text-sm whitespace-pre-wrap", children: revealed?.notes || _jsx("span", { className: "text-muted-foreground italic", children: "No notes" }) })] }), item.tags && item.tags.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Tags" }), _jsx("div", { className: "flex flex-wrap gap-2 mt-1", children: item.tags.map(tag => (_jsx("span", { className: "px-2 py-1 bg-secondary rounded-md text-sm", children: tag }, tag))) })] }))] }) }) })), _jsx(AlertDialog, { ...alertDialog.props }), showEmailOtpModal && (_jsx(OtpWaitingModal, { open: true, mode: "email", itemTitle: item?.title || undefined, emailAddress: globalEmailAddress || undefined, onClose: () => setShowEmailOtpModal(false) })), showSmsOtpModal && (_jsx(OtpWaitingModal, { open: true, mode: "sms", itemTitle: item?.title || undefined, onClose: () => setShowSmsOtpModal(false) }))] }));
+                                                    } }), _jsxs("div", { className: "absolute top-2 right-2 flex gap-2", children: [_jsx(Button, { variant: "ghost", size: "sm", onClick: () => setShowPassword(!showPassword), title: showPassword ? 'Hide key' : 'Show key', children: showPassword ? _jsx(EyeOff, { size: 16 }) : _jsx(Eye, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('secret', revealed.secret || revealed.password), title: "Copy key", children: copied.secret ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })] })) : (_jsxs(_Fragment, { children: [_jsx("textarea", { value: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", readOnly: true, className: "w-full px-3 py-2 border rounded-md min-h-[200px] font-mono text-sm" }), _jsx("div", { className: "absolute top-2 right-2", children: _jsx(Button, { variant: "ghost", size: "sm", onClick: handleReveal, title: "Reveal secret", children: _jsx(Eye, { size: 16 }) }) })] })) })] })), revealed?.totpSecret && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "2FA Code (TOTP)" }), _jsx("div", { className: "flex items-center gap-2 mt-1", children: totpCode ? (_jsxs(_Fragment, { children: [_jsx("code", { className: "text-2xl font-mono font-bold bg-secondary px-4 py-2 rounded", children: totpCode }), _jsx(Button, { variant: "ghost", size: "sm", onClick: generateTotpCode, title: "Refresh code", children: _jsx(RefreshCw, { size: 16 }) }), _jsx(Button, { variant: "ghost", size: "sm", onClick: () => handleCopy('totp', totpCode), children: copied.totp ? (_jsx(Check, { size: 16, className: "text-green-600" })) : (_jsx(Copy, { size: 16 })) })] })) : (_jsx(Button, { variant: "secondary", onClick: generateTotpCode, children: "Generate TOTP Code" })) }), totpExpiresAt && (_jsxs("p", { className: "text-xs text-muted-foreground mt-1", children: ["Expires in ", Math.ceil((totpExpiresAt.getTime() - Date.now()) / 1000), "s"] }))] })), _jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: item.type === 'secure_note' ? 'Content' : 'Notes' }), _jsx("div", { className: "mt-1 p-3 border rounded text-sm whitespace-pre-wrap", children: revealed?.notes || _jsx("span", { className: "text-muted-foreground italic", children: "No notes" }) })] }), item.tags && item.tags.length > 0 && (_jsxs("div", { children: [_jsx("label", { className: "text-sm font-medium text-muted-foreground", children: "Tags" }), _jsx("div", { className: "flex flex-wrap gap-2 mt-1", children: item.tags.map(tag => (_jsx("span", { className: "px-2 py-1 bg-secondary rounded-md text-sm", children: tag }, tag))) })] }))] }) }) })), _jsx(AlertDialog, { ...alertDialog.props })] }));
 }
 export default ItemDetail;
