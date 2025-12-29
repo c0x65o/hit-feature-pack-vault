@@ -1,1 +1,1 @@
-{"version":3,"file":"VaultSetup.d.ts","sourceRoot":"","sources":["../../src/pages/VaultSetup.tsx"],"names":[],"mappings":"AAKA;;;;;GAKG;AACH,wBAAgB,UAAU,4CAczB;AAED,eAAe,UAAU,CAAC"}
+{"version":3,"file":"VaultSetup.d.ts","sourceRoot":"","sources":["../../src/pages/VaultSetup.tsx"],"names":[],"mappings":"AAUA,UAAU,KAAK;IACb,UAAU,CAAC,EAAE,CAAC,IAAI,EAAE,MAAM,KAAK,IAAI,CAAC;CACrC;AAED,wBAAgB,UAAU,CAAC,EAAE,UAAU,EAAE,EAAE,KAAK,2CAipC/C;AAED,eAAe,UAAU,CAAC"}

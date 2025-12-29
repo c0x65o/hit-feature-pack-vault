@@ -1,7 +1,7 @@
 /**
  * @hit/feature-pack-vault
  *
- * Password management and 2FA vault feature pack with team sharing, folders, CSV import, and TOTP.
+ * Password management and 2FA vault feature pack with team sharing, folders, CSV import, TOTP, and SMS inbox.
  *
  * Components are exported individually for optimal tree-shaking.
  * When used with the route loader system, only the requested component is bundled.
@@ -27,6 +27,8 @@ export {
   ImportCSVPage,
   GroupManagement,
   GroupManagementPage,
+  VaultSetup,
+  VaultSetupPage,
 } from './pages/index';
 
 // Components - exported individually for tree-shaking

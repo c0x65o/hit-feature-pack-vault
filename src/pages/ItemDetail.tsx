@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Copy, Edit, Check, RefreshCw, Key, FileText, Lock, Mail, MessageSquare, Trash2 } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultItem } from '../schema/vault';
 import { isCurrentUserAdmin } from '../utils/user';
+import { OtpWaitingModal } from '../components/OtpWaitingModal';
 
 interface Props {
   itemId: string;
@@ -24,6 +25,13 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
   const [copied, setCopied] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  
+  // Email OTP state
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
+  const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
+  const [hasSms, setHasSms] = useState(false);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -34,7 +42,17 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     if (itemId) {
       loadItem();
     }
+    loadGlobalEmailAddress();
   }, [itemId]);
+
+  useEffect(() => {
+    // Update hasSms based on twoFactorType from revealed data
+    if (revealed?.twoFactorType === 'phone') {
+      setHasSms(true);
+    } else {
+      setHasSms(false);
+    }
+  }, [revealed?.twoFactorType]);
 
   useEffect(() => {
     // Auto-reveal notes when item is loaded
@@ -69,6 +87,38 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
     }
   }
 
+  async function loadGlobalEmailAddress() {
+    try {
+      const result = await vaultApi.getGlobalEmailAddress();
+      setGlobalEmailAddress(result.emailAddress);
+    } catch (err) {
+      console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function copyEmailAddress() {
+    if (!globalEmailAddress) return;
+    try {
+      await navigator.clipboard.writeText(globalEmailAddress);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy email address:', err);
+    }
+  }
+
+  async function startEmailPolling() {
+    if (!item || !globalEmailAddress) return;
+    
+    // Check if item username matches global email address
+    if (item.username?.toLowerCase() !== globalEmailAddress.toLowerCase()) {
+      setError(new Error('Item username does not match configured email address'));
+      return;
+    }
+    
+    // Open the Email OTP waiting modal instead of manual polling
+    setShowEmailOtpModal(true);
+  }
 
   async function handleReveal() {
     if (!item) return;
@@ -396,7 +446,71 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
                 </div>
               )}
 
-              {/* Inbound SMS/email OTP inbox removed. Use TOTP (QR) for 2FA codes. */}
+              {item.type === 'credential' && (
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">2FA Code</label>
+                  <div className="mt-1 space-y-3">
+                    {item.username && globalEmailAddress && 
+                     item.username.toLowerCase() === globalEmailAddress.toLowerCase() && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                          <Mail size={14} />
+                          2FA Email Address
+                        </label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded flex-1">
+                            {globalEmailAddress}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={copyEmailAddress}
+                          >
+                            {emailCopied ? (
+                              <Check size={16} className="text-green-600" />
+                            ) : (
+                              <Copy size={16} />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          When the service sends a 2FA code to this email, it will be automatically detected.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={startEmailPolling}
+                          className="mt-2"
+                        >
+                          <Mail size={16} className="mr-2" />
+                          Start Waiting for Email
+                        </Button>
+                      </div>
+                    )}
+                    
+                    {hasSms && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                          <MessageSquare size={14} />
+                          SMS 2FA
+                        </label>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          SMS messages sent to the configured phone number will be automatically detected for OTP codes.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setShowSmsOtpModal(true)}
+                          className="mt-2"
+                        >
+                          <MessageSquare size={16} className="mr-2" />
+                          Start Waiting for SMS
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-sm font-medium text-muted-foreground">
@@ -424,6 +538,23 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
         </div>
       )}
       <AlertDialog {...alertDialog.props} />
+      {showEmailOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="email"
+          itemTitle={item?.title || undefined}
+          emailAddress={globalEmailAddress || undefined}
+          onClose={() => setShowEmailOtpModal(false)}
+        />
+      )}
+      {showSmsOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="sms"
+          itemTitle={item?.title || undefined}
+          onClose={() => setShowSmsOtpModal(false)}
+        />
+      )}
     </Page>
   );
 }

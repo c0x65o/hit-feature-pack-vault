@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi, useAlertDialog, type BreadcrumbItem } from '@hit/ui-kit';
-import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, Copy, User, KeyRound } from 'lucide-react';
+import { Plus, Folder, FolderPlus, Trash2, ChevronRight, ChevronDown, Key, FileText, Lock, ShieldCheck, ArrowRightLeft, Check, GripVertical, Move, Users, Mail, Loader2, RefreshCw, Eye, Edit, Shield, ExternalLink, MessageSquare, Copy, User, KeyRound } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { VaultVault, VaultFolder, VaultItem } from '../schema/vault';
 import { AddItemModal } from '../components/AddItemModal';
 import { FolderModal } from '../components/FolderModal';
 import { FolderAclModal } from '../components/FolderAclModal';
+import { OtpWaitingModal } from '../components/OtpWaitingModal';
 import { isCurrentUserAdmin } from '../utils/user';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
 import {
   DndContext,
   DragOverlay,
@@ -51,12 +53,28 @@ export function VaultLanding({ onNavigate }: Props) {
   const [showMoveFolderModal, setShowMoveFolderModal] = useState<string | null>(null);
   const [showMoveItemModal, setShowMoveItemModal] = useState<string | null>(null);
   const [showAclModalFolderId, setShowAclModalFolderId] = useState<string | null>(null);
-  // NOTE: Inbound SMS/email OTP inbox was removed. Vault supports TOTP (QR) only.
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailOtpPollingFor, setEmailOtpPollingFor] = useState<string | null>(null);
+  const [emailOtpCopiedFor, setEmailOtpCopiedFor] = useState<string | null>(null);
+  const [otpWaitingModalItem, setOtpWaitingModalItem] = useState<VaultItemRow | null>(null);
+  const [smsOtpModalItemId, setSmsOtpModalItemId] = useState<string | null>(null);
+  const [itemsWithSms, setItemsWithSms] = useState<Set<string>>(new Set());
   
   // Check if current user is admin (for UI visibility)
   const isAdmin = useMemo(() => isCurrentUserAdmin(), []);
 
-  // Inbound OTP inbox removed: no global email / inbox state.
+  // Fetch global email address
+  useEffect(() => {
+    async function fetchGlobalEmail() {
+      try {
+        const result = await vaultApi.getGlobalEmailAddress();
+        setGlobalEmailAddress(result.emailAddress);
+      } catch (err) {
+        console.error('Failed to fetch global email address:', err);
+      }
+    }
+    fetchGlobalEmail();
+  }, []);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -116,7 +134,14 @@ export function VaultLanding({ onNavigate }: Props) {
       const allItems = itemsResults.flat() as any;
       setItems(allItems);
       
-      // Inbound OTP inbox removed: ignore SMS/email twoFactorType modes (Vault supports TOTP only).
+      // Determine which items have SMS 2FA enabled based on twoFactorType preference
+      const itemsWithSmsSet = new Set<string>();
+      allItems.forEach((item: VaultItemRow) => {
+        if (item.twoFactorType === 'phone') {
+          itemsWithSmsSet.add(item.id);
+        }
+      });
+      setItemsWithSms(itemsWithSmsSet);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load vault data'));
     } finally {
@@ -347,6 +372,11 @@ export function VaultLanding({ onNavigate }: Props) {
     }
   }
 
+  async function handleQuickEmailOtp(item: VaultItemRow) {
+    // Open the OTP waiting modal instead of silent polling
+    setOtpWaitingModalItem(item);
+  }
+
   async function handleMoveFolder(folderId: string, newParentId: string | null) {
     try {
       await vaultApi.moveFolder(folderId, newParentId);
@@ -508,7 +538,13 @@ export function VaultLanding({ onNavigate }: Props) {
                     onDeleteItem={handleDeleteItem}
                     showMoveItemModal={showMoveItemModal}
                     onShowMoveItemModal={setShowMoveItemModal}
+                    globalEmailAddress={globalEmailAddress}
+                    onQuickEmailOtp={handleQuickEmailOtp}
+                    emailOtpPolling={emailOtpPollingFor === item.id}
+                    emailOtpCopied={emailOtpCopiedFor === item.id}
                     isAdmin={isAdmin}
+                    itemsWithSms={itemsWithSms}
+                    setSmsOtpModalItemId={setSmsOtpModalItemId}
                   />
                 ))}
               </div>
@@ -548,7 +584,13 @@ export function VaultLanding({ onNavigate }: Props) {
                   showMoveItemModal={showMoveItemModal}
                   onShowMoveItemModal={setShowMoveItemModal}
                   onShowAclModal={setShowAclModalFolderId}
+                  globalEmailAddress={globalEmailAddress}
+                  onQuickEmailOtp={handleQuickEmailOtp}
+                  emailOtpPollingFor={emailOtpPollingFor}
+                  emailOtpCopiedFor={emailOtpCopiedFor}
                   isAdmin={isAdmin}
+                  itemsWithSms={itemsWithSms}
+                  setSmsOtpModalItemId={setSmsOtpModalItemId}
                 />
               ))}
             </div>
@@ -584,7 +626,13 @@ export function VaultLanding({ onNavigate }: Props) {
                   showMoveItemModal={showMoveItemModal}
                   onShowMoveItemModal={setShowMoveItemModal}
                   onShowAclModal={setShowAclModalFolderId}
+                  globalEmailAddress={globalEmailAddress}
+                  onQuickEmailOtp={handleQuickEmailOtp}
+                  emailOtpPollingFor={emailOtpPollingFor}
+                  emailOtpCopiedFor={emailOtpCopiedFor}
                   isAdmin={isAdmin}
+                  itemsWithSms={itemsWithSms}
+                  setSmsOtpModalItemId={setSmsOtpModalItemId}
                 />
               ))}
             </div>
@@ -684,6 +732,23 @@ export function VaultLanding({ onNavigate }: Props) {
       )}
 
       <AlertDialog {...alertDialog.props} />
+      {otpWaitingModalItem && (
+        <OtpWaitingModal
+          open={!!otpWaitingModalItem}
+          mode="email"
+          onClose={() => setOtpWaitingModalItem(null)}
+          itemTitle={otpWaitingModalItem.title}
+          emailAddress={globalEmailAddress}
+        />
+      )}
+      {smsOtpModalItemId && (
+        <OtpWaitingModal
+          open={true}
+          mode="sms"
+          onClose={() => setSmsOtpModalItemId(null)}
+          itemTitle={items.find(i => i.id === smsOtpModalItemId)?.title}
+        />
+      )}
     </Page>
   );
 }
@@ -723,8 +788,14 @@ function FolderSection({
   showMoveItemModal,
   onShowMoveItemModal,
   onShowAclModal,
+  globalEmailAddress,
+  onQuickEmailOtp,
+  emailOtpPollingFor,
+  emailOtpCopiedFor,
   isAdmin = false,
   level = 0,
+  itemsWithSms,
+  setSmsOtpModalItemId,
 }: {
   folder: VaultFolder;
   allFolders: VaultFolder[];
@@ -746,8 +817,14 @@ function FolderSection({
   showMoveItemModal: string | null;
   onShowMoveItemModal: (itemId: string | null) => void;
   onShowAclModal: (folderId: string | null) => void;
+  globalEmailAddress: string | null;
+  onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
+  emailOtpPollingFor: string | null;
+  emailOtpCopiedFor: string | null;
   isAdmin?: boolean;
   level?: number;
+  itemsWithSms: Set<string>;
+  setSmsOtpModalItemId: (itemId: string | null) => void;
 }) {
   const { Button, Select } = useUi();
   const expanded = expandedFolderIds.has(folder.id);
@@ -1039,8 +1116,14 @@ function FolderSection({
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={onShowMoveItemModal}
               onShowAclModal={onShowAclModal}
+              globalEmailAddress={globalEmailAddress}
+              onQuickEmailOtp={onQuickEmailOtp}
+              emailOtpPollingFor={emailOtpPollingFor}
+              emailOtpCopiedFor={emailOtpCopiedFor}
               isAdmin={isAdmin}
               level={level + 1}
+              itemsWithSms={itemsWithSms}
+              setSmsOtpModalItemId={setSmsOtpModalItemId}
             />
           ))}
           {subfolders.length > 0 && directItems.length > 0 && (
@@ -1060,7 +1143,13 @@ function FolderSection({
               onDeleteItem={onDeleteItem}
               showMoveItemModal={showMoveItemModal}
               onShowMoveItemModal={onShowMoveItemModal}
+              globalEmailAddress={globalEmailAddress}
+              onQuickEmailOtp={onQuickEmailOtp}
+              emailOtpPolling={emailOtpPollingFor === item.id}
+              emailOtpCopied={emailOtpCopiedFor === item.id}
               isAdmin={isAdmin}
+              itemsWithSms={itemsWithSms}
+              setSmsOtpModalItemId={setSmsOtpModalItemId}
             />
           ))}
           {subfolders.length === 0 && directItems.length === 0 && (
@@ -1210,7 +1299,13 @@ function ItemRow({
   onDeleteItem,
   showMoveItemModal,
   onShowMoveItemModal,
+  globalEmailAddress,
+  onQuickEmailOtp,
+  emailOtpPolling,
+  emailOtpCopied,
   isAdmin = false,
+  itemsWithSms,
+  setSmsOtpModalItemId,
 }: {
   item: VaultItemRow;
   folders: VaultFolder[];
@@ -1223,7 +1318,13 @@ function ItemRow({
   onDeleteItem: (item: VaultItemRow) => Promise<void> | void;
   showMoveItemModal: string | null;
   onShowMoveItemModal: (itemId: string | null) => void;
+  globalEmailAddress: string | null;
+  onQuickEmailOtp: (item: VaultItemRow) => Promise<void> | void;
+  emailOtpPolling: boolean;
+  emailOtpCopied: boolean;
   isAdmin?: boolean;
+  itemsWithSms: Set<string>;
+  setSmsOtpModalItemId: (itemId: string | null) => void;
 }) {
   const { Button, Select } = useUi();
   
@@ -1270,7 +1371,10 @@ function ItemRow({
   ];
 
   const isEven = index % 2 === 0;
-  // Inbound SMS/email OTP inbox removed. Vault supports TOTP (QR) only.
+  
+  // Check if item's username matches the global 2FA email address
+  const canUseEmailOtp = globalEmailAddress && item.username && 
+    item.username.toLowerCase() === globalEmailAddress.toLowerCase();
   
   // Only full access users/admins can move items (checked via canMove flag from backend)
   const canMove = (item as any).canMove === true;
@@ -1326,6 +1430,33 @@ function ItemRow({
             }}
           >
             <ExternalLink size={16} className="text-blue-500" />
+          </Button>
+        )}
+        {canUseEmailOtp && (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Get email OTP code"
+            onClick={() => onQuickEmailOtp(item)}
+          >
+            {emailOtpCopied ? (
+              <Check size={16} className="text-green-600" />
+            ) : (
+              <Mail size={16} className="text-blue-500" />
+            )}
+          </Button>
+        )}
+        {itemsWithSms.has(item.id) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Get SMS OTP code"
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              setSmsOtpModalItemId(item.id);
+            }}
+          >
+            <MessageSquare size={16} className="text-blue-500" />
           </Button>
         )}
         <Button

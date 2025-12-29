@@ -179,6 +179,91 @@ export class VaultApiClient {
             method: 'DELETE',
         });
     }
+    // SMS 2FA
+    async requestSms2fa(itemId, phoneNumber) {
+        return this.request(`/items/${itemId}/sms/request`, {
+            method: 'POST',
+            body: JSON.stringify({ phoneNumber }),
+        });
+    }
+    // SMS
+    async getSmsNumbers(vaultId, itemId) {
+        const params = new URLSearchParams();
+        if (vaultId)
+            params.append('vaultId', vaultId);
+        if (itemId)
+            params.append('itemId', itemId);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        const response = await this.request(`/sms/numbers${query}`);
+        return response.items || [];
+    }
+    async provisionSmsNumber(vaultId, itemId) {
+        return this.request('/sms/numbers', {
+            method: 'POST',
+            body: JSON.stringify({ vaultId, itemId }),
+        });
+    }
+    async deleteSmsNumber(id) {
+        return this.request(`/sms/numbers/${id}`, {
+            method: 'DELETE',
+        });
+    }
+    async getSmsMessages(smsNumberId) {
+        return this.request(`/sms/numbers/${smsNumberId}/messages`);
+    }
+    async revealSmsMessage(id) {
+        return this.request(`/sms/messages/${id}/reveal`, {
+            method: 'POST',
+        });
+    }
+    // Global phone number (admin only)
+    async getGlobalPhoneNumber() {
+        return this.request('/sms/global');
+    }
+    async setGlobalPhoneNumber(phoneNumber) {
+        return this.request('/sms/global', {
+            method: 'POST',
+            body: JSON.stringify({ phoneNumber }),
+        });
+    }
+    async deleteGlobalPhoneNumber() {
+        return this.request('/sms/global', {
+            method: 'DELETE',
+        });
+    }
+    // Latest SMS messages for polling
+    async getLatestSmsMessages(since) {
+        const params = new URLSearchParams();
+        if (since)
+            params.append('since', since);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/sms/messages/latest${query}`);
+    }
+    // Global email address (admin only)
+    async getGlobalEmailAddress() {
+        return this.request('/email/global');
+    }
+    async setGlobalEmailAddress(emailAddress) {
+        return this.request('/email/global', {
+            method: 'POST',
+            body: JSON.stringify({ emailAddress }),
+        });
+    }
+    async deleteGlobalEmailAddress() {
+        return this.request('/email/global', {
+            method: 'DELETE',
+        });
+    }
+    // Latest email messages for polling
+    async getLatestEmailMessages(options) {
+        const params = new URLSearchParams();
+        if (options?.since)
+            params.append('since', options.since);
+        if (options?.email)
+            params.append('email', options.email);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/email/messages/latest${query}`);
+    }
     // Search
     async search(query, filters) {
         const params = new URLSearchParams({ q: query });
@@ -224,6 +309,25 @@ export class VaultApiClient {
             params.append('limit', String(filters.limit));
         const query = params.toString() ? `?${params.toString()}` : '';
         return this.request(`/audit${query}`);
+    }
+    // Webhook Logs (admin only)
+    async getWebhookLogs(options) {
+        const params = new URLSearchParams();
+        if (options?.limit)
+            params.append('limit', String(options.limit));
+        if (options?.offset)
+            params.append('offset', String(options.offset));
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return this.request(`/webhook-logs${query}`);
+    }
+    // Webhook API Key
+    async getWebhookApiKey() {
+        return this.request('/webhook/api-key');
+    }
+    async generateWebhookApiKey() {
+        return this.request('/webhook/api-key', {
+            method: 'POST',
+        });
     }
     // Static Groups (fallback)
     async getGroups() {

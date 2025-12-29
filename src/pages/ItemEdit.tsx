@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
-import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon } from 'lucide-react';
+import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon, Mail, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { InsertVaultItem, VaultItem } from '../schema/vault';
+import { extractOtpWithConfidence } from '../utils/otp-extractor';
+import { OtpWaitingModal } from '../components/OtpWaitingModal';
 
 interface Props {
   itemId?: string;
@@ -12,7 +14,7 @@ interface Props {
 }
 
 type ItemType = 'credential' | 'api_key' | 'secure_note';
-type TwoFactorType = 'off' | 'qr';
+type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
 
 export function ItemEdit({ itemId, onNavigate }: Props) {
   const { Page, Card, Button, Input, Alert, Select } = useUi();
@@ -32,8 +34,15 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
   const [notes, setNotes] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [twoFactorType, setTwoFactorType] = useState<TwoFactorType>('off');
+  const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
+  
+  // Email 2FA state
+  const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
+  const [globalPhoneNumber, setGlobalPhoneNumber] = useState<string | null>(null);
 
   const navigate = (path: string) => {
     if (onNavigate) onNavigate(path);
@@ -44,6 +53,8 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     if (itemId) {
       loadItem();
     }
+    loadGlobalEmailAddress();
+    loadGlobalPhoneNumber();
   }, [itemId]);
 
 
@@ -77,10 +88,9 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
           setQrCodeInput(revealed.totpSecret);
         }
         
-        // Load 2FA type from secret blob (Vault supports TOTP only; coerce legacy values to 'off')
+        // Load 2FA type from secret blob
         if (revealed.twoFactorType) {
-          const t = String(revealed.twoFactorType);
-          setTwoFactorType(t === 'qr' ? 'qr' : 'off');
+          setTwoFactorType(revealed.twoFactorType as TwoFactorType);
         } else if (hasTotp) {
           // Fallback: if TOTP exists but no preference, default to QR
           setTwoFactorType('qr');
@@ -97,7 +107,39 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
   }
 
 
-  // NOTE: Inbound SMS/email OTP inbox was removed. Vault supports TOTP (QR) only.
+  async function loadGlobalEmailAddress() {
+    try {
+      const result = await vaultApi.getGlobalEmailAddress();
+      setGlobalEmailAddress(result.emailAddress);
+    } catch (err) {
+      console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function loadGlobalPhoneNumber() {
+    try {
+      const result = await vaultApi.getGlobalPhoneNumber();
+      setGlobalPhoneNumber(result.phoneNumber);
+    } catch (err) {
+      console.error('Failed to load global phone number:', err);
+    }
+  }
+
+  async function copyEmailAddress() {
+    if (!globalEmailAddress) return;
+    try {
+      await navigator.clipboard.writeText(globalEmailAddress);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy email address:', err);
+    }
+  }
+
+  async function startSmsPolling() {
+    // Open the SMS OTP waiting modal instead of silent polling
+    setShowSmsOtpModal(true);
+  }
 
   async function handleQrCodePaste() {
     if (!qrCodeInput.trim()) return;
@@ -302,10 +344,75 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                   options={[
                     { value: 'off', label: 'Off' },
                     { value: 'qr', label: 'QR Code (TOTP)' },
+                    { value: 'phone', label: 'Phone Number (SMS)' },
+                    { value: 'email', label: 'Email' },
                   ]}
                 />
               </div>
-              {/* Inbound SMS/email OTP inbox removed. Use TOTP (QR) instead. */}
+
+              {twoFactorType === 'phone' && (
+                <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
+                  <div className="text-sm text-muted-foreground">
+                    SMS 2FA is enabled. When you save this item, SMS messages sent to the configured phone number will be automatically detected for OTP codes.
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowSmsOtpModal(true)}
+                  >
+                    <MessageSquare size={16} className="mr-2" />
+                    View SMS OTP Codes
+                  </Button>
+                </div>
+              )}
+
+              {twoFactorType === 'email' && (
+                <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
+                  {globalEmailAddress ? (
+                    <>
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                          <Mail size={14} />
+                          2FA Email Address
+                        </label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-sm font-mono bg-background px-2 py-1 rounded">
+                            {globalEmailAddress}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={copyEmailAddress}
+                            title="Copy to clipboard"
+                          >
+                            {emailCopied ? (
+                              <Check size={16} className="text-green-600" />
+                            ) : (
+                              <Copy size={16} />
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          When the service sends a 2FA code to this email, it will be automatically detected.
+                        </p>
+                      </div>
+                      
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowEmailOtpModal(true)}
+                      >
+                        <Mail size={16} className="mr-2" />
+                        View Email OTP Codes
+                      </Button>
+                    </>
+                  ) : (
+                    <Alert variant="warning" title="No Email Address Configured">
+                      A global admin must configure a 2FA email address in the vault settings.
+                    </Alert>
+                  )}
+                </div>
+              )}
 
               {twoFactorType === 'qr' && (
                 <div className="mt-3 p-4 bg-secondary rounded-md space-y-3">
@@ -420,6 +527,24 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
           </div>
         </div>
       </Card>
+      {showSmsOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="sms"
+          itemTitle={item?.title}
+          phoneNumber={globalPhoneNumber}
+          onClose={() => setShowSmsOtpModal(false)}
+        />
+      )}
+      {showEmailOtpModal && (
+        <OtpWaitingModal
+          open={true}
+          mode="email"
+          itemTitle={item?.title}
+          emailAddress={globalEmailAddress}
+          onClose={() => setShowEmailOtpModal(false)}
+        />
+      )}
     </Page>
   );
 }

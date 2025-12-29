@@ -8,6 +8,9 @@ import type {
   VaultFolder,
   VaultItem,
   VaultAcl,
+  VaultSmsNumber,
+  VaultSmsMessage,
+  VaultWebhookLog,
   VaultAuditEvent,
   VaultStaticGroup,
   InsertVaultVault,
@@ -228,12 +231,128 @@ export class VaultApiClient {
     });
   }
 
+  // SMS 2FA
+  async requestSms2fa(itemId: string, phoneNumber: string): Promise<{
+    success: boolean;
+    messageSid: string;
+    status: string;
+    message: string;
+  }> {
+    return this.request(`/items/${itemId}/sms/request`, {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber }),
+    });
+  }
+
+  // SMS
+  async getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]> {
+    const params = new URLSearchParams();
+    if (vaultId) params.append('vaultId', vaultId);
+    if (itemId) params.append('itemId', itemId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await this.request<{ items: VaultSmsNumber[] }>(`/sms/numbers${query}`);
+    return response.items || [];
+  }
+
+  async provisionSmsNumber(vaultId: string, itemId?: string): Promise<VaultSmsNumber> {
+    return this.request<VaultSmsNumber>('/sms/numbers', {
+      method: 'POST',
+      body: JSON.stringify({ vaultId, itemId }),
+    });
+  }
+
+  async deleteSmsNumber(id: string): Promise<void> {
+    return this.request<void>(`/sms/numbers/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getSmsMessages(smsNumberId: string): Promise<VaultSmsMessage[]> {
+    return this.request<VaultSmsMessage[]>(`/sms/numbers/${smsNumberId}/messages`);
+  }
+
+  async revealSmsMessage(id: string): Promise<{ body: string }> {
+    return this.request(`/sms/messages/${id}/reveal`, {
+      method: 'POST',
+    });
+  }
+
+  // Global phone number (admin only)
+  async getGlobalPhoneNumber(): Promise<{ phoneNumber: string | null }> {
+    return this.request<{ phoneNumber: string | null }>('/sms/global');
+  }
+
+  async setGlobalPhoneNumber(phoneNumber: string): Promise<{ phoneNumber: string }> {
+    return this.request<{ phoneNumber: string }>('/sms/global', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber }),
+    });
+  }
+
+  async deleteGlobalPhoneNumber(): Promise<void> {
+    return this.request<void>('/sms/global', {
+      method: 'DELETE',
+    });
+  }
+
+  // Latest SMS messages for polling
+  async getLatestSmsMessages(since?: string): Promise<{
+    messages: Array<{
+      id: string;
+      fromNumber: string;
+      toNumber: string;
+      receivedAt: Date;
+    }>;
+  }> {
+    const params = new URLSearchParams();
+    if (since) params.append('since', since);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/sms/messages/latest${query}`);
+  }
+
+  // Global email address (admin only)
+  async getGlobalEmailAddress(): Promise<{ emailAddress: string | null }> {
+    return this.request<{ emailAddress: string | null }>('/email/global');
+  }
+
+  async setGlobalEmailAddress(emailAddress: string): Promise<{ emailAddress: string }> {
+    return this.request<{ emailAddress: string }>('/email/global', {
+      method: 'POST',
+      body: JSON.stringify({ emailAddress }),
+    });
+  }
+
+  async deleteGlobalEmailAddress(): Promise<void> {
+    return this.request<void>('/email/global', {
+      method: 'DELETE',
+    });
+  }
+
+  // Latest email messages for polling
+  async getLatestEmailMessages(options?: { since?: string; email?: string }): Promise<{
+    messages: Array<{
+      id: string;
+      from: string;
+      to: string;
+      subject: string | null;
+      receivedAt: Date;
+    }>;
+    globalEmail: string | null;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.since) params.append('since', options.since);
+    if (options?.email) params.append('email', options.email);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/email/messages/latest${query}`);
+  }
+
   // Search
   async search(query: string, filters?: {
     vaultId?: string;
     folderId?: string;
     tags?: string[];
     hasTotp?: boolean;
+    hasSms?: boolean;
   }): Promise<VaultItem[]> {
     const params = new URLSearchParams({ q: query });
     // Note: Backend search API currently only supports 'q' parameter
@@ -295,6 +414,36 @@ export class VaultApiClient {
     return this.request<VaultAuditEvent[]>(`/audit${query}`);
   }
 
+  // Webhook Logs (admin only)
+  async getWebhookLogs(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    items: VaultWebhookLog[];
+    pagination: {
+      total: number;
+      limit: number;
+      offset: number;
+    };
+  }> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', String(options.limit));
+    if (options?.offset) params.append('offset', String(options.offset));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/webhook-logs${query}`);
+  }
+
+  // Webhook API Key
+  async getWebhookApiKey(): Promise<{ apiKey: string | null; message?: string }> {
+    return this.request<{ apiKey: string | null; message?: string }>('/webhook/api-key');
+  }
+
+  async generateWebhookApiKey(): Promise<{ apiKey: string; message?: string }> {
+    return this.request<{ apiKey: string; message?: string }>('/webhook/api-key', {
+      method: 'POST',
+    });
+  }
+
   // Static Groups (fallback)
   async getGroups(): Promise<VaultStaticGroup[]> {
     const response = await this.request<{ items: VaultStaticGroup[] }>('/groups');
@@ -338,8 +487,6 @@ export class VaultApiClient {
       body: JSON.stringify({ userId }),
     });
   }
-
-  // NOTE: Inbound SMS/email webhook inbox APIs were removed from this feature pack.
 }
 
 // Default instance
