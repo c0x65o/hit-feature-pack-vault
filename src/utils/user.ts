@@ -118,4 +118,3 @@ export function isCurrentUserAdmin(): boolean {
   const roles = getCurrentUserRoles();
   return roles.includes('admin');
 }
-
