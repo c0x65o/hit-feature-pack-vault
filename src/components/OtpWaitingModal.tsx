@@ -346,16 +346,18 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
         {/* Last OTP Code (if exists and no current OTP from subscription) */}
         {!otpSubscription.otpCode && lastOtpNotification && lastOtpNotification.code && (
           <div className="mb-4">
-            <Alert variant="info" className="mb-2">
-              <div className="text-sm">
-                <div className="font-medium mb-1">Last {modeLabel} OTP Code Received</div>
-                {lastOtpNotification.receivedAt && (
-                  <div className="text-xs text-muted-foreground">
-                    {formatTimeAgo(lastOtpNotification.receivedAt)}
-                  </div>
-                )}
-              </div>
-            </Alert>
+            <div className="mb-2">
+              <Alert variant="info">
+                <div className="text-sm">
+                  <div className="font-medium mb-1">Last {modeLabel} OTP Code Received</div>
+                  {lastOtpNotification.receivedAt && (
+                    <div className="text-xs text-muted-foreground">
+                      {formatTimeAgo(lastOtpNotification.receivedAt)}
+                    </div>
+                  )}
+                </div>
+              </Alert>
+            </div>
             <div className={`p-3 bg-transparent rounded-md border-2 ${
               lastOtpNotification.confidence === 'high' 
                 ? 'border-green-500' 
