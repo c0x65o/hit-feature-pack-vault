@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import { useUi, useFormSubmit, type BreadcrumbItem } from '@hit/ui-kit';
 import { Save, Copy, Check, Eye, EyeOff, Lock as LockIcon, Mail, MessageSquare } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 import type { InsertVaultItem, VaultItem } from '../schema/vault';
@@ -18,9 +18,8 @@ type TwoFactorType = 'off' | 'qr' | 'phone' | 'email';
 
 export function ItemEdit({ itemId, onNavigate }: Props) {
   const { Page, Card, Button, Input, Alert, Select } = useUi();
+  const { submitting, error, submit, clearError, setError } = useFormSubmit();
   const [loading, setLoading] = useState(!!itemId);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
   const [item, setItem] = useState<VaultItem | null>(null);
   const [itemType, setItemType] = useState<ItemType>('credential');
   const [formData, setFormData] = useState<Partial<InsertVaultItem>>({
@@ -38,6 +37,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
   const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [qrCodeInput, setQrCodeInput] = useState('');
   const [qrCodePasteMode, setQrCodePasteMode] = useState(false);
+  const [importingTotp, setImportingTotp] = useState(false);
   
   // Email 2FA state
   const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
@@ -152,7 +152,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     }
     
     try {
-      setSaving(true);
+      setImportingTotp(true);
       await vaultApi.importTotp(itemId, qrCodeInput.trim());
       setQrCodeInput('');
       setQrCodePasteMode(false);
@@ -160,7 +160,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to import QR code'));
     } finally {
-      setSaving(false);
+      setImportingTotp(false);
     }
   }
 
@@ -177,17 +177,15 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
 
   async function handleSave() {
     if (!formData.title?.trim()) {
-      setError(new Error('Title is required'));
+      setError('Title is required');
       return;
     }
     if (itemType === 'credential' && !formData.url?.trim()) {
-      setError(new Error('URL is required for Login items'));
+      setError('URL is required for Login items');
       return;
     }
-    try {
-      setSaving(true);
-      setError(null);
-      
+    
+    const result = await submit(async () => {
       const itemData: any = {
         ...formData,
         type: itemType,
@@ -232,11 +230,11 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
         }
       }
       
+      return { id: savedItem.id };
+    });
+    
+    if (result) {
       navigate('/vault/');
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to save item'));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -263,7 +261,7 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
       onNavigate={navigate}
     >
       {error && (
-        <Alert variant="error" title="Error">
+        <Alert variant="error" title="Error" onClose={clearError}>
           {error.message}
         </Alert>
       )}
@@ -441,10 +439,10 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
                         variant="primary"
                         size="sm"
                         onClick={handleQrCodePaste}
-                        disabled={saving || !itemId}
+                        disabled={importingTotp || !itemId}
                         className="mt-2"
                       >
-                        Import TOTP Secret
+                        {importingTotp ? 'Importing...' : 'Import TOTP Secret'}
                       </Button>
                     )}
                   </div>
@@ -519,10 +517,10 @@ export function ItemEdit({ itemId, onNavigate }: Props) {
             <Button
               variant="primary"
               onClick={handleSave}
-              disabled={saving || !formData.title?.trim() || (itemType === 'credential' && !formData.url?.trim())}
+              disabled={submitting || !formData.title?.trim() || (itemType === 'credential' && !formData.url?.trim())}
             >
               <Save size={16} className="mr-2" />
-              {saving ? 'Saving...' : 'Save'}
+              {submitting ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </div>
