@@ -91,7 +91,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const response = await fetch(`${authUrl}/users`, {
+        const response = await fetch(`${authUrl}/directory/users`, {
           credentials: 'include',
           headers,
         });
