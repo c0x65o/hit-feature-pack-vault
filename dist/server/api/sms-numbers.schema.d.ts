@@ -6,7 +6,7 @@ export declare const postBodySchema: z.ZodObject<{
     status: z.ZodOptional<z.ZodEnum<["active", "inactive", "pending"]>>;
 } & {
     phoneNumber: z.ZodOptional<z.ZodString>;
-}, z.UnknownKeysParam, z.ZodTypeAny, {
+}, "strip", z.ZodTypeAny, {
     vaultId?: string | null | undefined;
     itemId?: string | null | undefined;
     phoneNumber?: string | undefined;
