@@ -35,9 +35,16 @@ export function extractUserFromRequest(request: NextRequest): User | null {
           return null;
         }
 
+        const email =
+          payload.email ||
+          payload.preferred_username ||
+          payload.upn ||
+          payload.unique_name ||
+          '';
+
         return {
-          sub: payload.sub || payload.email || '',
-          email: payload.email || '',
+          sub: payload.sub || email || '',
+          email: email || '',
           roles: payload.roles || [],
         };
       }
