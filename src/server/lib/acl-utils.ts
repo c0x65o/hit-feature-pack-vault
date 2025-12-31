@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db';
 import { vaultAcls, vaultFolders, vaultVaults, vaultItems, vaultGroupMembers } from '@/lib/feature-pack-schemas';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import type { User } from '../auth';
+import { resolveUserPrincipals } from '@hit/acl-utils';
 
 export interface AclCheckOptions {
   requiredPermissions?: string[];
@@ -77,107 +78,37 @@ export function mergePermissions(permissionSets: string[][]): string[] {
 /**
  * Get user's groups and roles for ACL checking
  */
-let _lastAuthDynGroupsWarnAt = 0;
-function warnAuthDynGroups(msg: string, extra?: unknown) {
-  const now = Date.now();
-  // throttle to avoid log spam (Vault APIs call this a lot)
-  if (now - _lastAuthDynGroupsWarnAt < 30_000) return;
-  _lastAuthDynGroupsWarnAt = now;
-  if (extra !== undefined) console.warn(msg, extra);
-  else console.warn(msg);
-}
-
-function baseUrlFromRequest(request: NextRequest): string {
-  const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '') || 'http';
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host;
-  return `${proto}://${host}`;
-}
-
 export async function getUserPrincipals(db: ReturnType<typeof getDb>, user: User, request?: NextRequest): Promise<{
   userId: string;
   userEmail: string;
   groupIds: string[];
   roles: string[];
 }> {
-  const userId = user.sub;
-  const userEmail = user.email || '';
-  const roles = user.roles || [];
+  // Centralized principal resolution (JWT + dynamic groups via auth module) with a vault-specific
+  // extra source for static vault group memberships.
+  return await resolveUserPrincipals({
+    request,
+    user,
+    extraGroupIds: async () => {
+      const userId = user.sub;
+      const userEmail = user.email || '';
+      const userIdentifiers = [userId, userEmail].filter(Boolean);
+      if (userIdentifiers.length === 0) return [];
 
-  // Get groups the user belongs to from the vault_group_members table (static groups)
-  // The userId in vault_group_members can be either the user's sub (ID) or email
-  const groupIds: string[] = [];
-  
-  try {
-    // Query by both user ID and email to find group memberships
-    const userIdentifiers = [userId, userEmail].filter(Boolean);
-    if (userIdentifiers.length > 0) {
-      const membershipConditions = userIdentifiers.map(id => eq(vaultGroupMembers.userId, id));
-      const memberships = await db
-        .select({ groupId: vaultGroupMembers.groupId })
-        .from(vaultGroupMembers)
-        .where(or(...membershipConditions));
-      
-      for (const membership of memberships) {
-        groupIds.push(membership.groupId);
+      try {
+        const membershipConditions = userIdentifiers.map((id) => eq(vaultGroupMembers.userId, id));
+        const memberships = await db
+          .select({ groupId: vaultGroupMembers.groupId })
+          .from(vaultGroupMembers)
+          .where(or(...membershipConditions));
+        return memberships.map((m: { groupId: string }) => m.groupId);
+      } catch (error) {
+        // Best-effort only: vault still works with JWT + auth-module groups.
+        console.warn('[vault] Failed to fetch vault group memberships:', error);
+        return [];
       }
-    }
-  } catch (error) {
-    // If table doesn't exist or query fails, continue with empty groups
-    console.warn('Failed to fetch user group memberships:', error);
-  }
-
-  // Also fetch dynamic groups from auth module (if user email is available)
-  // Dynamic groups are stored in the auth module's database, not in vault_group_members
-  if (userEmail) {
-    try {
-      // Always prefer the app-local auth proxy (avoids misconfigured localhost ports in dev).
-      // This expects the app to provide `/api/proxy/auth/*` (hit-dashboard does).
-      const authUrl = request ? `${baseUrlFromRequest(request)}/api/proxy/auth` : null;
-      if (!authUrl) return { userId, userEmail, groupIds, roles };
-      const serviceToken = process.env.HIT_SERVICE_TOKEN;
-      
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Use service token if available, otherwise rely on proxy authentication
-      if (serviceToken) {
-        headers['X-HIT-Service-Token'] = serviceToken;
-      }
-      // Forward caller auth (cookie/bearer) so proxy can authenticate without service token.
-      if (!serviceToken && request) {
-        const cookie = request.headers.get('cookie');
-        if (cookie) headers['cookie'] = cookie;
-        const authz = request.headers.get('authorization');
-        if (authz) headers['authorization'] = authz;
-      }
-
-      const response = await fetch(`${authUrl.replace(/\/$/, '')}/admin/users/${encodeURIComponent(userEmail.toLowerCase())}/groups`, {
-        headers,
-      });
-
-      if (response.ok) {
-        const userGroups = await response.json();
-        if (Array.isArray(userGroups)) {
-          // Extract group IDs from the response (UserGroupResponse uses group_id field)
-          for (const userGroup of userGroups) {
-            if (userGroup.group_id) {
-              groupIds.push(String(userGroup.group_id));
-            }
-          }
-        }
-      } else if (response.status !== 404) {
-        // 404 is expected if user has no groups, but log other errors
-        warnAuthDynGroups(`Failed to fetch dynamic groups from auth module: ${response.status} ${response.statusText}`);
-      }
-    } catch (error) {
-      // If auth module is unavailable, continue with static groups only
-      // This allows the system to work even if auth module is down
-      warnAuthDynGroups('Failed to fetch dynamic groups from auth module:', error);
-    }
-  }
-
-  return { userId, userEmail, groupIds, roles };
+    },
+  });
 }
 
 /**

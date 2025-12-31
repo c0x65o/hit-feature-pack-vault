@@ -11,6 +11,9 @@ export interface AclCheckOptions {
  * Note: MANAGE_ACL is independent and doesn't imply other permissions
  */
 export declare function mergePermissions(permissionSets: string[][]): string[];
+/**
+ * Get user's groups and roles for ACL checking
+ */
 export declare function getUserPrincipals(db: ReturnType<typeof getDb>, user: User, request?: NextRequest): Promise<{
     userId: string;
     userEmail: string;
