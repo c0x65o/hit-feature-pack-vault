@@ -21,14 +21,80 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
   const [error, setError] = useState<Error | null>(null);
   const [isRootFolder, setIsRootFolder] = useState<boolean | null>(null);
   const [staticGroups, setStaticGroups] = useState<Array<{ id: string; name: string; description?: string | null }>>([]);
+  const [isAdminUser, setIsAdminUser] = useState<boolean>(false);
+  const [canManageAcls, setCanManageAcls] = useState<boolean>(true);
 
   useEffect(() => {
     if (isOpen && folderId) {
-      checkIfRootFolder();
-      loadAcls();
-      loadStaticGroups();
+      void init();
     }
   }, [isOpen, folderId]);
+
+  function isProbablyAdminRole(role: unknown): boolean {
+    const r = String(role || '').toLowerCase();
+    return r === 'admin';
+  }
+
+  function safeDecodeJwtPayload(token: string): any | null {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const json = atob(b64);
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  }
+
+  async function init() {
+    setError(null);
+    setCanManageAcls(true);
+
+    const admin = await resolveIsAdmin();
+    setIsAdminUser(admin);
+
+    // Load core data (best-effort; ACL endpoint will gate access)
+    await Promise.allSettled([
+      checkIfRootFolder(),
+      loadAcls(),
+      admin ? loadStaticGroups() : Promise.resolve(),
+    ]);
+  }
+
+  async function resolveIsAdmin(): Promise<boolean> {
+    // Fast path: decode localStorage token if present
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+      if (token) {
+        const payload = safeDecodeJwtPayload(token);
+        const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+        if (roles.some((r: unknown) => isProbablyAdminRole(r))) return true;
+        // If token exists and doesn't include admin, return false (avoid extra network)
+        return false;
+      }
+    } catch {
+      // ignore
+    }
+
+    // Fallback: ask auth module
+    try {
+      const authUrl =
+        typeof window !== 'undefined'
+          ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+          : '/api/proxy/auth';
+      const res = await fetch(`${authUrl}/me`, { credentials: 'include' });
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => ({}));
+      const role = (data as any)?.role;
+      const roles = (data as any)?.roles;
+      if (isProbablyAdminRole(role)) return true;
+      if (Array.isArray(roles) && roles.some((r: unknown) => isProbablyAdminRole(r))) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  }
 
   async function checkIfRootFolder() {
     try {
@@ -45,6 +111,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       const groups = await vaultApi.getGroups();
       setStaticGroups(groups);
     } catch (err) {
+      // Static groups are admin-only; non-admins should not hit this path.
       console.warn('Failed to load static groups:', err);
       setStaticGroups([]);
     }
@@ -57,7 +124,16 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       const aclsData = await vaultApi.getAcls('folder', folderId);
       setAcls(Array.isArray(aclsData) ? aclsData : []);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to load ACLs'));
+      const msg = err instanceof Error ? err.message : String(err);
+      // If the user doesn't have MANAGE_ACL, the backend returns 403. Treat this as "read-only/no access"
+      // rather than a hard failure with duplicate scary banners.
+      if (msg.includes('403') || msg.toLowerCase().includes('forbidden')) {
+        setCanManageAcls(false);
+        setError(new Error('You do not have permission to view or edit access for this folder.'));
+        setAcls([]);
+      } else {
+        setError(err instanceof Error ? err : new Error('Failed to load ACLs'));
+      }
     } finally {
       setLoading(false);
     }
@@ -122,54 +198,80 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
         console.warn('Failed to load users:', err);
       }
     } else if (type === 'group') {
-      // Combine dynamic groups from auth-core with static groups from vault
-      try {
-        // Dynamic groups from auth module
-        const authUrl = typeof window !== 'undefined' 
-          ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-          : '/api/proxy/auth';
-        const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
+      const authUrl = typeof window !== 'undefined'
+        ? (window as any).NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
+        : '/api/proxy/auth';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      if (isAdminUser) {
+        // Admin: can pick any auth group (including dynamic groups)
+        try {
+          const authResponse = await fetch(`${authUrl}/admin/groups`, { headers, credentials: 'include' });
+          if (authResponse.ok) {
+            const authGroups = await authResponse.json();
+            if (Array.isArray(authGroups)) {
+              authGroups.forEach((group: { id: string; name: string; description?: string | null }) => {
+                const displayName = group.description ? `${group.name} - ${group.description}` : group.name;
+                if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
+                  principals.push({
+                    type: 'group',
+                    id: group.id,
+                    displayName,
+                    metadata: { name: group.name, description: group.description },
+                  });
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to load groups (admin):', err);
         }
 
-        const authResponse = await fetch(`${authUrl}/admin/groups`, { headers });
-        if (authResponse.ok) {
-          const authGroups = await authResponse.json();
-          if (Array.isArray(authGroups)) {
-            authGroups.forEach((group: { id: string; name: string; description?: string | null }) => {
-              const displayName = group.description ? `${group.name} - ${group.description}` : group.name;
-              if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
-                principals.push({
-                  type: 'group',
-                  id: group.id,
-                  displayName,
-                  metadata: { name: group.name, description: group.description },
-                });
-              }
+        // Admin: also include vault static groups
+        staticGroups.forEach((group) => {
+          const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
+          if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
+            principals.push({
+              type: 'group',
+              id: group.id,
+              displayName,
+              metadata: { name: group.name, description: group.description, static: true },
             });
           }
+        });
+      } else {
+        // Non-admin (Option B): can pick only groups they are in.
+        try {
+          const res = await fetch(`${authUrl}/me/groups`, { headers, credentials: 'include' });
+          if (res.ok) {
+            const myGroups = await res.json();
+            if (Array.isArray(myGroups)) {
+              myGroups.forEach((g: { group_id?: string; groupId?: string; group_name?: string; groupName?: string }) => {
+                const id = String(g.group_id ?? g.groupId ?? '').trim();
+                const name = String(g.group_name ?? g.groupName ?? id).trim();
+                if (!id) return;
+                if (!search || name.toLowerCase().includes(search.toLowerCase()) || id.toLowerCase().includes(search.toLowerCase())) {
+                  principals.push({
+                    type: 'group',
+                    id,
+                    displayName: name,
+                    metadata: { name, source: 'me/groups' },
+                  });
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to load my groups:', err);
         }
-      } catch (err) {
-        console.warn('Failed to load dynamic groups:', err);
       }
-
-      // Static groups from vault
-      staticGroups.forEach(group => {
-        const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
-        if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
-          principals.push({
-            type: 'group',
-            id: group.id,
-            displayName,
-            metadata: { name: group.name, description: group.description, static: true },
-          });
-        }
-      });
     } else if (type === 'role') {
+      // Non-admins cannot share to roles.
+      if (!isAdminUser) return principals;
       // Roles from auth module
       try {
         const authUrl = typeof window !== 'undefined' 
@@ -255,7 +357,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
     principals: {
       users: true,
       groups: true,
-      roles: true,
+      roles: isAdminUser,
     },
     mode: 'hierarchical',
     hierarchicalPermissions: [
@@ -294,7 +396,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       removeButton: 'Remove',
       emptyMessage: 'No access permissions set. Click "Add Access" to grant permissions.',
     },
-  }), []);
+  }), [isAdminUser]);
 
   return (
     <Modal
@@ -304,12 +406,6 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       size="lg"
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {error && (
-          <Alert variant="error" title="Error">
-            {error.message}
-          </Alert>
-        )}
-
         {isRootFolder === false && (
           <Alert variant="error" title="Invalid Folder">
             Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions.
@@ -324,7 +420,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
           onAdd={handleAdd}
           onRemove={handleRemove}
           fetchPrincipals={customFetchPrincipals}
-          disabled={isRootFolder === false}
+          disabled={isRootFolder === false || !canManageAcls}
         />
       </div>
     </Modal>
