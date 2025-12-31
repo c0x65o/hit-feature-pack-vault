@@ -1,7 +1,0 @@
-/**
- * Vault Hooks
- * Exported individually for tree-shaking
- */
-export { useOtpSubscription, getWebSocketStatus, isWebSocketAvailable, getGlobalWsStatus, subscribeGlobalWsStatus, getGlobalOtpConnectionType, subscribeGlobalOtpConnectionType, ensureVaultRealtimeConnection, } from './useOtpSubscription';
-export type { OtpNotification, UseOtpSubscriptionOptions, UseOtpSubscriptionResult, } from './useOtpSubscription';
-//# sourceMappingURL=index.d.ts.map

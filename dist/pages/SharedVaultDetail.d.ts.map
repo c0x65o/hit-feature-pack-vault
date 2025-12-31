@@ -1,1 +1,0 @@
-{"version":3,"file":"SharedVaultDetail.d.ts","sourceRoot":"","sources":["../../src/pages/SharedVaultDetail.tsx"],"names":[],"mappings":"AAQA,UAAU,KAAK;IACb,OAAO,EAAE,MAAM,CAAC;IAChB,UAAU,CAAC,EAAE,CAAC,IAAI,EAAE,MAAM,KAAK,IAAI,CAAC;CACrC;AAED,wBAAgB,iBAAiB,CAAC,EAAE,OAAO,EAAE,UAAU,EAAE,EAAE,KAAK,2CAoH/D;AAED,eAAe,iBAAiB,CAAC"}
