@@ -1040,7 +1040,7 @@ export function VaultSetup({ onNavigate }: Props) {
                           }`}>
                             {log.statusCode || 'N/A'}
                           </span>
-                          {log.processingTimeMs && (
+                          {log.processingTimeMs !== null && log.processingTimeMs !== undefined && (
                             <span className="text-xs text-muted-foreground">
                               {log.processingTimeMs}ms
                             </span>

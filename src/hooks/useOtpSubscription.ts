@@ -253,6 +253,39 @@ export interface UseOtpSubscriptionResult {
   error: Error | null;
 }
 
+function normalizePhone(value: string): string {
+  // Keep digits only. For E.164 we want to compare the full number when available,
+  // but also tolerate formats like "(555) 123-4567" by comparing suffixes.
+  return value.replace(/[^\d]/g, '');
+}
+
+function matchesToFilter(toValue: string, filterValue: string): boolean {
+  const to = (toValue || '').trim();
+  const filter = (filterValue || '').trim();
+  if (!to || !filter) return false;
+
+  // Email-ish filter
+  if (filter.includes('@') || to.includes('@')) {
+    const filterLower = filter.toLowerCase();
+    const toLower = to.toLowerCase();
+    if (toLower.includes(filterLower)) return true;
+    // Also allow matching just the local-part for convenience (e.g. "operations")
+    const toLocal = toLower.split('@')[0] || toLower;
+    const filterLocal = filterLower.split('@')[0] || filterLower;
+    return toLocal.includes(filterLocal) || filterLocal.includes(toLocal);
+  }
+
+  // Phone-ish filter: compare digit-only forms, then suffix-match to handle missing country code.
+  const toDigits = normalizePhone(to);
+  const filterDigits = normalizePhone(filter);
+  if (!toDigits || !filterDigits) return false;
+  if (toDigits === filterDigits) return true;
+  // Suffix compare: last 10 digits is a common baseline; also allow shorter
+  const suffixLen = Math.min(10, toDigits.length, filterDigits.length);
+  if (suffixLen <= 0) return false;
+  return toDigits.slice(-suffixLen) === filterDigits.slice(-suffixLen);
+}
+
 /**
  * Hook for subscribing to OTP notifications
  * 
@@ -422,10 +455,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
 
     // Filter by 'to' address if specified
     if (optToFilter) {
-      const filterLower = optToFilter.toLowerCase();
-      const toLower = notification.to.toLowerCase();
-      // Partial match (e.g., "operations" matches "operations@example.com")
-      if (!toLower.includes(filterLower) && !filterLower.includes(toLower.split('@')[0])) {
+      if (!matchesToFilter(notification.to, optToFilter)) {
         return;
       }
     }

@@ -72,7 +72,10 @@ export function OtpWaitingModal({ open, onClose, itemTitle, mode, emailAddress, 
   // Only enable after we've loaded the initial message ID to avoid race condition
   const otpSubscription = useOtpSubscription({
     type: mode,
-    toFilter: mode === 'email' ? (emailAddress || undefined) : undefined,
+    toFilter:
+      mode === 'email'
+        ? (emailAddress || undefined)
+        : (phoneNumber || undefined),
     enabled: open && initialLoadComplete, // Wait until initial load is complete
     keepListening: true, // Keep listening for new OTPs even after receiving one
     skipMessageId: initialMessageId, // Pass initial message ID to skip it

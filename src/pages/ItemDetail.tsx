@@ -28,6 +28,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
   
   // Email OTP state
   const [globalEmailAddress, setGlobalEmailAddress] = useState<string | null>(null);
+  const [globalPhoneNumber, setGlobalPhoneNumber] = useState<string | null>(null);
   const [emailCopied, setEmailCopied] = useState(false);
   const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
   const [showSmsOtpModal, setShowSmsOtpModal] = useState(false);
@@ -43,6 +44,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
       loadItem();
     }
     loadGlobalEmailAddress();
+    loadGlobalPhoneNumber();
   }, [itemId]);
 
   useEffect(() => {
@@ -93,6 +95,18 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
       setGlobalEmailAddress(result.emailAddress);
     } catch (err) {
       console.error('Failed to load global email address:', err);
+    }
+  }
+
+  async function loadGlobalPhoneNumber() {
+    try {
+      const result = await vaultApi.getGlobalPhoneNumber();
+      // Filter out email placeholder - it's not a real phone number
+      const phoneNumber = result.phoneNumber === '[email-inbox]' ? null : result.phoneNumber;
+      setGlobalPhoneNumber(phoneNumber);
+    } catch (err) {
+      // Non-fatal: SMS can still work without this (it only affects filtering/UI).
+      console.error('Failed to load global phone number:', err);
     }
   }
 
@@ -552,6 +566,7 @@ export function ItemDetail({ itemId, onNavigate }: Props) {
           open={true}
           mode="sms"
           itemTitle={item?.title || undefined}
+          phoneNumber={globalPhoneNumber || undefined}
           onClose={() => setShowSmsOtpModal(false)}
         />
       )}
