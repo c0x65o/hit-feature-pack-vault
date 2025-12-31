@@ -1,9 +1,5 @@
 import { z } from "zod";
 export declare const postBodySchema: z.ZodObject<{
     csvData: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    csvData: string;
-}, {
-    csvData: string;
-}>;
+}, z.core.$strip>;
 //# sourceMappingURL=import-csv-preview.schema.d.ts.map

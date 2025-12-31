@@ -1,1 +1,1 @@
-{"version":3,"file":"vaults.schema.d.ts","sourceRoot":"","sources":["../../../src/server/api/vaults.schema.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAC;AAQxB,eAAO,MAAM,cAAc;;;;;;;;;;;;;;;;;;EAMzB,CAAC;AAEH,eAAO,MAAM,aAAa;;;;;;;;;;;;EAIxB,CAAC"}
+{"version":3,"file":"vaults.schema.d.ts","sourceRoot":"","sources":["../../../src/server/api/vaults.schema.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAC;AAQxB,eAAO,MAAM,cAAc;;;;;;;;;iBAMzB,CAAC;AAEH,eAAO,MAAM,aAAa;;;;iBAIxB,CAAC"}

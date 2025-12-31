@@ -1,1 +1,1 @@
-{"version":3,"file":"folders-move.schema.d.ts","sourceRoot":"","sources":["../../../src/server/api/folders-move.schema.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAC;AAOxB,eAAO,MAAM,cAAc;;;;;;EAEzB,CAAC"}
+{"version":3,"file":"folders-move.schema.d.ts","sourceRoot":"","sources":["../../../src/server/api/folders-move.schema.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAC;AAOxB,eAAO,MAAM,cAAc;;iBAEzB,CAAC"}
