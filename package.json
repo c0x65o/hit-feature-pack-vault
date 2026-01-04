@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.75",
+  "version": "1.0.76",
   "description": "Password management and 2FA vault with team sharing, folders, CSV import, and TOTP",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -51,7 +51,6 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {},
