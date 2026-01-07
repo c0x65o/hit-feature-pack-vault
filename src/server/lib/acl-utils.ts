@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db';
 import { vaultAcls, vaultFolders, vaultVaults, vaultItems, vaultGroupMembers } from '@/lib/feature-pack-schemas';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import type { User } from '../auth';
-import { resolveUserPrincipals } from '@hit/acl-utils';
+import { resolveUserPrincipals } from '@/lib/acl-utils';
 
 export interface AclCheckOptions {
   requiredPermissions?: string[];

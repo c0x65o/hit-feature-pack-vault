@@ -1,5 +1,7 @@
-declare module '@hit/acl-utils' {
+declare module '@/lib/acl-utils' {
   import type { NextRequest } from 'next/server';
+
+  export type PrincipalType = 'user' | 'group' | 'role';
 
   export interface UserClaimsLike {
     sub: string;
@@ -20,10 +22,9 @@ declare module '@hit/acl-utils' {
     user: UserClaimsLike;
     includeTokenGroups?: boolean;
     includeAuthMeGroups?: boolean;
+    strict?: boolean;
     extraGroupIds?: () => Promise<string[]>;
   }
 
   export function resolveUserPrincipals(options: ResolveUserPrincipalsOptions): Promise<ResolvedUserPrincipals>;
 }
-
-
