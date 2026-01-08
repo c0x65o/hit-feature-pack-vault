@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.80",
+  "version": "1.0.81",
   "description": "A HIT feature pack",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
