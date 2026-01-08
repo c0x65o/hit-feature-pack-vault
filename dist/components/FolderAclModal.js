@@ -3,6 +3,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect, useMemo } from 'react';
 import { useUi } from '@hit/ui-kit';
 import { AclPicker } from '@hit/ui-kit';
+import { createFetchPrincipals } from '@hit/feature-pack-auth-core';
 import { vaultApi } from '../services/vault-api';
 import { VAULT_PERMISSIONS } from '../schema/vault';
 export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
@@ -139,171 +140,25 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             permissions: Array.isArray(acl.permissions) ? acl.permissions : [],
         }));
     }, [acls]);
-    // Custom principal fetcher that combines auth-core principals with static groups
-    const customFetchPrincipals = async (type, search) => {
-        const principals = [];
-        if (type === 'user') {
-            // Use auth-core hook via direct API call (since we can't call hooks conditionally)
-            try {
-                const authUrl = typeof window !== 'undefined'
-                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                    : '/api/proxy/auth';
-                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                const headers = {
-                    'Content-Type': 'application/json',
-                };
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-                const response = await fetch(`${authUrl}/directory/users`, {
-                    credentials: 'include',
-                    headers,
-                });
-                if (response.ok) {
-                    const authUsers = await response.json();
-                    if (Array.isArray(authUsers)) {
-                        authUsers.forEach((user) => {
-                            const firstName = user.profile_fields?.first_name || null;
-                            const lastName = user.profile_fields?.last_name || null;
-                            const displayName = [firstName, lastName].filter(Boolean).join(' ') || user.email;
-                            if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || user.email.toLowerCase().includes(search.toLowerCase())) {
-                                principals.push({
-                                    type: 'user',
-                                    id: user.email,
-                                    displayName,
-                                    metadata: { email: user.email, profile_fields: user.profile_fields },
-                                });
-                            }
-                        });
-                    }
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load users:', err);
-            }
+    const fetchPrincipals = useMemo(() => createFetchPrincipals({
+        isAdmin: isAdminUser,
+        extraPrincipals: async (type, search) => {
+            if (type !== 'group' || !isAdminUser)
+                return [];
+            const searchLower = search?.toLowerCase();
+            return staticGroups
+                .filter(group => {
+                const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
+                return !searchLower || displayName.toLowerCase().includes(searchLower) || group.name.toLowerCase().includes(searchLower);
+            })
+                .map(group => ({
+                type: 'group',
+                id: group.id,
+                displayName: group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`,
+                metadata: { name: group.name, description: group.description, static: true },
+            }));
         }
-        else if (type === 'group') {
-            const authUrl = typeof window !== 'undefined'
-                ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                : '/api/proxy/auth';
-            const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-            const headers = {
-                'Content-Type': 'application/json',
-            };
-            if (token)
-                headers['Authorization'] = `Bearer ${token}`;
-            if (isAdminUser) {
-                // Admin: can pick any auth group (including dynamic groups)
-                try {
-                    const authResponse = await fetch(`${authUrl}/admin/groups`, { headers, credentials: 'include' });
-                    if (authResponse.ok) {
-                        const authGroups = await authResponse.json();
-                        if (Array.isArray(authGroups)) {
-                            authGroups.forEach((group) => {
-                                const displayName = group.description ? `${group.name} - ${group.description}` : group.name;
-                                if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
-                                    principals.push({
-                                        type: 'group',
-                                        id: group.id,
-                                        displayName,
-                                        metadata: { name: group.name, description: group.description },
-                                    });
-                                }
-                            });
-                        }
-                    }
-                }
-                catch (err) {
-                    console.warn('Failed to load groups (admin):', err);
-                }
-                // Admin: also include vault static groups
-                staticGroups.forEach((group) => {
-                    const displayName = group.description ? `${group.name} (Static) - ${group.description}` : `${group.name} (Static)`;
-                    if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || group.name.toLowerCase().includes(search.toLowerCase())) {
-                        principals.push({
-                            type: 'group',
-                            id: group.id,
-                            displayName,
-                            metadata: { name: group.name, description: group.description, static: true },
-                        });
-                    }
-                });
-            }
-            else {
-                // Non-admin (Option B): can pick only groups they are in.
-                try {
-                    const res = await fetch(`${authUrl}/me/groups`, { headers, credentials: 'include' });
-                    if (res.ok) {
-                        const myGroups = await res.json();
-                        if (Array.isArray(myGroups)) {
-                            myGroups.forEach((g) => {
-                                const id = String(g.group_id ?? g.groupId ?? '').trim();
-                                const name = String(g.group_name ?? g.groupName ?? id).trim();
-                                if (!id)
-                                    return;
-                                if (!search || name.toLowerCase().includes(search.toLowerCase()) || id.toLowerCase().includes(search.toLowerCase())) {
-                                    principals.push({
-                                        type: 'group',
-                                        id,
-                                        displayName: name,
-                                        metadata: { name, source: 'me/groups' },
-                                    });
-                                }
-                            });
-                        }
-                    }
-                }
-                catch (err) {
-                    console.warn('Failed to load my groups:', err);
-                }
-            }
-        }
-        else if (type === 'role') {
-            // Non-admins cannot share to roles.
-            if (!isAdminUser)
-                return principals;
-            // Roles from auth module
-            try {
-                const authUrl = typeof window !== 'undefined'
-                    ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                    : '/api/proxy/auth';
-                const token = typeof window !== 'undefined' ? localStorage.getItem('hit_token') : null;
-                const headers = {
-                    'Content-Type': 'application/json',
-                };
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-                const response = await fetch(`${authUrl}/features`, { headers });
-                if (response.ok) {
-                    const data = await response.json();
-                    const availableRoles = data.features?.available_roles || ['admin', 'user'];
-                    availableRoles.forEach((role) => {
-                        const displayName = role.charAt(0).toUpperCase() + role.slice(1);
-                        if (!search || displayName.toLowerCase().includes(search.toLowerCase()) || role.toLowerCase().includes(search.toLowerCase())) {
-                            principals.push({
-                                type: 'role',
-                                id: role,
-                                displayName,
-                            });
-                        }
-                    });
-                }
-            }
-            catch (err) {
-                console.warn('Failed to load roles:', err);
-                // Fallback
-                ['admin', 'user'].forEach(role => {
-                    principals.push({
-                        type: 'role',
-                        id: role,
-                        displayName: role.charAt(0).toUpperCase() + role.slice(1),
-                    });
-                });
-            }
-        }
-        return principals;
-    };
+    }), [isAdminUser, staticGroups]);
     async function handleAdd(entry) {
         try {
             setError(null);
@@ -384,5 +239,5 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
             emptyMessage: 'No access permissions set. Click "Add Access" to grant permissions.',
         },
     }), [isAdminUser]);
-    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: '1rem' }, children: [isRootFolder === false && (_jsx(Alert, { variant: "error", title: "Invalid Folder", children: "Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions." })), _jsx(AclPicker, { config: vaultAclConfig, entries: aclEntries, loading: loading, error: error?.message || null, onAdd: handleAdd, onRemove: handleRemove, fetchPrincipals: customFetchPrincipals, disabled: isRootFolder === false || !canManageAcls })] }) }));
+    return (_jsx(Modal, { open: isOpen, onClose: onClose, title: "Folder Access Control", size: "lg", children: _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: '1rem' }, children: [isRootFolder === false && (_jsx(Alert, { variant: "error", title: "Invalid Folder", children: "Access permissions can only be set on root folders (folders without a parent). This folder is a subfolder and cannot have its own permissions." })), _jsx(AclPicker, { config: vaultAclConfig, entries: aclEntries, loading: loading, error: error?.message || null, onAdd: handleAdd, onRemove: handleRemove, fetchPrincipals: fetchPrincipals, disabled: isRootFolder === false || !canManageAcls })] }) }));
 }

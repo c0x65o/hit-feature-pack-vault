@@ -1,6 +1,6 @@
 import { vaultAcls, vaultFolders, vaultVaults, vaultItems, vaultGroupMembers } from '@/lib/feature-pack-schemas';
 import { eq, and, or, inArray } from 'drizzle-orm';
-import { resolveUserPrincipals } from '@/lib/acl-utils';
+import { resolveUserPrincipals } from '@hit/feature-pack-auth-core/server/lib/acl-utils';
 /**
  * Map legacy permission names to actual permissions
  * Legacy: EDIT, SHARE, VIEW_METADATA -> Actual: READ_ONLY, READ_WRITE, DELETE
