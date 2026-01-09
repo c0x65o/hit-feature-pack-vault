@@ -1,6 +1,6 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.86",
+  "version": "1.0.87",
   "description": "A HIT feature pack",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,6 +26,13 @@
       "import": "./dist/components/*.js",
       "require": "./dist/components/*.js",
       "default": "./dist/components/*.js"
+    },
+    "./hooks": {
+      "development": "./src/hooks/index.ts",
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks/index.js",
+      "require": "./dist/hooks/index.js",
+      "default": "./dist/hooks/index.js"
     },
     "./hooks/*": {
       "development": "./src/hooks/*.ts",
