@@ -7,11 +7,23 @@
  * When used with the route loader system, only the requested component is bundled.
  */
 // Pages - exported individually for tree-shaking
-export { VaultLanding, VaultLandingPage, PersonalVault, PersonalVaultPage, SharedVaults, SharedVaultsPage, SharedVaultDetail, SharedVaultDetailPage, FolderView, FolderViewPage, ItemDetail, ItemDetailPage, ItemEdit, ItemEditPage, ImportCSV, ImportCSVPage, GroupManagement, GroupManagementPage, VaultSetup, VaultSetupPage, } from './pages/index';
+export { VaultLanding, default as VaultLandingPage } from './pages/VaultLanding';
+export { PersonalVault, default as PersonalVaultPage } from './pages/PersonalVault';
+export { SharedVaults, default as SharedVaultsPage } from './pages/SharedVaults';
+export { SharedVaultDetail, default as SharedVaultDetailPage } from './pages/SharedVaultDetail';
+export { FolderView, default as FolderViewPage } from './pages/FolderView';
+export { ItemDetail, default as ItemDetailPage } from './pages/ItemDetail';
+export { ItemEdit, default as ItemEditPage } from './pages/ItemEdit';
+export { ImportCSV, default as ImportCSVPage } from './pages/ImportCSV';
+export { GroupManagement, default as GroupManagementPage } from './pages/GroupManagement';
+export { PhoneNumberSetup, default as PhoneNumberSetupPage } from './pages/PhoneNumberSetup';
+export { VaultSetup, default as VaultSetupPage } from './pages/VaultSetup';
 // Components - exported individually for tree-shaking
-export * from './components/index';
+export { AddItemModal } from './components/AddItemModal';
+export { FolderModal } from './components/FolderModal';
+export { FolderAclModal } from './components/FolderAclModal';
 // Hooks - exported individually for tree-shaking
-export * from './hooks/index';
+export { useOtpSubscription, getWebSocketStatus, isWebSocketAvailable, getGlobalWsStatus, subscribeGlobalWsStatus, getGlobalOtpConnectionType, subscribeGlobalOtpConnectionType, ensureVaultRealtimeConnection, } from './hooks/useOtpSubscription';
 // Navigation config
 export { navContributions as nav } from './nav';
 // Schema exports - MOVED to @hit/feature-pack-vault/schema to avoid bundling drizzle-orm in client
