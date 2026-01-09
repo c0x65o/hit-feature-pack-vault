@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useUi, type BreadcrumbItem } from '@hit/ui-kit';
+import type { BreadcrumbItem } from '@hit/ui-kit';
+import { useUi } from '@hit/ui-kit';
 import { Upload, Lock as LockIcon } from 'lucide-react';
 import { vaultApi } from '../services/vault-api';
 

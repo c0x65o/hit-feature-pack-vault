@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { AclPicker, type AclPickerConfig, type AclEntry, type Principal } from '@hit/ui-kit';
+import type { AclEntry, AclPickerConfig, Principal } from '@hit/ui-kit';
+import { AclPicker } from '@hit/ui-kit/components/AclPicker';
 import { createFetchPrincipals } from '@hit/feature-pack-auth-core';
 import { vaultApi } from '../services/vault-api';
 import type { VaultAcl, InsertVaultAcl } from '../schema/vault';

@@ -2,7 +2,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect, useMemo } from 'react';
 import { useUi } from '@hit/ui-kit';
-import { AclPicker } from '@hit/ui-kit';
+import { AclPicker } from '@hit/ui-kit/components/AclPicker';
 import { createFetchPrincipals } from '@hit/feature-pack-auth-core';
 import { vaultApi } from '../services/vault-api';
 import { VAULT_PERMISSIONS } from '../schema/vault';

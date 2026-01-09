@@ -1,60 +1,76 @@
 {
   "name": "@hit/feature-pack-vault",
-  "version": "1.0.85",
+  "version": "1.0.86",
   "description": "A HIT feature pack",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./pages/*": {
+      "development": "./src/pages/*.tsx",
       "types": "./dist/pages/*.d.ts",
       "import": "./dist/pages/*.js",
       "require": "./dist/pages/*.js",
       "default": "./dist/pages/*.js"
     },
     "./components/*": {
+      "development": "./src/components/*.ts",
       "types": "./dist/components/*.d.ts",
       "import": "./dist/components/*.js",
       "require": "./dist/components/*.js",
       "default": "./dist/components/*.js"
     },
+    "./hooks": {
+      "development": "./src/hooks/index.ts",
+      "types": "./dist/hooks/index.d.ts",
+      "import": "./dist/hooks/index.js",
+      "require": "./dist/hooks/index.js",
+      "default": "./dist/hooks/index.js"
+    },
     "./hooks/*": {
+      "development": "./src/hooks/*.ts",
       "types": "./dist/hooks/*.d.ts",
       "import": "./dist/hooks/*.js",
       "require": "./dist/hooks/*.js",
       "default": "./dist/hooks/*.js"
     },
     "./schema": {
+      "development": "./src/schema/vault.ts",
       "types": "./dist/schema/vault.d.ts",
       "import": "./dist/schema/vault.js",
       "require": "./dist/schema/vault.js",
       "default": "./dist/schema/vault.js"
     },
     "./server/api/*": {
+      "development": "./src/server/api/*.ts",
       "types": "./dist/server/api/*.d.ts",
       "import": "./dist/server/api/*.js",
       "require": "./dist/server/api/*.js",
       "default": "./dist/server/api/*.js"
     },
     "./server/lib/*": {
+      "development": "./src/server/lib/*.ts",
       "types": "./dist/server/lib/*.d.ts",
       "import": "./dist/server/lib/*.js",
       "require": "./dist/server/lib/*.js",
       "default": "./dist/server/lib/*.js"
     },
     "./services/*": {
+      "development": "./src/services/*.ts",
       "types": "./dist/services/*.d.ts",
       "import": "./dist/services/*.js",
       "require": "./dist/services/*.js",
       "default": "./dist/services/*.js"
     },
     "./utils/*": {
+      "development": "./src/utils/*.ts",
       "types": "./dist/utils/*.d.ts",
       "import": "./dist/utils/*.js",
       "require": "./dist/utils/*.js",
@@ -99,5 +115,6 @@
     "typescript": "^5",
     "zod": "^4.3.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "sideEffects": false
 }
