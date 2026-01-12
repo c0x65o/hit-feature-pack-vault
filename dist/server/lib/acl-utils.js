@@ -137,11 +137,6 @@ export async function checkVaultAccess(db, vaultId, user, requiredPermissions, r
     if (vault.ownerUserId === user.sub && vault.type === 'personal') {
         return { hasAccess: true };
     }
-    // Admins have full access to shared vaults (can see everything)
-    const isAdmin = user.roles?.includes('admin') || false;
-    if (isAdmin && vault.type === 'shared') {
-        return { hasAccess: true };
-    }
     // For shared vaults, even owners need explicit ACLs
     // Check ACL permissions
     const principals = await getUserPrincipals(db, user, request);
@@ -242,15 +237,9 @@ export async function checkFolderAccess(db, folderId, user, options = {}, reques
     if (!vault) {
         return { hasAccess: false, reason: 'Vault not found' };
     }
-    const isAdmin = user.roles?.includes('admin') || false;
     const isOwner = vault.ownerUserId === user.sub;
     // For owners of personal vaults: they have full access (all permissions)
     if (isOwner && vault.type === 'personal') {
-        return { hasAccess: true };
-    }
-    // For shared vaults: admins have full access (can see everything)
-    // But shared vault owners need explicit ACLs (they don't get automatic access)
-    if (isAdmin && vault.type === 'shared') {
         return { hasAccess: true };
     }
     // Check ACL permissions
@@ -258,17 +247,6 @@ export async function checkFolderAccess(db, folderId, user, options = {}, reques
     const effectiveAcls = await getEffectiveFolderAcls(db, folderId, principals);
     if (effectiveAcls.length === 0) {
         // No ACLs found for this user
-        // Admins still have access to shared vaults (just no specific permission level)
-        // But shared vault owners need explicit ACLs like everyone else
-        if (isAdmin && vault.type === 'shared') {
-            // Admin can access but without specific permissions from ACL
-            // Return true for basic access, but no specific permissions
-            if (requiredPermissions.length === 0) {
-                return { hasAccess: true };
-            }
-            // If specific permissions required, deny (admin can see but not modify without ACL)
-            return { hasAccess: false, reason: 'No ACL permissions found for required permissions' };
-        }
         return { hasAccess: false, reason: 'No ACL permissions found' };
     }
     // Merge all permissions from effective ACLs (user may have multiple ACLs via user + group)
@@ -309,11 +287,6 @@ export async function checkItemAccess(db, itemId, user, options = {}, request) {
     }
     // Personal vault owner has full access to their own vault
     if (vault.ownerUserId === user.sub && vault.type === 'personal') {
-        return { hasAccess: true };
-    }
-    // Admins have full access to shared vaults (can see everything)
-    const isAdmin = user.roles?.includes('admin') || false;
-    if (isAdmin && vault.type === 'shared') {
         return { hasAccess: true };
     }
     // For shared vaults, even owners need explicit ACLs

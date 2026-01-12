@@ -17,18 +17,23 @@ routes:
   - path: /vault
     page: VaultLanding
     roles: []  # Empty = authenticated users only
+    authz: { entity: vaults, verb: read }
   - path: /vault/import
     page: ImportCSV
     roles: []
+    authz: { entity: items, verb: write, require_create: true }
   - path: /vault/setup
     page: VaultSetup
     roles: [admin]  # Admin only - configure project SMS 2FA phone number and view inbox for debugging
+    default_roles_allow: [admin]
   - path: /vault/items/[itemId]
     page: ItemDetail
     roles: []
+    authz: { entity: items, verb: read }
   - path: /vault/items/[itemId]/edit
     page: ItemEdit
     roles: []
+    authz: { entity: items, verb: write }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NAVIGATION - Sidebar/topbar items
@@ -273,6 +278,242 @@ api:
       methods: [GET, POST, DELETE]
       handler: "@hit/feature-pack-vault/server/api/groups-members"
       description: "Manage group members - static groups only"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERMISSIONS - Entity+Verb permissions model
+# ─────────────────────────────────────────────────────────────────────────────
+permissions:
+  actions:
+    # Scope Policy Tree: Vault (global) -> entity overrides.
+    #
+    # Scope modes:
+    # - none: deny all access for this verb/entity (hide pages + block APIs)
+    # - any: ignore scope (read everything)
+    # - own: only owned records (personal vaults owned by user, or items/folders in personal vaults)
+    # - ldd: same as own (vault entities don't have LDD fields, but personal vault ownership is checked)
+    #
+    # These are mutually exclusive per node; the Security Groups UI renders them as dropdowns.
+    - key: vault.read.scope.none
+      label: "Vault Read Scope = None"
+      description: "Deny all vault read access."
+      default_enabled: false
+    - key: vault.read.scope.any
+      label: "Vault Read Scope = Any"
+      description: "Read all vault entities regardless of ownership."
+      default_enabled: false
+    - key: vault.read.scope.own
+      label: "Vault Read Scope = Own"
+      description: "Read only vault entities you own (personal vaults or items/folders in personal vaults)."
+      default_enabled: false
+    - key: vault.read.scope.ldd
+      label: "Vault Read Scope = LDD"
+      description: "Read vault entities (same as own, since vault entities don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.write.scope.none
+      label: "Vault Write Scope = None"
+      description: "Deny all vault write access."
+      default_enabled: false
+    - key: vault.write.scope.any
+      label: "Vault Write Scope = Any"
+      description: "Edit vault entities regardless of ownership."
+      default_enabled: false
+    - key: vault.write.scope.own
+      label: "Vault Write Scope = Own"
+      description: "Edit only vault entities you own (personal vaults or items/folders in personal vaults)."
+      default_enabled: false
+    - key: vault.write.scope.ldd
+      label: "Vault Write Scope = LDD"
+      description: "Edit vault entities (same as own, since vault entities don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.delete.scope.none
+      label: "Vault Delete Scope = None"
+      description: "Deny all vault delete access."
+      default_enabled: false
+    - key: vault.delete.scope.any
+      label: "Vault Delete Scope = Any"
+      description: "Delete vault entities regardless of ownership."
+      default_enabled: false
+    - key: vault.delete.scope.own
+      label: "Vault Delete Scope = Own"
+      description: "Delete only vault entities you own (personal vaults or items/folders in personal vaults)."
+      default_enabled: false
+    - key: vault.delete.scope.ldd
+      label: "Vault Delete Scope = LDD"
+      description: "Delete vault entities (same as own, since vault entities don't have LDD fields)."
+      default_enabled: false
+
+    # Vaults entity override
+    - key: vault.vaults.read.scope.none
+      label: "Vault Vaults Read Scope = None"
+      description: "Deny all vault read access."
+      default_enabled: false
+    - key: vault.vaults.read.scope.any
+      label: "Vault Vaults Read Scope = Any"
+      description: "Read all vaults regardless of ownership."
+      default_enabled: false
+    - key: vault.vaults.read.scope.own
+      label: "Vault Vaults Read Scope = Own"
+      description: "Read only personal vaults you own."
+      default_enabled: false
+    - key: vault.vaults.read.scope.ldd
+      label: "Vault Vaults Read Scope = LDD"
+      description: "Read vaults (same as own, since vaults don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.vaults.write.scope.none
+      label: "Vault Vaults Write Scope = None"
+      description: "Deny all vault write access."
+      default_enabled: false
+    - key: vault.vaults.write.scope.any
+      label: "Vault Vaults Write Scope = Any"
+      description: "Edit vaults regardless of ownership."
+      default_enabled: false
+    - key: vault.vaults.write.scope.own
+      label: "Vault Vaults Write Scope = Own"
+      description: "Edit only personal vaults you own."
+      default_enabled: false
+    - key: vault.vaults.write.scope.ldd
+      label: "Vault Vaults Write Scope = LDD"
+      description: "Edit vaults (same as own, since vaults don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.vaults.delete.scope.none
+      label: "Vault Vaults Delete Scope = None"
+      description: "Deny all vault delete access."
+      default_enabled: false
+    - key: vault.vaults.delete.scope.any
+      label: "Vault Vaults Delete Scope = Any"
+      description: "Delete vaults regardless of ownership."
+      default_enabled: false
+    - key: vault.vaults.delete.scope.own
+      label: "Vault Vaults Delete Scope = Own"
+      description: "Delete only personal vaults you own."
+      default_enabled: false
+    - key: vault.vaults.delete.scope.ldd
+      label: "Vault Vaults Delete Scope = LDD"
+      description: "Delete vaults (same as own, since vaults don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.vaults.create
+      label: Create Vault
+      description: "Create a new vault (personal or shared)."
+      default_enabled: true
+
+    # Folders entity override
+    - key: vault.folders.read.scope.none
+      label: "Vault Folders Read Scope = None"
+      description: "Deny all folder read access."
+      default_enabled: false
+    - key: vault.folders.read.scope.any
+      label: "Vault Folders Read Scope = Any"
+      description: "Read all folders regardless of ownership."
+      default_enabled: false
+    - key: vault.folders.read.scope.own
+      label: "Vault Folders Read Scope = Own"
+      description: "Read only folders in personal vaults you own."
+      default_enabled: false
+    - key: vault.folders.read.scope.ldd
+      label: "Vault Folders Read Scope = LDD"
+      description: "Read folders (same as own, since folders don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.folders.write.scope.none
+      label: "Vault Folders Write Scope = None"
+      description: "Deny all folder write access."
+      default_enabled: false
+    - key: vault.folders.write.scope.any
+      label: "Vault Folders Write Scope = Any"
+      description: "Edit folders regardless of ownership."
+      default_enabled: false
+    - key: vault.folders.write.scope.own
+      label: "Vault Folders Write Scope = Own"
+      description: "Edit only folders in personal vaults you own."
+      default_enabled: false
+    - key: vault.folders.write.scope.ldd
+      label: "Vault Folders Write Scope = LDD"
+      description: "Edit folders (same as own, since folders don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.folders.delete.scope.none
+      label: "Vault Folders Delete Scope = None"
+      description: "Deny all folder delete access."
+      default_enabled: false
+    - key: vault.folders.delete.scope.any
+      label: "Vault Folders Delete Scope = Any"
+      description: "Delete folders regardless of ownership."
+      default_enabled: false
+    - key: vault.folders.delete.scope.own
+      label: "Vault Folders Delete Scope = Own"
+      description: "Delete only folders in personal vaults you own."
+      default_enabled: false
+    - key: vault.folders.delete.scope.ldd
+      label: "Vault Folders Delete Scope = LDD"
+      description: "Delete folders (same as own, since folders don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.folders.create
+      label: Create Folder
+      description: "Create a new folder in a vault."
+      default_enabled: true
+
+    # Items entity override
+    - key: vault.items.read.scope.none
+      label: "Vault Items Read Scope = None"
+      description: "Deny all item read access."
+      default_enabled: false
+    - key: vault.items.read.scope.any
+      label: "Vault Items Read Scope = Any"
+      description: "Read all items regardless of ownership."
+      default_enabled: false
+    - key: vault.items.read.scope.own
+      label: "Vault Items Read Scope = Own"
+      description: "Read only items in personal vaults you own."
+      default_enabled: false
+    - key: vault.items.read.scope.ldd
+      label: "Vault Items Read Scope = LDD"
+      description: "Read items (same as own, since items don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.items.write.scope.none
+      label: "Vault Items Write Scope = None"
+      description: "Deny all item write access."
+      default_enabled: false
+    - key: vault.items.write.scope.any
+      label: "Vault Items Write Scope = Any"
+      description: "Edit items regardless of ownership."
+      default_enabled: false
+    - key: vault.items.write.scope.own
+      label: "Vault Items Write Scope = Own"
+      description: "Edit only items in personal vaults you own."
+      default_enabled: false
+    - key: vault.items.write.scope.ldd
+      label: "Vault Items Write Scope = LDD"
+      description: "Edit items (same as own, since items don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.items.delete.scope.none
+      label: "Vault Items Delete Scope = None"
+      description: "Deny all item delete access."
+      default_enabled: false
+    - key: vault.items.delete.scope.any
+      label: "Vault Items Delete Scope = Any"
+      description: "Delete items regardless of ownership."
+      default_enabled: false
+    - key: vault.items.delete.scope.own
+      label: "Vault Items Delete Scope = Own"
+      description: "Delete only items in personal vaults you own."
+      default_enabled: false
+    - key: vault.items.delete.scope.ldd
+      label: "Vault Items Delete Scope = LDD"
+      description: "Delete items (same as own, since items don't have LDD fields)."
+      default_enabled: false
+
+    - key: vault.items.create
+      label: Create Item
+      description: "Create a new item in a vault."
+      default_enabled: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DEPENDENCIES

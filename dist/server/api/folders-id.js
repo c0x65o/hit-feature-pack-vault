@@ -3,8 +3,9 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { vaultFolders, vaultVaults } from '@/lib/feature-pack-schemas';
 import { eq } from 'drizzle-orm';
-import { extractUserFromRequest } from '../auth';
+import { extractUserFromRequest, getUserId } from '../auth';
 import { checkFolderAccess } from '../lib/acl-utils';
+import { resolveVaultScopeMode } from '../lib/scope-mode';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 function extractId(request) {
@@ -45,33 +46,47 @@ export async function GET(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+        // Check read permission and resolve scope mode
+        const mode = await resolveVaultScopeMode(request, { entity: 'folders', verb: 'read' });
+        if (mode === 'none') {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
         const folder = await verifyFolderAccess(db, id, user, request);
         if (!folder) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        // Add permission flags for UI conditional rendering
-        const { getEffectiveFolderAcls, getUserPrincipals, mergePermissions } = await import('../lib/acl-utils');
         // Get vault to check ownership
         const [vault] = await db
             .select()
             .from(vaultVaults)
             .where(eq(vaultVaults.id, folder.vaultId))
             .limit(1);
-        const isAdmin = user.roles?.includes('admin') || false;
-        const isOwner = vault?.ownerUserId === user.sub;
-        // Check ACL permissions to determine actual permission level
-        // Admins ALWAYS have full control on shared vaults, regardless of ACLs
-        let permissionLevel = 'none';
-        // Admins always have full access to shared vaults
-        if (isAdmin && vault?.type === 'shared') {
-            permissionLevel = 'full';
+        if (!vault) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        else if (isOwner && vault?.type === 'personal') {
+        const userId = getUserId(request);
+        // Apply scope mode filtering (explicit branching on none/own/ldd/any)
+        if (mode === 'own' || mode === 'ldd') {
+            // Only allow access to folders in personal vaults owned by user
+            if (!(vault.ownerUserId === userId && vault.type === 'personal')) {
+                return NextResponse.json({ error: 'Not found' }, { status: 404 });
+            }
+        }
+        else if (mode === 'any') {
+            // Allow access if user owns personal vault OR has ACL access (already checked in verifyFolderAccess)
+            // No additional check needed here since verifyFolderAccess handles ACL
+        }
+        // Add permission flags for UI conditional rendering
+        const { getEffectiveFolderAcls, getUserPrincipals, mergePermissions } = await import('../lib/acl-utils');
+        const isOwner = vault.ownerUserId === user.sub;
+        // Check ACL permissions to determine actual permission level
+        let permissionLevel = 'none';
+        if (isOwner && vault.type === 'personal') {
             // Personal vault owner has full access (no ACL needed - it's their vault)
             permissionLevel = 'full';
         }
         else {
-            // For non-admin users or personal vaults, check ACL permissions
+            // For shared vaults, check ACL permissions
             const principals = await getUserPrincipals(db, user, request);
             const effectiveAcls = await getEffectiveFolderAcls(db, id, principals);
             if (effectiveAcls.length > 0) {
@@ -126,14 +141,42 @@ export async function PUT(request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         const body = await request.json();
-        // Check if user has READ_WRITE permission
-        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] }, request);
-        if (!accessCheck.hasAccess) {
-            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        // Check write permission and resolve scope mode
+        const mode = await resolveVaultScopeMode(request, { entity: 'folders', verb: 'write' });
+        if (mode === 'none') {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
         const existing = await verifyFolderAccess(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+        // Get vault to check ownership
+        const [vault] = await db
+            .select()
+            .from(vaultVaults)
+            .where(eq(vaultVaults.id, existing.vaultId))
+            .limit(1);
+        if (!vault) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+        const userId = getUserId(request);
+        // Apply scope mode filtering (explicit branching on none/own/ldd/any)
+        if (mode === 'own' || mode === 'ldd') {
+            // Only allow updating folders in personal vaults owned by user
+            if (!(vault.ownerUserId === userId && vault.type === 'personal')) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            }
+        }
+        else if (mode === 'any') {
+            // Allow update if user owns personal vault OR has ACL write access
+            const isPersonalOwner = vault.ownerUserId === userId && vault.type === 'personal';
+            if (!isPersonalOwner) {
+                // Check ACL write access
+                const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['READ_WRITE'] }, request);
+                if (!accessCheck.hasAccess) {
+                    return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+                }
+            }
         }
         const updateData = {};
         // Update name and recalculate path
@@ -173,14 +216,42 @@ export async function DELETE(request) {
         if (!user) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        // Check if user has DELETE permission
-        const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] }, request);
-        if (!accessCheck.hasAccess) {
-            return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+        // Check delete permission and resolve scope mode
+        const mode = await resolveVaultScopeMode(request, { entity: 'folders', verb: 'delete' });
+        if (mode === 'none') {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
         const existing = await verifyFolderAccess(db, id, user, request);
         if (!existing) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+        // Get vault to check ownership
+        const [vault] = await db
+            .select()
+            .from(vaultVaults)
+            .where(eq(vaultVaults.id, existing.vaultId))
+            .limit(1);
+        if (!vault) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+        const userId = getUserId(request);
+        // Apply scope mode filtering (explicit branching on none/own/ldd/any)
+        if (mode === 'own' || mode === 'ldd') {
+            // Only allow deleting folders in personal vaults owned by user
+            if (!(vault.ownerUserId === userId && vault.type === 'personal')) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+            }
+        }
+        else if (mode === 'any') {
+            // Allow delete if user owns personal vault OR has ACL delete access
+            const isPersonalOwner = vault.ownerUserId === userId && vault.type === 'personal';
+            if (!isPersonalOwner) {
+                // Check ACL delete access
+                const accessCheck = await checkFolderAccess(db, id, user, { requiredPermissions: ['DELETE'] }, request);
+                if (!accessCheck.hasAccess) {
+                    return NextResponse.json({ error: 'Forbidden: ' + (accessCheck.reason || 'Insufficient permissions') }, { status: 403 });
+                }
+            }
         }
         await db.delete(vaultFolders).where(eq(vaultFolders.id, id));
         return NextResponse.json({ success: true });

@@ -5,6 +5,8 @@ import { vaultItems, vaultVaults, vaultAcls, vaultFolders } from '@/lib/feature-
 import { eq, desc, asc, like, sql, and, or, inArray, type AnyColumn } from 'drizzle-orm';
 import { getUserId, extractUserFromRequest } from '../auth';
 import { getDescendantFolderIds } from '../lib/acl-utils';
+import { resolveVaultScopeMode } from '../lib/scope-mode';
+import { requireVaultAction } from '../lib/require-action';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,6 +19,17 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDb();
     const { searchParams } = new URL(request.url);
+
+    // Check read permission and resolve scope mode
+    const mode = await resolveVaultScopeMode(request, { entity: 'items', verb: 'read' });
+
+    if (mode === 'none') {
+      // Explicit deny: return empty results
+      return NextResponse.json({
+        items: [],
+        pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 },
+      });
+    }
 
     const page = parseInt(searchParams.get('page') || '1', 10);
     const pageSize = parseInt(searchParams.get('pageSize') || '25', 10);
@@ -32,9 +45,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    // Get full user info for role checking
+    // Get full user info
     const user = extractUserFromRequest(request);
-    const isAdmin = user?.roles?.includes('admin') || false;
 
     // Get PERSONAL vaults the user owns (personal vaults only - owner has full access)
     const userPersonalVaults = await db
@@ -60,24 +72,22 @@ export async function GET(request: NextRequest) {
       ].filter(Boolean) as string[];
     }
     
-    // Build accessible vault IDs and folder IDs
-    // - Personal vault owners: see all items in their personal vault
-    // - Admins: see all items in all shared vaults
-    // - Non-admin users: see items they have explicit ACL on (vault-level or folder-level)
-    const accessibleVaultIds = new Set<string>(userPersonalVaultIds);
+    // Build accessible vault IDs and folder IDs based on scope mode (explicit branching on none/own/ldd/any)
+    const accessibleVaultIds = new Set<string>();
     const accessibleFolderIds = new Set<string>();
     
-    if (isAdmin) {
-      // Admins get access to ALL items in shared vaults - they can see everything
-      const sharedVaults = await db
-        .select({ id: vaultVaults.id })
-        .from(vaultVaults)
-        .where(eq(vaultVaults.type, 'shared'));
-      
-      for (const vault of sharedVaults) {
-        accessibleVaultIds.add(vault.id);
+    if (mode === 'own' || mode === 'ldd') {
+      // Only show items in personal vaults owned by user
+      for (const vaultId of userPersonalVaultIds) {
+        accessibleVaultIds.add(vaultId);
       }
-    } else if (userPrincipalIds.length > 0) {
+    } else if (mode === 'any') {
+      // Show items in personal vaults owned by user + shared vaults with ACL access
+      for (const vaultId of userPersonalVaultIds) {
+        accessibleVaultIds.add(vaultId);
+      }
+      
+      if (userPrincipalIds.length > 0) {
       // Non-admins: Check ACLs for shared vault access
       // Check vault-level ACLs - users with vault ACL see all items in that vault
       const vaultAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
@@ -113,12 +123,13 @@ export async function GET(request: NextRequest) {
         directAccessFolderIds.add(acl.resourceId);
       }
       
-      // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
-      const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
-      
-      // Add all accessible folders (direct + descendants) to the set
-      for (const folderId of allAccessibleFolderIds) {
-        accessibleFolderIds.add(folderId);
+        // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
+        const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
+        
+        // Add all accessible folders (direct + descendants) to the set
+        for (const folderId of allAccessibleFolderIds) {
+          accessibleFolderIds.add(folderId);
+        }
       }
     }
     
@@ -348,14 +359,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check create permission
+    const createCheck = await requireVaultAction(request, 'vault.items.create');
+    if (createCheck) {
+      return createCheck;
+    }
+
     const userId = getUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get full user info for ACL checking
+    // Get full user info
     const user = extractUserFromRequest(request);
-    const isAdmin = user?.roles?.includes('admin') || false;
+    
+    // Check write permission and resolve scope mode
+    const mode = await resolveVaultScopeMode(request, { entity: 'items', verb: 'write' });
+    
+    if (mode === 'none') {
+      return NextResponse.json(
+        { error: 'Forbidden: Write access denied' },
+        { status: 403 }
+      );
+    }
 
     // Verify user owns the vault or has ACL access
     const [vault] = await db
@@ -368,29 +394,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
     }
 
-    // Check if user owns a PERSONAL vault (only personal vault owners have automatic access)
+    // Apply scope mode filtering (explicit branching on none/own/ldd/any)
     const isPersonalVaultOwner = vault.ownerUserId === userId && vault.type === 'personal';
     
-    // For shared vaults, check ACL access (admins get access via checkFolderAccess/checkVaultAccess)
-    let hasAclAccess = false;
-    if (!isPersonalVaultOwner && user) {
-      // If folderId is provided, check folder access; otherwise check vault access
-      if (body.folderId) {
-        const { checkFolderAccess } = await import('../lib/acl-utils');
-        const accessCheck = await checkFolderAccess(db, body.folderId, user, { 
-          requiredPermissions: ['READ_WRITE'] 
-        });
-        hasAclAccess = accessCheck.hasAccess;
-      } else {
-        // For root-level items, check vault-level ACL
-        const { checkVaultAccess } = await import('../lib/acl-utils');
-        const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['READ_WRITE']);
-        hasAclAccess = accessCheck.hasAccess;
+    if (mode === 'own' || mode === 'ldd') {
+      // Only allow creating items in personal vaults owned by user
+      if (!isPersonalVaultOwner) {
+        return NextResponse.json({ error: 'Forbidden: Cannot create items in this vault with current permissions' }, { status: 403 });
       }
-    }
-
-    if (!isPersonalVaultOwner && !hasAclAccess) {
-      return NextResponse.json({ error: 'Forbidden: You do not have access to create items in this vault' }, { status: 403 });
+    } else if (mode === 'any') {
+      // Allow create if user owns personal vault OR has ACL write access
+      if (!isPersonalVaultOwner && user) {
+        // If folderId is provided, check folder access; otherwise check vault access
+        let hasAclAccess = false;
+        if (body.folderId) {
+          const { checkFolderAccess } = await import('../lib/acl-utils');
+          const accessCheck = await checkFolderAccess(db, body.folderId, user, { 
+            requiredPermissions: ['READ_WRITE'] 
+          });
+          hasAclAccess = accessCheck.hasAccess;
+        } else {
+          // For root-level items, check vault-level ACL
+          const { checkVaultAccess } = await import('../lib/acl-utils');
+          const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['READ_WRITE']);
+          hasAclAccess = accessCheck.hasAccess;
+        }
+        
+        if (!hasAclAccess) {
+          return NextResponse.json({ error: 'Forbidden: You do not have access to create items in this vault' }, { status: 403 });
+        }
+      }
     }
 
     // CRITICAL: If folderId is provided, ensure the vaultId matches the folder's vault

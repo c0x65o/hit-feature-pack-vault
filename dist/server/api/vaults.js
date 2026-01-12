@@ -4,6 +4,8 @@ import { getDb } from '@/lib/db';
 import { vaultVaults, vaultAcls, vaultFolders } from '@/lib/feature-pack-schemas';
 import { eq, desc, asc, like, sql, and, or, inArray } from 'drizzle-orm';
 import { getUserId, extractUserFromRequest } from '../auth';
+import { resolveVaultScopeMode } from '../lib/scope-mode';
+import { requireVaultAction } from '../lib/require-action';
 // Required for Next.js App Router
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,6 +17,12 @@ export async function GET(request) {
     try {
         const db = getDb();
         const { searchParams } = new URL(request.url);
+        // Check read permission and resolve scope mode
+        const mode = await resolveVaultScopeMode(request, { entity: 'vaults', verb: 'read' });
+        if (mode === 'none') {
+            // Explicit deny: return empty results
+            return NextResponse.json({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } });
+        }
         // Pagination
         const page = parseInt(searchParams.get('page') || '1', 10);
         const pageSize = parseInt(searchParams.get('pageSize') || '25', 10);
@@ -31,9 +39,8 @@ export async function GET(request) {
         if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        // Get full user info for role checking
+        // Get full user info
         const user = extractUserFromRequest(request);
-        const isAdmin = user?.roles?.includes('admin') || false;
         // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
         let userPrincipalIds = [userId];
         if (user) {
@@ -48,7 +55,7 @@ export async function GET(request) {
         }
         // Get vault IDs the user has ACL access to (vault-level or folder-level)
         const aclAccessibleVaultIds = new Set();
-        if (!isAdmin && userPrincipalIds.length > 0) {
+        if (userPrincipalIds.length > 0) {
             // Check vault-level ACLs first - direct vault access
             const vaultAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
             const vaultAcls_list = await db
@@ -75,21 +82,23 @@ export async function GET(request) {
                 }
             }
         }
-        // Build access conditions:
-        // - Personal vault owners see their own personal vault
-        // - Admins see ALL shared vaults automatically
-        // - Non-admins see shared vaults ONLY if they have ACL access (vault-level or folder-level)
-        const accessConditions = [
-            // Personal vault ownership - only show personal vaults the user owns
-            and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal'))
-        ];
-        if (isAdmin) {
-            // Admins see all shared vaults
-            accessConditions.push(eq(vaultVaults.type, 'shared'));
+        // Build access conditions based on scope mode (explicit branching on none/own/ldd/any)
+        const accessConditions = [];
+        if (mode === 'own' || mode === 'ldd') {
+            // Only show personal vaults owned by the user
+            accessConditions.push(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
         }
-        else if (aclAccessibleVaultIds.size > 0) {
-            // Non-admins see only vaults they have ACL access to
-            accessConditions.push(inArray(vaultVaults.id, Array.from(aclAccessibleVaultIds)));
+        else if (mode === 'any') {
+            // Show personal vaults owned by user + shared vaults with ACL access
+            const personalCondition = and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal'));
+            if (aclAccessibleVaultIds.size > 0) {
+                // Include shared vaults with ACL access
+                accessConditions.push(or(personalCondition, inArray(vaultVaults.id, Array.from(aclAccessibleVaultIds))));
+            }
+            else {
+                // Only personal vaults
+                accessConditions.push(personalCondition);
+            }
         }
         // Build where conditions
         const conditions = [
@@ -142,7 +151,6 @@ export async function GET(request) {
 /**
  * POST /api/vault/vaults
  * Create a new vault (personal or shared)
- * Only admins can create shared vaults
  */
 export async function POST(request) {
     try {
@@ -152,18 +160,27 @@ export async function POST(request) {
         if (!body.name) {
             return NextResponse.json({ error: 'Name is required' }, { status: 400 });
         }
+        // Check create permission
+        const createCheck = await requireVaultAction(request, 'vault.vaults.create');
+        if (createCheck) {
+            return createCheck;
+        }
         // Get user ID for per-user scope
         const userId = getUserId(request);
         if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        // Get full user info for role checking
+        // Get full user info
         const user = extractUserFromRequest(request);
-        const isAdmin = user?.roles?.includes('admin') || false;
-        // Only admins can create shared vaults
+        // Check write permission and resolve scope mode
+        const mode = await resolveVaultScopeMode(request, { entity: 'vaults', verb: 'write' });
+        if (mode === 'none') {
+            return NextResponse.json({ error: 'Forbidden: Write access denied' }, { status: 403 });
+        }
         const requestedType = body.type || 'personal';
-        if (requestedType === 'shared' && !isAdmin) {
-            return NextResponse.json({ error: 'Only administrators can create shared vaults' }, { status: 403 });
+        // For 'own' or 'ldd' mode, only allow creating personal vaults
+        if ((mode === 'own' || mode === 'ldd') && requestedType === 'shared') {
+            return NextResponse.json({ error: 'Forbidden: Cannot create shared vaults with current permissions' }, { status: 403 });
         }
         const result = await db.insert(vaultVaults).values({
             name: body.name,
