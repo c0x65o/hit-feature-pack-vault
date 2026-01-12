@@ -83,12 +83,14 @@ export async function publishVaultEvent(
  * This notifies connected WebSocket clients that a new OTP message has arrived.
  * The actual OTP code is NOT included - clients must call reveal API to decrypt.
  */
-export async function publishOtpReceived(event: VaultOtpEvent): Promise<void> {
+export async function publishOtpReceived(
+  event: VaultOtpEvent
+): Promise<{ success: boolean; subscribers?: number; error?: string }> {
   const { realtimeOtpEventType, realtimeOtpEnabled } = getVaultRealtimeConfig();
   if (!realtimeOtpEnabled) {
-    return;
+    return { success: false, error: 'Vault realtime OTP is disabled' };
   }
-  await publishVaultEvent(realtimeOtpEventType, {
+  return await publishVaultEvent(realtimeOtpEventType, {
     messageId: event.messageId,
     type: event.type,
     from: event.from,

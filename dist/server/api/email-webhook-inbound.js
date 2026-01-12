@@ -43,6 +43,28 @@ async function getWebhookApiKey() {
     // Fallback to environment variable
     return process.env.VAULT_SMS_WEBHOOK_API_KEY || null;
 }
+function getAuthDebugFromRequest(request, expectedPrefix) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        return {
+            method: 'bearer',
+            providedPrefix: token ? token.substring(0, 8) : null,
+            expectedPrefix,
+            providedValue: token || null,
+        };
+    }
+    const apiKeyHeader = request.headers.get('x-api-key');
+    if (apiKeyHeader) {
+        return {
+            method: 'x-api-key',
+            providedPrefix: apiKeyHeader.substring(0, 8) || null,
+            expectedPrefix,
+            providedValue: apiKeyHeader,
+        };
+    }
+    return { method: 'none', providedPrefix: null, expectedPrefix, providedValue: null };
+}
 /**
  * Verify API key authentication for Power Automate/custom webhooks
  */
@@ -119,6 +141,9 @@ export async function POST(request) {
     const startTime = Date.now();
     const db = getDb();
     let webhookLogId = null;
+    const configuredApiKey = await getWebhookApiKey();
+    const expectedKeyPrefix = configuredApiKey ? configuredApiKey.substring(0, 8) : null;
+    const authDebug = getAuthDebugFromRequest(request, expectedKeyPrefix);
     // Collect request info for logging
     const url = request.url;
     const method = request.method;
@@ -144,7 +169,13 @@ export async function POST(request) {
         const emailBody = body.body || body.Body || body.text || body.html || body.content || '';
         const timestamp = body.timestamp || body.Timestamp || body.date || body.Date;
         // Sanitize body for logging (don't log full email body)
-        const sanitizedBody = { ...body };
+        const sanitizedBody = {
+            ...body,
+            __debug: {
+                ...(typeof body?.__debug === 'object' && body?.__debug ? body.__debug : {}),
+                auth: authDebug,
+            },
+        };
         if (sanitizedBody.body)
             sanitizedBody.body = '[REDACTED]';
         if (sanitizedBody.Body)
@@ -243,27 +274,26 @@ export async function POST(request) {
         const retentionDays = parseInt(process.env.VAULT_SMS_RETENTION_DAYS || '30', 10);
         const retentionExpiresAt = new Date();
         retentionExpiresAt.setDate(retentionExpiresAt.getDate() + retentionDays);
-        // Parse timestamp if provided, otherwise use current time
-        let receivedAt;
+        // Use arrival time as receivedAt for consistent UX (freshness checks, ordering).
+        // If the provider includes its own timestamp, preserve it in metadata for debugging.
+        const receivedAt = new Date();
+        let sourceTimestampIso = undefined;
         if (timestamp) {
-            // Try parsing as ISO string or Unix timestamp
-            if (typeof timestamp === 'string') {
-                receivedAt = new Date(timestamp);
+            try {
+                let parsed = null;
+                if (typeof timestamp === 'string') {
+                    parsed = new Date(timestamp);
+                }
+                else if (typeof timestamp === 'number') {
+                    parsed = timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
+                }
+                if (parsed && !isNaN(parsed.getTime())) {
+                    sourceTimestampIso = parsed.toISOString();
+                }
             }
-            else if (typeof timestamp === 'number') {
-                // Unix timestamp (seconds or milliseconds)
-                receivedAt = timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
+            catch {
+                // ignore
             }
-            else {
-                receivedAt = new Date();
-            }
-            // Validate parsed date
-            if (isNaN(receivedAt.getTime())) {
-                receivedAt = new Date();
-            }
-        }
-        else {
-            receivedAt = new Date();
         }
         // Store the encrypted message (reuse SMS messages table structure)
         const [insertedMessage] = await db.insert(vaultSmsMessages).values({
@@ -277,24 +307,54 @@ export async function POST(request) {
                 subject: subject,
                 provider: 'power-automate',
                 receivedAt: receivedAt.toISOString(),
+                sourceTimestamp: sourceTimestampIso,
             },
             retentionExpiresAt: retentionExpiresAt,
         }).returning({ id: vaultSmsMessages.id });
         console.log(`[vault] Stored email message from ${fromEmail}`);
         // Publish real-time event for WebSocket clients
-        await publishOtpReceived({
-            messageId: insertedMessage.id,
-            type: 'email',
-            from: fromEmail,
-            to: finalToEmail,
-            subject: subject || undefined,
-            receivedAt: receivedAt.toISOString(),
-        });
+        const eventReceivedAt = new Date().toISOString();
+        const publishResult = await (async () => {
+            try {
+                const res = await publishOtpReceived({
+                    messageId: insertedMessage.id,
+                    type: 'email',
+                    from: fromEmail,
+                    to: finalToEmail,
+                    subject: subject || undefined,
+                    receivedAt: eventReceivedAt,
+                });
+                return { attempted: true, ...res };
+            }
+            catch (e) {
+                return {
+                    attempted: true,
+                    success: false,
+                    error: e instanceof Error ? e.message : 'Unknown error',
+                };
+            }
+        })();
+        const bodyWithPublishDebug = {
+            ...sanitizedBody,
+            __debug: {
+                ...(sanitizedBody.__debug || {}),
+                eventPublish: publishResult,
+                eventPayload: {
+                    messageId: insertedMessage.id,
+                    type: 'email',
+                    from: fromEmail,
+                    to: finalToEmail,
+                    subject: subject || undefined,
+                    receivedAt: eventReceivedAt,
+                },
+            },
+        };
         // Update webhook log with success
         const processingTime = Date.now() - startTime;
         if (webhookLogId) {
             await db.update(vaultWebhookLogs)
                 .set({
+                body: bodyWithPublishDebug,
                 statusCode: 200,
                 success: true,
                 processingTimeMs: processingTime,

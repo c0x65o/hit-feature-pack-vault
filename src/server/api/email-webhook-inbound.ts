@@ -55,6 +55,36 @@ interface ApiKeyVerifyResult {
   details?: string;
 }
 
+type WebhookAuthDebug =
+  | { method: 'bearer'; providedPrefix: string | null; expectedPrefix: string | null; providedValue: string | null }
+  | { method: 'x-api-key'; providedPrefix: string | null; expectedPrefix: string | null; providedValue: string | null }
+  | { method: 'none'; providedPrefix: null; expectedPrefix: string | null; providedValue: null };
+
+function getAuthDebugFromRequest(request: NextRequest, expectedPrefix: string | null): WebhookAuthDebug {
+  const authHeader = request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    return {
+      method: 'bearer',
+      providedPrefix: token ? token.substring(0, 8) : null,
+      expectedPrefix,
+      providedValue: token || null,
+    };
+  }
+
+  const apiKeyHeader = request.headers.get('x-api-key');
+  if (apiKeyHeader) {
+    return {
+      method: 'x-api-key',
+      providedPrefix: apiKeyHeader.substring(0, 8) || null,
+      expectedPrefix,
+      providedValue: apiKeyHeader,
+    };
+  }
+
+  return { method: 'none', providedPrefix: null, expectedPrefix, providedValue: null };
+}
+
 /**
  * Verify API key authentication for Power Automate/custom webhooks
  */
@@ -137,6 +167,9 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const db = getDb();
   let webhookLogId: string | null = null;
+  const configuredApiKey = await getWebhookApiKey();
+  const expectedKeyPrefix = configuredApiKey ? configuredApiKey.substring(0, 8) : null;
+  const authDebug = getAuthDebugFromRequest(request, expectedKeyPrefix);
   
   // Collect request info for logging
   const url = request.url;
@@ -165,7 +198,13 @@ export async function POST(request: NextRequest) {
     const timestamp = body.timestamp || body.Timestamp || body.date || body.Date;
 
     // Sanitize body for logging (don't log full email body)
-    const sanitizedBody: Record<string, any> = { ...body };
+    const sanitizedBody: Record<string, any> = {
+      ...body,
+      __debug: {
+        ...(typeof (body as any)?.__debug === 'object' && (body as any)?.__debug ? (body as any).__debug : {}),
+        auth: authDebug,
+      },
+    };
     if (sanitizedBody.body) sanitizedBody.body = '[REDACTED]';
     if (sanitizedBody.Body) sanitizedBody.Body = '[REDACTED]';
     if (sanitizedBody.text) sanitizedBody.text = '[REDACTED]';
@@ -283,25 +322,24 @@ export async function POST(request: NextRequest) {
     const retentionExpiresAt = new Date();
     retentionExpiresAt.setDate(retentionExpiresAt.getDate() + retentionDays);
 
-    // Parse timestamp if provided, otherwise use current time
-    let receivedAt: Date;
+    // Use arrival time as receivedAt for consistent UX (freshness checks, ordering).
+    // If the provider includes its own timestamp, preserve it in metadata for debugging.
+    const receivedAt = new Date();
+    let sourceTimestampIso: string | undefined = undefined;
     if (timestamp) {
-      // Try parsing as ISO string or Unix timestamp
-      if (typeof timestamp === 'string') {
-        receivedAt = new Date(timestamp);
-      } else if (typeof timestamp === 'number') {
-        // Unix timestamp (seconds or milliseconds)
-        receivedAt = timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
-      } else {
-        receivedAt = new Date();
+      try {
+        let parsed: Date | null = null;
+        if (typeof timestamp === 'string') {
+          parsed = new Date(timestamp);
+        } else if (typeof timestamp === 'number') {
+          parsed = timestamp > 1e12 ? new Date(timestamp) : new Date(timestamp * 1000);
+        }
+        if (parsed && !isNaN(parsed.getTime())) {
+          sourceTimestampIso = parsed.toISOString();
+        }
+      } catch {
+        // ignore
       }
-      
-      // Validate parsed date
-      if (isNaN(receivedAt.getTime())) {
-        receivedAt = new Date();
-      }
-    } else {
-      receivedAt = new Date();
     }
 
     // Store the encrypted message (reuse SMS messages table structure)
@@ -316,6 +354,7 @@ export async function POST(request: NextRequest) {
         subject: subject,
         provider: 'power-automate',
         receivedAt: receivedAt.toISOString(),
+        sourceTimestamp: sourceTimestampIso,
       },
       retentionExpiresAt: retentionExpiresAt,
     }).returning({ id: vaultSmsMessages.id });
@@ -323,20 +362,49 @@ export async function POST(request: NextRequest) {
     console.log(`[vault] Stored email message from ${fromEmail}`);
 
     // Publish real-time event for WebSocket clients
-    await publishOtpReceived({
-      messageId: insertedMessage.id,
-      type: 'email',
-      from: fromEmail,
-      to: finalToEmail,
-      subject: subject || undefined,
-      receivedAt: receivedAt.toISOString(),
-    });
+    const eventReceivedAt = new Date().toISOString();
+    const publishResult = await (async () => {
+      try {
+        const res = await publishOtpReceived({
+          messageId: insertedMessage.id,
+          type: 'email',
+          from: fromEmail,
+          to: finalToEmail,
+          subject: subject || undefined,
+          receivedAt: eventReceivedAt,
+        });
+        return { attempted: true, ...res };
+      } catch (e) {
+        return {
+          attempted: true,
+          success: false,
+          error: e instanceof Error ? e.message : 'Unknown error',
+        };
+      }
+    })();
+
+    const bodyWithPublishDebug = {
+      ...sanitizedBody,
+      __debug: {
+        ...(sanitizedBody.__debug || {}),
+        eventPublish: publishResult,
+        eventPayload: {
+          messageId: insertedMessage.id,
+          type: 'email',
+          from: fromEmail,
+          to: finalToEmail,
+          subject: subject || undefined,
+          receivedAt: eventReceivedAt,
+        },
+      },
+    };
 
     // Update webhook log with success
     const processingTime = Date.now() - startTime;
     if (webhookLogId) {
       await db.update(vaultWebhookLogs)
         .set({
+          body: bodyWithPublishDebug,
           statusCode: 200,
           success: true,
           processingTimeMs: processingTime,

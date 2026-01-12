@@ -266,11 +266,11 @@ export async function DELETE(request) {
         if (!existing[0]) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });
         }
-        const item = existing[0];
+        const itemToDelete = existing[0];
         const [vault] = await db
             .select()
             .from(vaultVaults)
-            .where(eq(vaultVaults.id, item.vaultId))
+            .where(eq(vaultVaults.id, itemToDelete.vaultId))
             .limit(1);
         if (!vault) {
             return NextResponse.json({ error: 'Not found' }, { status: 404 });

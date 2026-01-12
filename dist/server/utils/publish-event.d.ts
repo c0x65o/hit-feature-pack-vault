@@ -29,5 +29,9 @@ export declare function publishVaultEvent(eventType: string, payload: Record<str
  * This notifies connected WebSocket clients that a new OTP message has arrived.
  * The actual OTP code is NOT included - clients must call reveal API to decrypt.
  */
-export declare function publishOtpReceived(event: VaultOtpEvent): Promise<void>;
+export declare function publishOtpReceived(event: VaultOtpEvent): Promise<{
+    success: boolean;
+    subscribers?: number;
+    error?: string;
+}>;
 //# sourceMappingURL=publish-event.d.ts.map

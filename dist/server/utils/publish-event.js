@@ -61,9 +61,9 @@ export async function publishVaultEvent(eventType, payload) {
 export async function publishOtpReceived(event) {
     const { realtimeOtpEventType, realtimeOtpEnabled } = getVaultRealtimeConfig();
     if (!realtimeOtpEnabled) {
-        return;
+        return { success: false, error: 'Vault realtime OTP is disabled' };
     }
-    await publishVaultEvent(realtimeOtpEventType, {
+    return await publishVaultEvent(realtimeOtpEventType, {
         messageId: event.messageId,
         type: event.type,
         from: event.from,

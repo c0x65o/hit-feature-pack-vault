@@ -259,6 +259,11 @@ function normalizePhone(value: string): string {
   return value.replace(/[^\d]/g, '');
 }
 
+function isPhoneLike(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return normalizePhone(value).length > 0;
+}
+
 function matchesToFilter(toValue: string, filterValue: string): boolean {
   const to = (toValue || '').trim();
   const filter = (filterValue || '').trim();
@@ -455,8 +460,18 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
 
     // Filter by 'to' address if specified
     if (optToFilter) {
-      if (!matchesToFilter(notification.to, optToFilter)) {
-        return;
+      // SMS providers sometimes send non-phone identifiers for "to" (e.g. "recipient").
+      // If we're dealing with SMS and either side isn't phone-like, do not filter.
+      if (notification.type === 'sms') {
+        const filterIsPhone = isPhoneLike(optToFilter);
+        const toIsPhone = isPhoneLike(notification.to);
+        if (filterIsPhone && toIsPhone && !matchesToFilter(notification.to, optToFilter)) {
+          return;
+        }
+      } else {
+        if (!matchesToFilter(notification.to, optToFilter)) {
+          return;
+        }
       }
     }
 
@@ -467,6 +482,12 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
       console.log(`[useOtpSubscription] Skipping stale message (${Math.round(messageAgeMs / 1000 / 60)} mins old):`, notification.messageId);
       return;
     }
+
+    // Deduplicate accepted notifications (prevents polling/WebSocket duplicates)
+    if (processedMessageIdsRef.current.has(notification.messageId)) {
+      return;
+    }
+    processedMessageIdsRef.current.add(notification.messageId);
 
     // Always track the latest notification, even if extraction fails
     // This allows UI to show "last code was X days ago" even if we couldn't extract it
