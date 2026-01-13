@@ -1,0 +1,17 @@
+version: 1
+
+# Mobile-only route → screen mapping.
+#
+# This lets the mobile launcher remain 100% dynamic:
+# - entity list routes are discovered from entities.*.meta.routes.list
+# - non-entity “dashboard” routes can still be handled via this table
+#
+# Unknown keys are preserved in hit-ui-specs.json (forward compatible).
+mobileRoutes:
+  /vault:
+    screen: vaultBrowser
+  /vault/personal:
+    screen: vaultBrowser
+  /vault/shared:
+    screen: vaultBrowser
+
