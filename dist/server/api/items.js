@@ -33,7 +33,9 @@ export async function GET(request) {
         const sortOrder = searchParams.get('sortOrder') || 'desc';
         const search = searchParams.get('search') || '';
         const vaultId = searchParams.get('vaultId') || null;
-        const folderId = searchParams.get('folderId') || null;
+        const folderIdParam = searchParams.get('folderId');
+        const folderId = folderIdParam === 'null' ? null : (folderIdParam || null);
+        const includeDescendants = (searchParams.get('includeDescendants') || 'true').toLowerCase() !== 'false';
         const userId = getUserId(request);
         if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -161,9 +163,14 @@ export async function GET(request) {
         if (vaultId) {
             conditions.push(eq(vaultItems.vaultId, vaultId));
         }
-        if (folderId) {
+        if (folderIdParam === 'null') {
+            // Root-only items (no folder)
+            conditions.push(sql `${vaultItems.folderId} IS NULL`);
+        }
+        else if (folderId) {
             // When filtering by folderId:
-            // Everyone (including admins): include items in that folder AND all descendant folders
+            // Default: include items in that folder AND all descendant folders
+            // If `includeDescendants=false`: include only items directly in that folder
             // CRITICAL: Items must be in the same vault as their folder (data integrity)
             const [folder] = await db
                 .select({ vaultId: vaultFolders.vaultId })
@@ -171,17 +178,22 @@ export async function GET(request) {
                 .where(eq(vaultFolders.id, folderId))
                 .limit(1);
             if (folder) {
-                // Filter to folder and descendants, AND ensure item vault matches folder vault
-                const descendantFolderIds = await getDescendantFolderIds(db, new Set([folderId]));
-                const folderIdsToInclude = Array.from(descendantFolderIds);
-                if (folderIdsToInclude.length > 0) {
-                    conditions.push(and(inArray(vaultItems.folderId, folderIdsToInclude), eq(vaultItems.vaultId, folder.vaultId) // Ensure item vault matches folder vault
-                    ));
+                if (!includeDescendants) {
+                    conditions.push(and(eq(vaultItems.folderId, folderId), eq(vaultItems.vaultId, folder.vaultId)));
                 }
                 else {
-                    // Fallback to just the folder itself if no descendants
-                    conditions.push(and(eq(vaultItems.folderId, folderId), eq(vaultItems.vaultId, folder.vaultId) // Ensure item vault matches folder vault
-                    ));
+                    // Filter to folder and descendants, AND ensure item vault matches folder vault
+                    const descendantFolderIds = await getDescendantFolderIds(db, new Set([folderId]));
+                    const folderIdsToInclude = Array.from(descendantFolderIds);
+                    if (folderIdsToInclude.length > 0) {
+                        conditions.push(and(inArray(vaultItems.folderId, folderIdsToInclude), eq(vaultItems.vaultId, folder.vaultId) // Ensure item vault matches folder vault
+                        ));
+                    }
+                    else {
+                        // Fallback to just the folder itself if no descendants
+                        conditions.push(and(eq(vaultItems.folderId, folderId), eq(vaultItems.vaultId, folder.vaultId) // Ensure item vault matches folder vault
+                        ));
+                    }
                 }
             }
         }
