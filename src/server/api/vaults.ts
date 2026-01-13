@@ -221,6 +221,7 @@ export async function POST(request: NextRequest) {
     
     // Get full user info
     const user = extractUserFromRequest(request);
+    const isAdmin = Array.isArray(user?.roles) && user!.roles!.some((r) => String(r || '').toLowerCase() === 'admin');
     
     // Check write permission and resolve scope mode
     const mode = await resolveVaultScopeMode(request, { entity: 'vaults', verb: 'write' });
@@ -235,7 +236,8 @@ export async function POST(request: NextRequest) {
     const requestedType = (body.type as 'personal' | 'shared') || 'personal';
     
     // For 'own' or 'ldd' mode, only allow creating personal vaults
-    if ((mode === 'own' || mode === 'ldd') && requestedType === 'shared') {
+    // Exception: admins may bootstrap shared vaults even if their scope resolves to own/ldd.
+    if ((mode === 'own' || mode === 'ldd') && requestedType === 'shared' && !isAdmin) {
       return NextResponse.json(
         { error: 'Forbidden: Cannot create shared vaults with current permissions' },
         { status: 403 }

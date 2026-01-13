@@ -330,6 +330,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const isAdmin = Array.isArray(user.roles) && user.roles.some((r) => String(r || '').toLowerCase() === 'admin');
 
     // Check create permission
     const createCheck = await requireVaultAction(request, 'vault.folders.create');
@@ -363,14 +364,21 @@ export async function POST(request: NextRequest) {
     
     if (mode === 'own' || mode === 'ldd') {
       // Only allow creating folders in personal vaults owned by user
-      if (!isPersonalVaultOwner) {
+      // Exception: admins may manage shared vault structure even if their scope resolves to own/ldd.
+      if (!isPersonalVaultOwner && !(isAdmin && vault.type === 'shared')) {
         return NextResponse.json({ error: 'Forbidden: Cannot create folders in this vault with current permissions' }, { status: 403 });
       }
     } else if (mode === 'any') {
-      // For shared vaults, check ACL access (not implemented for folders yet, but structure is ready)
-      // For now, only allow personal vault owners
-      if (!isPersonalVaultOwner) {
-        return NextResponse.json({ error: 'Forbidden: Cannot create folders in shared vaults' }, { status: 403 });
+      // Allow:
+      // - personal vault owner (full control)
+      // - admins (full control on shared vaults)
+      // - users with vault-level ACL granting READ_WRITE on the target vault
+      if (!isPersonalVaultOwner && !isAdmin) {
+        const { checkVaultAccess } = await import('../lib/acl-utils');
+        const access = await checkVaultAccess(db, String(body.vaultId), user, ['READ_WRITE'], request);
+        if (!access.hasAccess) {
+          return NextResponse.json({ error: 'Forbidden: No write access to this vault' }, { status: 403 });
+        }
       }
     }
 
