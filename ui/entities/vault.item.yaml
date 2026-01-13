@@ -49,7 +49,6 @@ entities:
       tableId: vault.items
       uiStateVersion: 1
       defaultVisibleOnly: true
-      mobileColumnKeys: [title, username, url]
       pageSize: 25
       initialSort: { sortBy: title, sortOrder: asc }
       sortWhitelist: [title, username, url, type, createdAt, updatedAt, id]

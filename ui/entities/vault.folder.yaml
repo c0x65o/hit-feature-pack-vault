@@ -32,7 +32,6 @@ entities:
       tableId: vault.folders
       uiStateVersion: 1
       defaultVisibleOnly: true
-      mobileColumnKeys: [name, path]
       pageSize: 50
       initialSort: { sortBy: name, sortOrder: asc }
       sortWhitelist: [name, path, createdAt, id]
