@@ -75,18 +75,19 @@ export function VaultLanding({ onNavigate }) {
                     name: 'Personal Vault',
                 });
             }
-            // Only admins can create shared vaults; non-admins can only see shared vaults
-            // they have ACL access to (which would already be in allVaults)
-            let sharedVault = allVaults.find(v => v.type === 'shared');
-            if (!sharedVault && isAdmin) {
-                // Only admins can create the shared vault if it doesn't exist
-                sharedVault = await vaultApi.createVault({
+            // Shared vaults:
+            // - Non-admins can only see shared vaults they have ACL access to (already in allVaults)
+            // - Admins can bootstrap a default shared vault if none exist
+            let sharedVaults = allVaults.filter(v => v.type === 'shared');
+            if (sharedVaults.length === 0 && isAdmin) {
+                const created = await vaultApi.createVault({
                     type: 'shared',
                     name: 'Shared Vault',
                 });
+                sharedVaults = [created];
             }
             // Store vaults the user has access to
-            const vaultsList = [personalVault, sharedVault].filter(Boolean);
+            const vaultsList = [personalVault, ...sharedVaults].filter(Boolean);
             setVaults(vaultsList);
             // Filter vaults based on selection
             let filteredVaults = vaultsList;
@@ -94,7 +95,7 @@ export function VaultLanding({ onNavigate }) {
                 filteredVaults = [personalVault].filter(Boolean);
             }
             else if (vaultFilter === 'shared') {
-                filteredVaults = sharedVault ? [sharedVault] : [];
+                filteredVaults = sharedVaults;
             }
             // Load folders and items for filtered vaults
             const foldersPromises = filteredVaults.map(v => vaultApi.getFolders(v.id));

@@ -41,6 +41,7 @@ export async function GET(request) {
         }
         // Get full user info
         const user = extractUserFromRequest(request);
+        const isAdmin = Array.isArray(user?.roles) && user.roles.some((r) => String(r || '').toLowerCase() === 'admin');
         // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
         let userPrincipalIds = [userId];
         if (user) {
@@ -82,11 +83,26 @@ export async function GET(request) {
                 }
             }
         }
+        // Admins should always be able to see shared vaults (bootstrap + ops).
+        if (isAdmin) {
+            const shared = await db
+                .select({ id: vaultVaults.id })
+                .from(vaultVaults)
+                .where(eq(vaultVaults.type, 'shared'));
+            for (const v of shared)
+                aclAccessibleVaultIds.add(v.id);
+        }
         // Build access conditions based on scope mode (explicit branching on none/own/ldd/any)
         const accessConditions = [];
         if (mode === 'own' || mode === 'ldd') {
             // Only show personal vaults owned by the user
-            accessConditions.push(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
+            // Exception: admins can also see shared vaults (they act as operators for shared vault structure).
+            if (isAdmin) {
+                accessConditions.push(or(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')), eq(vaultVaults.type, 'shared')));
+            }
+            else {
+                accessConditions.push(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
+            }
         }
         else if (mode === 'any') {
             // Show personal vaults owned by user + shared vaults with ACL access

@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const isAdmin = Array.isArray(user.roles) && user.roles.some((r) => String(r || '').toLowerCase() === 'admin');
 
     // Get PERSONAL vaults the user owns (personal vaults only - owner has full access)
     const userPersonalVaults = await db
@@ -80,10 +81,26 @@ export async function GET(request: NextRequest) {
       for (const vaultId of userPersonalVaultIds) {
         accessibleVaultIds.add(vaultId);
       }
+      // Exception: admins should be able to see shared vault structure they manage.
+      if (isAdmin) {
+        const shared = await db
+          .select({ id: vaultVaults.id })
+          .from(vaultVaults)
+          .where(eq(vaultVaults.type, 'shared'));
+        for (const v of shared) accessibleVaultIds.add(v.id);
+      }
     } else if (mode === 'any') {
       // Show folders in personal vaults owned by user + shared vaults with ACL access
       for (const vaultId of userPersonalVaultIds) {
         accessibleVaultIds.add(vaultId);
+      }
+      // Admins have full access to shared vaults regardless of ACLs.
+      if (isAdmin) {
+        const shared = await db
+          .select({ id: vaultVaults.id })
+          .from(vaultVaults)
+          .where(eq(vaultVaults.type, 'shared'));
+        for (const v of shared) accessibleVaultIds.add(v.id);
       }
       
       if (userPrincipalIds.length > 0) {
