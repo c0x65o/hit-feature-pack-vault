@@ -1,0 +1,148 @@
+version: 1
+
+entities:
+  vault.item:
+    meta:
+      titleSingular: Item
+      titlePlural: Items
+      descriptionPlural: Manage vault items
+      routes:
+        root: /vault
+        list: /vault/items
+        new: /vault/items/new
+        detail: /vault/items/{id}
+        edit: /vault/items/{id}/edit
+      breadcrumbs:
+        - { label: Vault, href: /vault }
+        - { label: Items, href: /vault/items }
+      actions:
+        createLabel: New Item
+        editLabel: Edit Item
+        saveCreateLabel: Create Item
+        saveUpdateLabel: Update Item
+        cancelLabel: Cancel
+        deleteLabel: Delete
+        deleteConfirmTitle: Delete Item
+        deleteConfirmBody: Are you sure you want to delete "{name}"? This action cannot be undone.
+
+      # For long-term QoL: all "special" behaviors are expressed as schema-driven actions.
+      # Web supports this today via `kind: action` + `entityActions` registry.
+      # Mobile will get a parallel "entity actions registry" so the same actionKey works everywhere.
+      headerActions:
+        - kind: action
+          actionKey: vault.copyUsername
+          label: Copy Username
+          platforms: [web]
+        - kind: action
+          actionKey: vault.copyPassword
+          label: Copy Password
+          platforms: [web]
+        - kind: action
+          actionKey: vault.generateTotp
+          label: OTP
+          platforms: [web]
+
+    storage:
+      drizzleTable: vaultItems
+
+    list:
+      tableId: vault.items
+      uiStateVersion: 1
+      defaultVisibleOnly: true
+      mobileColumnKeys: [title, username, url]
+      pageSize: 25
+      initialSort: { sortBy: title, sortOrder: asc }
+      sortWhitelist: [title, username, url, type, createdAt, updatedAt, id]
+      initialColumnVisibility:
+        title: true
+        username: true
+        url: true
+        type: false
+        vaultId: false
+        folderId: false
+        createdAt: false
+        updatedAt: false
+      columns:
+        - key: title
+          label: Title
+          sortable: true
+          filterType: string
+        - key: username
+          label: Username
+          sortable: true
+          filterType: string
+        - key: url
+          label: URL
+          sortable: true
+          filterType: string
+        - key: type
+          label: Type
+          sortable: true
+          filterType: string
+        - key: createdAt
+          label: Created
+          sortable: true
+        - key: updatedAt
+          label: Updated
+          sortable: true
+        - key: actions
+          label: ""
+          sortable: false
+          hideable: false
+          align: right
+
+    fields:
+      id: { type: text, label: ID }
+      vaultId: { type: text, label: Vault ID, required: true }
+      folderId:
+        type: reference
+        label: Folder
+        reference: { entityType: vault.folder }
+        placeholder: "Optional"
+      type:
+        type: select
+        label: Type
+        required: true
+        options:
+          - { value: credential, label: Login }
+          - { value: api_key, label: API Key }
+          - { value: secure_note, label: Secure Note }
+      title: { type: text, label: Title, required: true }
+      username: { type: text, label: Username }
+      url: { type: text, label: URL }
+
+      # Secrets are written server-side (encrypted) via POST/PUT:
+      # - POST /api/vault/items accepts `password|secret|notes|twoFactorType`
+      # - PUT /api/vault/items/{id} accepts the same and re-encrypts
+      password: { type: secret, label: Password }
+      secret: { type: secret, label: Secret }
+      notes: { type: text, label: Notes }
+      twoFactorType:
+        type: select
+        label: 2FA Type
+        options:
+          - { value: off, label: Off }
+          - { value: qr, label: TOTP (QR/Secret) }
+          - { value: phone, label: SMS }
+          - { value: email, label: Email }
+
+      createdAt: { type: datetime, label: Created }
+      updatedAt: { type: datetime, label: Updated }
+
+    form:
+      sections:
+        - id: basic
+          title: Item
+          layout: { columns: 1 }
+          fields: [type, title, username, url, folderId]
+        - id: secrets
+          title: Secrets
+          layout: { columns: 1 }
+          fields: [password, secret, notes, twoFactorType]
+
+    detail:
+      # The default detail renderer will show summary + fields.
+      # Future QoL: add vault-specific extras here (OTP inbox, audit log) as generic capabilities.
+      extras:
+        - kind: activityLog
+

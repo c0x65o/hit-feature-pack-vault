@@ -1,0 +1,96 @@
+version: 1
+
+entities:
+  vault.folder:
+    meta:
+      titleSingular: Folder
+      titlePlural: Folders
+      descriptionPlural: Organize vault items into folders
+      routes:
+        root: /vault
+        list: /vault/folders
+        new: /vault/folders/new
+        detail: /vault/folders/{id}
+        edit: /vault/folders/{id}/edit
+      breadcrumbs:
+        - { label: Vault, href: /vault }
+        - { label: Folders, href: /vault/folders }
+      actions:
+        createLabel: New Folder
+        editLabel: Edit Folder
+        saveCreateLabel: Create Folder
+        saveUpdateLabel: Update Folder
+        cancelLabel: Cancel
+        deleteLabel: Delete
+        deleteConfirmTitle: Delete Folder
+        deleteConfirmBody: Are you sure you want to delete "{name}"? This action cannot be undone.
+
+    storage:
+      drizzleTable: vaultFolders
+
+    list:
+      tableId: vault.folders
+      uiStateVersion: 1
+      defaultVisibleOnly: true
+      mobileColumnKeys: [name, path]
+      pageSize: 50
+      initialSort: { sortBy: name, sortOrder: asc }
+      sortWhitelist: [name, path, createdAt, id]
+      initialColumnVisibility:
+        name: true
+        path: true
+        vaultId: false
+        parentId: false
+        createdAt: false
+        createdBy: false
+      columns:
+        - key: name
+          label: Name
+          sortable: true
+          filterType: string
+        - key: path
+          label: Path
+          filterType: string
+        - key: createdAt
+          label: Created
+          sortable: true
+        - key: actions
+          label: ""
+          sortable: false
+          hideable: false
+          align: right
+
+    fields:
+      id: { type: text, label: ID }
+      vaultId: { type: text, label: Vault ID, required: true }
+      parentId: { type: text, label: Parent Folder ID }
+      name: { type: text, label: Name, required: true }
+      path: { type: text, label: Path, virtual: true }
+      createdBy: { type: text, label: Created By }
+      createdAt: { type: datetime, label: Created }
+
+    form:
+      sections:
+        - id: basic
+          title: Folder
+          layout: { columns: 1 }
+          fields: [name]
+
+    detail:
+      extras:
+        # Placeholder for the future "folder browser" capability.
+        # We'll implement this as a generic `detail.extras.kind` so vault folder detail can render:
+        # - subfolders
+        # - items in the folder
+        # - move/drag-drop controls (web-only first)
+        - kind: embeddedTable
+          title: Items
+          entityType: vault.item
+          tableId: vault.folder-detail.items
+          pageSize: 25
+          initialSort: { sortBy: title, sortOrder: asc }
+          query:
+            folderId:
+              valueFrom: { kind: parentField, field: id }
+          platforms: [web]
+
