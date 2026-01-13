@@ -1,7 +1,7 @@
 // src/server/api/search.ts
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { vaultItems, vaultVaults, vaultAcls } from '@/lib/feature-pack-schemas';
+import { vaultItems, vaultVaults, vaultFolders, vaultAcls } from '@/lib/feature-pack-schemas';
 import { eq, like, or, and, inArray } from 'drizzle-orm';
 import { getUserId, extractUserFromRequest } from '../auth';
 import { getDescendantFolderIds } from '../lib/acl-utils';
@@ -35,6 +35,13 @@ export async function GET(request) {
             .where(and(eq(vaultVaults.ownerUserId, userId), eq(vaultVaults.type, 'personal')));
         const accessibleVaultIds = new Set(userPersonalVaults.map((v) => v.id));
         const accessibleFolderIds = new Set();
+        // Deployment invariant: exactly one shared vault for the system.
+        // ACLs must never grant access to personal vaults you do not own.
+        const sharedVaultRows = await db
+            .select({ id: vaultVaults.id })
+            .from(vaultVaults)
+            .where(eq(vaultVaults.type, 'shared'));
+        const sharedVaultIds = new Set(sharedVaultRows.map((v) => v.id));
         // Build principal IDs for ACL matching (user ID, email, roles, and GROUP IDs)
         const { getUserPrincipals } = await import('../lib/acl-utils');
         const principals = await getUserPrincipals(db, user, request);
@@ -46,12 +53,8 @@ export async function GET(request) {
         ].filter(Boolean);
         if (isAdmin) {
             // Admins get access to all items in shared vaults
-            const sharedVaults = await db
-                .select({ id: vaultVaults.id })
-                .from(vaultVaults)
-                .where(eq(vaultVaults.type, 'shared'));
-            for (const vault of sharedVaults) {
-                accessibleVaultIds.add(vault.id);
+            for (const v of sharedVaultIds) {
+                accessibleVaultIds.add(v);
             }
         }
         else if (userPrincipalIds.length > 0) {
@@ -62,7 +65,9 @@ export async function GET(request) {
                 .from(vaultAcls)
                 .where(and(eq(vaultAcls.resourceType, 'vault'), or(...vaultAclConditions)));
             for (const acl of vaultAclsList) {
-                accessibleVaultIds.add(acl.resourceId);
+                // ACLs can only grant shared vault access in this deployment model.
+                if (sharedVaultIds.has(acl.resourceId))
+                    accessibleVaultIds.add(acl.resourceId);
             }
             // Check folder-level ACLs
             const folderAclConditions = userPrincipalIds.map(id => eq(vaultAcls.principalId, id));
@@ -75,8 +80,14 @@ export async function GET(request) {
                 directAccessFolderIds.add(acl.resourceId);
             }
             const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
-            for (const folderId of allAccessibleFolderIds) {
-                accessibleFolderIds.add(folderId);
+            // Folder-level ACL: only accept folders that are in the shared vault (never in personal vaults).
+            if (allAccessibleFolderIds.size > 0 && sharedVaultIds.size > 0) {
+                const allowed = await db
+                    .select({ id: vaultFolders.id })
+                    .from(vaultFolders)
+                    .where(and(inArray(vaultFolders.id, Array.from(allAccessibleFolderIds)), inArray(vaultFolders.vaultId, Array.from(sharedVaultIds))));
+                for (const f of allowed)
+                    accessibleFolderIds.add(f.id);
             }
         }
         if (accessibleVaultIds.size === 0 && accessibleFolderIds.size === 0) {

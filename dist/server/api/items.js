@@ -42,6 +42,7 @@ export async function GET(request) {
         }
         // Get full user info
         const user = extractUserFromRequest(request);
+        const isAdmin = Array.isArray(user?.roles) && user.roles.some((r) => String(r || '').toLowerCase() === 'admin');
         // Get PERSONAL vaults the user owns (personal vaults only - owner has full access)
         const userPersonalVaults = await db
             .select({ id: vaultVaults.id })
@@ -63,6 +64,13 @@ export async function GET(request) {
         // Build accessible vault IDs and folder IDs based on scope mode (explicit branching on none/own/ldd/any)
         const accessibleVaultIds = new Set();
         const accessibleFolderIds = new Set();
+        // Deployment invariant: exactly one shared vault for the system.
+        // ACLs must never grant access to personal vaults you do not own.
+        const sharedVaultRows = await db
+            .select({ id: vaultVaults.id })
+            .from(vaultVaults)
+            .where(eq(vaultVaults.type, 'shared'));
+        const sharedVaultIds = new Set(sharedVaultRows.map((v) => v.id));
         if (mode === 'own' || mode === 'ldd') {
             // Only show items in personal vaults owned by user
             for (const vaultId of userPersonalVaultIds) {
@@ -98,11 +106,31 @@ export async function GET(request) {
                 }
                 // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
                 const allAccessibleFolderIds = await getDescendantFolderIds(db, directAccessFolderIds);
-                // Add all accessible folders (direct + descendants) to the set
-                for (const folderId of allAccessibleFolderIds) {
-                    accessibleFolderIds.add(folderId);
+                // Add all accessible folders (direct + descendants) to the set, but ONLY if they belong
+                // to the shared vault (ACLs must not expose personal vault folders).
+                if (allAccessibleFolderIds.size > 0 && sharedVaultIds.size > 0) {
+                    const allowed = await db
+                        .select({ id: vaultFolders.id })
+                        .from(vaultFolders)
+                        .where(and(inArray(vaultFolders.id, Array.from(allAccessibleFolderIds)), inArray(vaultFolders.vaultId, Array.from(sharedVaultIds))));
+                    for (const f of allowed)
+                        accessibleFolderIds.add(f.id);
                 }
             }
+        }
+        // SECURITY INVARIANT:
+        // accessibleVaultIds may include IDs discovered via ACL checks; those must be shared-only.
+        if (sharedVaultIds.size > 0) {
+            const next = new Set();
+            for (const id of userPersonalVaultIds)
+                next.add(id); // always allow your own personal vaults
+            for (const id of accessibleVaultIds) {
+                if (sharedVaultIds.has(id))
+                    next.add(id);
+            }
+            accessibleVaultIds.clear();
+            for (const id of next)
+                accessibleVaultIds.add(id);
         }
         if (accessibleVaultIds.size === 0 && accessibleFolderIds.size === 0) {
             return NextResponse.json({
@@ -310,6 +338,7 @@ export async function POST(request) {
         }
         // Get full user info
         const user = extractUserFromRequest(request);
+        const isAdmin = Array.isArray(user?.roles) && user.roles.some((r) => String(r || '').toLowerCase() === 'admin');
         // Check write permission and resolve scope mode
         const mode = await resolveVaultScopeMode(request, { entity: 'items', verb: 'write' });
         if (mode === 'none') {
@@ -328,13 +357,14 @@ export async function POST(request) {
         const isPersonalVaultOwner = vault.ownerUserId === userId && vault.type === 'personal';
         if (mode === 'own' || mode === 'ldd') {
             // Only allow creating items in personal vaults owned by user
-            if (!isPersonalVaultOwner) {
+            // Exception: admins may manage shared vault items even if their scope resolves to own/ldd.
+            if (!isPersonalVaultOwner && !(isAdmin && vault.type === 'shared')) {
                 return NextResponse.json({ error: 'Forbidden: Cannot create items in this vault with current permissions' }, { status: 403 });
             }
         }
         else if (mode === 'any') {
             // Allow create if user owns personal vault OR has ACL write access
-            if (!isPersonalVaultOwner && user) {
+            if (!isPersonalVaultOwner && user && !isAdmin) {
                 // If folderId is provided, check folder access; otherwise check vault access
                 let hasAclAccess = false;
                 if (body.folderId) {
@@ -381,12 +411,12 @@ export async function POST(request) {
                 // Re-check access for the correct vault (only personal vault owners get automatic access)
                 const isCorrectPersonalVaultOwner = correctVault.ownerUserId === userId && correctVault.type === 'personal';
                 let hasCorrectVaultAclAccess = false;
-                if (!isCorrectPersonalVaultOwner && user) {
+                if (!isCorrectPersonalVaultOwner && user && !(isAdmin && correctVault.type === 'shared')) {
                     const { checkVaultAccess } = await import('../lib/acl-utils');
                     const accessCheck = await checkVaultAccess(db, body.vaultId, user, ['READ_WRITE']);
                     hasCorrectVaultAclAccess = accessCheck.hasAccess;
                 }
-                if (!isCorrectPersonalVaultOwner && !hasCorrectVaultAclAccess) {
+                if (!isCorrectPersonalVaultOwner && !hasCorrectVaultAclAccess && !(isAdmin && correctVault.type === 'shared')) {
                     return NextResponse.json({ error: 'Forbidden: No access to folder vault' }, { status: 403 });
                 }
             }

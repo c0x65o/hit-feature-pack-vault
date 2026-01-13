@@ -119,6 +119,21 @@ export async function GET(request: NextRequest) {
         .where(eq(vaultVaults.type, 'shared'));
       for (const v of shared) aclAccessibleVaultIds.add(v.id);
     }
+
+    // SECURITY INVARIANT:
+    // ACLs must never grant visibility into *personal* vaults you do not own.
+    // Shared is the only ACL-governed surface in this deployment model.
+    if (aclAccessibleVaultIds.size > 0) {
+      const allowedShared = await db
+        .select({ id: vaultVaults.id })
+        .from(vaultVaults)
+        .where(and(
+          eq(vaultVaults.type, 'shared'),
+          inArray(vaultVaults.id, Array.from(aclAccessibleVaultIds))
+        ));
+      aclAccessibleVaultIds.clear();
+      for (const v of allowedShared) aclAccessibleVaultIds.add(v.id);
+    }
     
     // Build access conditions based on scope mode (explicit branching on none/own/ldd/any)
     const accessConditions: ReturnType<typeof eq>[] = [];
@@ -188,9 +203,24 @@ export async function GET(request: NextRequest) {
 
     // Execute main query
     const baseQuery = db.select().from(vaultVaults);
-    const items = whereClause
+    let items = whereClause
       ? await baseQuery.where(whereClause).orderBy(orderDirection).limit(pageSize).offset(offset)
       : await baseQuery.orderBy(orderDirection).limit(pageSize).offset(offset);
+
+    // Invariant: treat shared vault as a singleton.
+    // If multiple exist (legacy data), only return the oldest one until the migration consolidates them.
+    if (!type || type === 'shared') {
+      const shared = items.filter((v: any) => String(v?.type) === 'shared');
+      if (shared.length > 1) {
+        shared.sort((a: any, b: any) => {
+          const at = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bt = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return at - bt;
+        });
+        const keepId = shared[0]?.id;
+        items = items.filter((v: any) => String(v?.type) !== 'shared' || String(v?.id) === String(keepId));
+      }
+    }
 
     return NextResponse.json({
       items,
@@ -254,6 +284,20 @@ export async function POST(request: NextRequest) {
     }
     
     const requestedType = (body.type as 'personal' | 'shared') || 'personal';
+
+    // Invariant: shared vault is a singleton.
+    // If one already exists, return it (idempotent bootstrap) instead of creating another.
+    if (requestedType === 'shared') {
+      const existing = await db
+        .select()
+        .from(vaultVaults)
+        .where(eq(vaultVaults.type, 'shared'))
+        .orderBy(asc(vaultVaults.createdAt))
+        .limit(1);
+      if (existing?.[0]) {
+        return NextResponse.json(existing[0], { status: 200 });
+      }
+    }
     
     // For 'own' or 'ldd' mode, only allow creating personal vaults
     // Exception: admins may bootstrap shared vaults even if their scope resolves to own/ldd.

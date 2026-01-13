@@ -63,28 +63,12 @@ entities:
         createdAt: false
         updatedAt: false
       columns:
-        - key: title
-          label: Title
-          sortable: true
-          filterType: string
-        - key: username
-          label: Username
-          sortable: true
-          filterType: string
-        - key: url
-          label: URL
-          sortable: true
-          filterType: string
-        - key: type
-          label: Type
-          sortable: true
-          filterType: string
-        - key: createdAt
-          label: Created
-          sortable: true
-        - key: updatedAt
-          label: Updated
-          sortable: true
+        - title
+        - username
+        - url
+        - type
+        - createdAt
+        - updatedAt
         - key: actions
           label: ""
           sortable: false
@@ -114,12 +98,15 @@ entities:
       # Secrets are written server-side (encrypted) via POST/PUT:
       # - POST /api/vault/items accepts `password|secret|notes|twoFactorType`
       # - PUT /api/vault/items/{id} accepts the same and re-encrypts
-      password: { type: secret, label: Password }
-      secret: { type: secret, label: Secret }
-      notes: { type: text, label: Notes }
+      # These are not physical DB columns (they live inside `secretBlobEncrypted`), so they must be virtual
+      # for drift validation purposes.
+      password: { type: secret, label: Password, virtual: true }
+      secret: { type: secret, label: Secret, virtual: true }
+      notes: { type: text, label: Notes, virtual: true }
       twoFactorType:
         type: select
         label: 2FA Type
+        virtual: true
         options:
           - { value: off, label: Off }
           - { value: qr, label: TOTP (QR/Secret) }

@@ -75,6 +75,14 @@ export async function GET(request: NextRequest) {
     // Build accessible vault IDs and folder IDs based on scope mode (explicit branching on none/own/ldd/any)
     const accessibleVaultIds = new Set<string>();
     const accessibleFolderIds = new Set<string>();
+
+    // Deployment invariant: exactly one shared vault for the system.
+    // ACLs must never grant access to personal vaults you do not own.
+    const sharedVaultRows = await db
+      .select({ id: vaultVaults.id })
+      .from(vaultVaults)
+      .where(eq(vaultVaults.type, 'shared'));
+    const sharedVaultIds = new Set<string>(sharedVaultRows.map((v: { id: string }) => v.id));
     
     if (mode === 'own' || mode === 'ldd') {
       // Only show folders in personal vaults owned by user
@@ -143,11 +151,33 @@ export async function GET(request: NextRequest) {
         // Get all descendant folders (children, grandchildren, etc.) of folders the user has access to
         const allAccessibleFolderIds = await aclUtils.getDescendantFolderIds(db, directAccessFolderIds);
         
-        // Add all accessible folders (direct + descendants) to the set
-        for (const folderId of allAccessibleFolderIds) {
-          accessibleFolderIds.add(folderId);
+        // Add all accessible folders (direct + descendants) to the set, but ONLY if they belong
+        // to the shared vault (ACLs must not expose personal vault folders).
+        if (allAccessibleFolderIds.size > 0 && sharedVaultIds.size > 0) {
+          const allowed = await db
+            .select({ id: vaultFolders.id })
+            .from(vaultFolders)
+            .where(and(
+              inArray(vaultFolders.id, Array.from(allAccessibleFolderIds)),
+              inArray(vaultFolders.vaultId, Array.from(sharedVaultIds))
+            ));
+          for (const f of allowed) accessibleFolderIds.add(f.id);
         }
       }
+    }
+
+    // SECURITY INVARIANT:
+    // ACLs must never grant visibility into *personal* vaults you do not own.
+    // Shared is the only ACL-governed surface in this deployment model.
+    if (sharedVaultIds.size > 0) {
+      const next = new Set<string>();
+      for (const id of userPersonalVaultIds) next.add(id); // always allow your own personal vaults
+      // allow shared vault IDs only (whether discovered via ACL or admin bootstrapping)
+      for (const id of accessibleVaultIds) {
+        if (sharedVaultIds.has(id)) next.add(id);
+      }
+      accessibleVaultIds.clear();
+      for (const id of next) accessibleVaultIds.add(id);
     }
     
     // If no accessible vaults and no accessible folders, return empty

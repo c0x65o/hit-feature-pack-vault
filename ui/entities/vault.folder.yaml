@@ -44,16 +44,9 @@ entities:
         createdAt: false
         createdBy: false
       columns:
-        - key: name
-          label: Name
-          sortable: true
-          filterType: string
-        - key: path
-          label: Path
-          filterType: string
-        - key: createdAt
-          label: Created
-          sortable: true
+        - name
+        - path
+        - createdAt
         - key: actions
           label: ""
           sortable: false
