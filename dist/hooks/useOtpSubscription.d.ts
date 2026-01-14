@@ -1,9 +1,7 @@
 /**
  * OTP Subscription Hook
  *
- * Provides real-time OTP code notifications via WebSocket.
- * Uses the HIT Events SDK when available; if WebSocket isn't available/connected,
- * we surface a disconnected state (no polling fallback).
+ * Provides real-time OTP notifications via websocket-core (first-party).
  */
 import { type OtpExtractionResult } from '../utils/otp-extractor';
 /**

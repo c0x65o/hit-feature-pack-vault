@@ -1,7 +1,7 @@
 /**
  * Event publishing utility for vault feature pack
  *
- * Publishes events to websocket-core (DB-backed, first-party) for real-time delivery.
+ * Publishes events to websocket-core (first-party).
  * Used for instant OTP code notifications.
  */
 
@@ -34,16 +34,10 @@ export async function publishVaultEvent(
     return { success: false, error: 'Vault realtime OTP is disabled' };
   }
 
-  const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
-
   try {
+    const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
     const db = getDb();
-    await publishWsEvent(db as any, {
-      projectSlug,
-      topic: eventType,
-      payload,
-      source: 'fp.vault',
-    });
+    await publishWsEvent(db as any, { projectSlug, topic: eventType, payload, source: 'fp.vault' });
     return { success: true, subscribers: 0 };
   } catch (error) {
     console.error('[vault] Failed to publish realtime event:', error);

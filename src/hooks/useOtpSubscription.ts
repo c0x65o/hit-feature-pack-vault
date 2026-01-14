@@ -2,7 +2,6 @@
  * OTP Subscription Hook
  *
  * Provides real-time OTP notifications via websocket-core (first-party).
- * This is same-origin and cookie-authenticated (no external events module).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -43,7 +42,6 @@ function getVaultRealtimeOtpConfig(): { enabled: boolean; eventType: string } {
   }
 }
 
-// Global realtime client instance (shared)
 let realtimeClientInstance: ReturnType<typeof getRealtimeClient> | null = null;
 
 // Global WebSocket connection status (updated by the events client)
@@ -109,20 +107,13 @@ export function subscribeGlobalOtpConnectionType(
   return () => otpConnectionTypeListeners.delete(listener);
 }
 
-/**
- * Get or create the events client instance
- */
 async function getRealtime(): Promise<ReturnType<typeof getRealtimeClient>> {
   if (!realtimeClientInstance) {
     realtimeClientInstance = getRealtimeClient({
       wsPath: '/ws',
       clientName: 'vault-otp',
-      onStatusChange: (status) => {
-        notifyWsStatusChange(status);
-      },
-      onError: (error) => {
-        console.warn('[useOtpSubscription] WebSocket error:', error.message);
-      },
+      onStatusChange: (status) => notifyWsStatusChange(status),
+      onError: (error) => console.warn('[useOtpSubscription] WebSocket error:', error.message),
     });
   }
   return realtimeClientInstance;
@@ -490,7 +481,6 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
       }
 
       const client = await getRealtime();
-      console.log('[useOtpSubscription] Attempting WebSocket connection...');
 
       // Mark that we're attempting WebSocket
       usingWebSocketRef.current = true;
@@ -604,7 +594,6 @@ export async function getWebSocketStatus(): Promise<'connected' | 'connecting' |
  * The SDK loads in the background, so subsequent calls will return true if available.
  */
 export function isWebSocketAvailable(): boolean {
-  // websocket-core client exists; availability depends on gateway, but client is always usable.
   return typeof window !== 'undefined';
 }
 

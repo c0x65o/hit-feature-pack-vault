@@ -1,7 +1,7 @@
 /**
  * Event publishing utility for vault feature pack
  *
- * Publishes events to the HIT Events Module for real-time WebSocket delivery.
+ * Publishes events to websocket-core (first-party).
  * Used for instant OTP code notifications.
  */
 export interface VaultOtpEvent {
@@ -13,7 +13,7 @@ export interface VaultOtpEvent {
     receivedAt: string;
 }
 /**
- * Publish a vault event to the events module
+ * Publish a vault realtime event (best-effort)
  *
  * @param eventType - Event type (e.g., 'vault.otp_received')
  * @param payload - Event payload
