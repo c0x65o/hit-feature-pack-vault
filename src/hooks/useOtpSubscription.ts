@@ -1,14 +1,14 @@
 /**
  * OTP Subscription Hook
- * 
- * Provides real-time OTP code notifications via WebSocket.
- * Uses the HIT Events SDK when available; if WebSocket isn't available/connected,
- * we surface a disconnected state (no polling fallback).
+ *
+ * Provides real-time OTP notifications via websocket-core (first-party).
+ * This is same-origin and cookie-authenticated (no external events module).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { vaultApi } from '../services/vault-api';
 import { extractOtpWithConfidence, type OtpExtractionResult } from '../utils/otp-extractor';
+import { getRealtimeClient } from '@hit/feature-pack-websocket-core/client';
 
 // OTP codes older than this are considered stale and not treated as "new"
 const OTP_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -43,47 +43,8 @@ function getVaultRealtimeOtpConfig(): { enabled: boolean; eventType: string } {
   }
 }
 
-// Try to import HIT SDK events - may not be available in all setups
-// Use ES6 imports (not require) for browser compatibility
-let HitEventsClass: any = null;
-let getWebSocketUrlFn: any = null;
-let sdkLoadPromise: Promise<void> | null = null;
-
-// Use a function to lazily import the SDK (avoids top-level await issues)
-async function loadHitSdk() {
-  if (HitEventsClass) {
-    return; // Already loaded
-  }
-  
-  if (sdkLoadPromise) {
-    return sdkLoadPromise; // Already loading
-  }
-  
-  sdkLoadPromise = (async () => {
-    try {
-      // Dynamic import - works in browser environments (Next.js client components)
-      const hitSdk = await import('@hit/sdk');
-      HitEventsClass = hitSdk.HitEvents;
-      getWebSocketUrlFn = hitSdk.getWebSocketUrl;
-      console.log('[useOtpSubscription] HIT SDK loaded successfully, HitEvents available:', !!HitEventsClass);
-    } catch (e) {
-      // SDK not available - realtime will remain disconnected
-      console.log('[useOtpSubscription] HIT SDK not available, realtime will remain disconnected. Error:', e);
-    }
-  })();
-  
-  return sdkLoadPromise;
-}
-
-// Pre-load SDK in the background (non-blocking)
-if (typeof window !== 'undefined') {
-  loadHitSdk().catch(() => {
-    // Ignore errors - realtime will remain disconnected
-  });
-}
-
-// Global events client instance (created lazily when needed)
-let eventsClientInstance: any = null;
+// Global realtime client instance (shared)
+let realtimeClientInstance: ReturnType<typeof getRealtimeClient> | null = null;
 
 // Global WebSocket connection status (updated by the events client)
 let globalWsStatus: 'connecting' | 'connected' | 'disconnected' | 'error' = 'disconnected';
@@ -151,49 +112,20 @@ export function subscribeGlobalOtpConnectionType(
 /**
  * Get or create the events client instance
  */
-async function getEventsClient(): Promise<any> {
-  // Ensure SDK is loaded
-  await loadHitSdk();
-  
-  if (!HitEventsClass) {
-    return null;
-  }
-  
-  if (!eventsClientInstance) {
-    // Get WebSocket URL from environment (same approach as hit-hello-world-ts)
-    const EVENTS_WS_URL = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_EVENTS_WS_URL 
-      ? process.env.NEXT_PUBLIC_HIT_EVENTS_WS_URL 
-      : (getWebSocketUrlFn ? getWebSocketUrlFn('events') : '');
-    
-    // Get project slug/channel from environment
-    // IMPORTANT: Must match HIT_PROJECT_SLUG used by server-side publish-event.ts
-    // Default to 'hit-dashboard' to match the server's default
-    const EVENTS_CHANNEL = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_EVENTS_CHANNEL 
-      ? process.env.NEXT_PUBLIC_HIT_EVENTS_CHANNEL 
-      : (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_HIT_PROJECT_SLUG
-        ? process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG
-        : 'hit-dashboard');
-    
-    console.log('[useOtpSubscription] Creating events client with:', {
-      wsUrl: EVENTS_WS_URL || '(auto-discover)',
-      channel: EVENTS_CHANNEL,
-    });
-    
-    eventsClientInstance = new HitEventsClass({
-      baseUrl: EVENTS_WS_URL,
-      projectSlug: EVENTS_CHANNEL,
-      useSSE: false, // Use WebSocket
-      onStatusChange: (status: 'connecting' | 'connected' | 'disconnected' | 'error') => {
-        console.log('[useOtpSubscription] WebSocket status changed:', status);
+async function getRealtime(): Promise<ReturnType<typeof getRealtimeClient>> {
+  if (!realtimeClientInstance) {
+    realtimeClientInstance = getRealtimeClient({
+      wsPath: '/ws',
+      clientName: 'vault-otp',
+      onStatusChange: (status) => {
         notifyWsStatusChange(status);
       },
-      onError: (error: Error) => {
+      onError: (error) => {
         console.warn('[useOtpSubscription] WebSocket error:', error.message);
       },
     });
   }
-  
-  return eventsClientInstance;
+  return realtimeClientInstance;
 }
 
 /**
@@ -549,29 +481,23 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
 
       // If we already have a subscription, don't re-subscribe.
       if (subscriptionRef.current) {
-        const eventsClient = await getEventsClient();
-        const actualStatus = eventsClient?.getStatus?.() || globalWsStatus;
+        const client = await getRealtime();
+        const actualStatus = client?.getStatus?.() || globalWsStatus;
         console.log('[useOtpSubscription] WebSocket already has an active subscription; status:', actualStatus);
         usingWebSocketRef.current = actualStatus === 'connected' || actualStatus === 'connecting';
         if (actualStatus === 'connected') setConnectionType('websocket');
         return actualStatus === 'connected' || actualStatus === 'connecting';
       }
 
-      const eventsClient = await getEventsClient();
-      console.log('[useOtpSubscription] Attempting WebSocket connection, eventsClient available:', !!eventsClient);
-      
-      if (!eventsClient) {
-        console.log('[useOtpSubscription] WebSocket not attempted: eventsClient is null/undefined. HIT SDK may not be installed or initialized.');
-        usingWebSocketRef.current = false;
-        return false;
-      }
+      const client = await getRealtime();
+      console.log('[useOtpSubscription] Attempting WebSocket connection...');
 
       // Mark that we're attempting WebSocket
       usingWebSocketRef.current = true;
 
       console.log('[useOtpSubscription] Subscribing to OTP event via WebSocket:', realtimeCfg.eventType);
       // Subscribe to vault OTP events - this triggers the WebSocket connection
-      subscriptionRef.current = (eventsClient as any).subscribe(
+      subscriptionRef.current = (client as any).subscribe(
         realtimeCfg.eventType,
         (event: { payload: OtpNotification }) => {
           handleOtpNotification(event.payload);
@@ -579,7 +505,7 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
       );
 
       // Check the actual WebSocket status from the client
-      const actualStatus = eventsClient.getStatus?.() || globalWsStatus;
+      const actualStatus = client.getStatus?.() || globalWsStatus;
       console.log('[useOtpSubscription] Actual WebSocket status:', actualStatus);
       
       // Set connectionType based on real status
@@ -668,12 +594,8 @@ export function useOtpSubscription(options: UseOtpSubscriptionOptions = {}): Use
  * Get the current WebSocket connection status
  */
 export async function getWebSocketStatus(): Promise<'connected' | 'connecting' | 'disconnected' | 'error' | 'unavailable'> {
-  await loadHitSdk();
-  const eventsClient = await getEventsClient();
-  if (!eventsClient) {
-    return 'unavailable';
-  }
-  return eventsClient.getStatus();
+  const c = await getRealtime();
+  return c.getStatus();
 }
 
 /**
@@ -682,13 +604,8 @@ export async function getWebSocketStatus(): Promise<'connected' | 'connecting' |
  * The SDK loads in the background, so subsequent calls will return true if available.
  */
 export function isWebSocketAvailable(): boolean {
-  // Trigger background load if not already started
-  if (!sdkLoadPromise && typeof window !== 'undefined') {
-    loadHitSdk().catch(() => {
-      // Ignore errors
-    });
-  }
-  return HitEventsClass !== null;
+  // websocket-core client exists; availability depends on gateway, but client is always usable.
+  return typeof window !== 'undefined';
 }
 
 // -----------------------------------------------------------------------------
@@ -712,14 +629,10 @@ export async function ensureVaultRealtimeConnection(): Promise<() => void> {
     return () => {};
   }
 
-  const eventsClient = await getEventsClient();
-  if (!eventsClient) {
-    return () => {};
-  }
-
   if (!_keepaliveSub) {
     try {
-      _keepaliveSub = (eventsClient as any).subscribe(
+      const client = await getRealtime();
+      _keepaliveSub = (client as any).subscribe(
         realtimeCfg.eventType,
         // Keepalive subscription: no-op handler (we only want the connection)
         () => {}

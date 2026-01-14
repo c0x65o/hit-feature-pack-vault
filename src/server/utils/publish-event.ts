@@ -1,7 +1,7 @@
 /**
  * Event publishing utility for vault feature pack
- * 
- * Publishes events to the HIT Events Module for real-time WebSocket delivery.
+ *
+ * Publishes events to websocket-core (DB-backed, first-party) for real-time delivery.
  * Used for instant OTP code notifications.
  */
 
@@ -16,10 +16,12 @@ export interface VaultOtpEvent {
 }
 
 import { getVaultRealtimeConfig } from './vault-config';
+import { getDb } from '@/lib/db';
+import { publishWsEvent } from '@hit/feature-pack-websocket-core/server';
 
 /**
- * Publish a vault event to the events module
- * 
+ * Publish a vault realtime event (best-effort)
+ *
  * @param eventType - Event type (e.g., 'vault.otp_received')
  * @param payload - Event payload
  */
@@ -32,47 +34,19 @@ export async function publishVaultEvent(
     return { success: false, error: 'Vault realtime OTP is disabled' };
   }
 
-  const eventsUrl = process.env.HIT_EVENTS_URL || process.env.NEXT_PUBLIC_HIT_EVENTS_URL;
-  
-  if (!eventsUrl) {
-    console.log('[vault] Events module not configured - skipping event publish');
-    return { success: false, error: 'Events module not configured' };
-  }
-
   const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
-  const serviceToken = process.env.HIT_SERVICE_TOKEN;
-
-  console.log(`[vault] Publishing event '${eventType}' to channel '${projectSlug}' at ${eventsUrl}`);
 
   try {
-    const url = `${eventsUrl.replace(/\/$/, '')}/publish?event_type=${encodeURIComponent(eventType)}`;
-    
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-HIT-Project-Slug': projectSlug,
-    };
-    
-    if (serviceToken) {
-      headers['X-HIT-Service-Token'] = serviceToken;
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
+    const db = getDb();
+    await publishWsEvent(db as any, {
+      projectSlug,
+      topic: eventType,
+      payload,
+      source: 'fp.vault',
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[vault] Failed to publish event: ${response.status} - ${errorText}`);
-      return { success: false, error: `HTTP ${response.status}` };
-    }
-
-    const result = await response.json();
-    console.log(`[vault] Published event '${eventType}' (${result.subscribers || 0} subscribers)`);
-    return { success: true, subscribers: result.subscribers };
+    return { success: true, subscribers: 0 };
   } catch (error) {
-    console.error('[vault] Failed to publish event:', error);
+    console.error('[vault] Failed to publish realtime event:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
