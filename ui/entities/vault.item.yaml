@@ -32,15 +32,12 @@ entities:
         - kind: action
           actionKey: vault.copyUsername
           label: Copy Username
-          platforms: [web]
         - kind: action
           actionKey: vault.copyPassword
           label: Copy Password
-          platforms: [web]
         - kind: action
           actionKey: vault.generateTotp
           label: OTP
-          platforms: [web]
 
     storage:
       drizzleTable: vaultItems

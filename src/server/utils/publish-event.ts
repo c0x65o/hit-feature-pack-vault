@@ -35,9 +35,8 @@ export async function publishVaultEvent(
   }
 
   try {
-    const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
     const db = getDb();
-    await publishWsEvent(db as any, { projectSlug, topic: eventType, payload, source: 'fp.vault' });
+    await publishWsEvent(db as any, { topic: eventType, payload, source: 'fp.vault' });
     return { success: true, subscribers: 0 };
   } catch (error) {
     console.error('[vault] Failed to publish realtime event:', error);

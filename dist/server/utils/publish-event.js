@@ -19,9 +19,8 @@ export async function publishVaultEvent(eventType, payload) {
         return { success: false, error: 'Vault realtime OTP is disabled' };
     }
     try {
-        const projectSlug = process.env.HIT_PROJECT_SLUG || process.env.NEXT_PUBLIC_HIT_PROJECT_SLUG || 'hit-dashboard';
         const db = getDb();
-        await publishWsEvent(db, { projectSlug, topic: eventType, payload, source: 'fp.vault' });
+        await publishWsEvent(db, { topic: eventType, payload, source: 'fp.vault' });
         return { success: true, subscribers: 0 };
     }
     catch (error) {
