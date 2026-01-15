@@ -288,7 +288,7 @@ permissions:
     #
     # Scope modes:
     # - none: deny all access for this verb/entity (hide pages + block APIs)
-    # - any: ignore scope (read everything)
+    # - all: ignore scope (read everything)
     # - own: only owned records (personal vaults owned by user, or items/folders in personal vaults)
     # - ldd: same as own (vault entities don't have LDD fields, but personal vault ownership is checked)
     #
@@ -297,8 +297,8 @@ permissions:
       label: "Vault Read Scope = None"
       description: "Deny all vault read access."
       default_enabled: false
-    - key: vault.read.scope.any
-      label: "Vault Read Scope = Any"
+    - key: vault.read.scope.all
+      label: "Vault Read Scope = All"
       description: "Read all vault entities regardless of ownership."
       default_enabled: false
     - key: vault.read.scope.own
@@ -314,8 +314,8 @@ permissions:
       label: "Vault Write Scope = None"
       description: "Deny all vault write access."
       default_enabled: false
-    - key: vault.write.scope.any
-      label: "Vault Write Scope = Any"
+    - key: vault.write.scope.all
+      label: "Vault Write Scope = All"
       description: "Edit vault entities regardless of ownership."
       default_enabled: false
     - key: vault.write.scope.own
@@ -331,8 +331,8 @@ permissions:
       label: "Vault Delete Scope = None"
       description: "Deny all vault delete access."
       default_enabled: false
-    - key: vault.delete.scope.any
-      label: "Vault Delete Scope = Any"
+    - key: vault.delete.scope.all
+      label: "Vault Delete Scope = All"
       description: "Delete vault entities regardless of ownership."
       default_enabled: false
     - key: vault.delete.scope.own
@@ -349,8 +349,8 @@ permissions:
       label: "Vault Vaults Read Scope = None"
       description: "Deny all vault read access."
       default_enabled: false
-    - key: vault.vaults.read.scope.any
-      label: "Vault Vaults Read Scope = Any"
+    - key: vault.vaults.read.scope.all
+      label: "Vault Vaults Read Scope = All"
       description: "Read all vaults regardless of ownership."
       default_enabled: false
     - key: vault.vaults.read.scope.own
@@ -366,8 +366,8 @@ permissions:
       label: "Vault Vaults Write Scope = None"
       description: "Deny all vault write access."
       default_enabled: false
-    - key: vault.vaults.write.scope.any
-      label: "Vault Vaults Write Scope = Any"
+    - key: vault.vaults.write.scope.all
+      label: "Vault Vaults Write Scope = All"
       description: "Edit vaults regardless of ownership."
       default_enabled: false
     - key: vault.vaults.write.scope.own
@@ -383,8 +383,8 @@ permissions:
       label: "Vault Vaults Delete Scope = None"
       description: "Deny all vault delete access."
       default_enabled: false
-    - key: vault.vaults.delete.scope.any
-      label: "Vault Vaults Delete Scope = Any"
+    - key: vault.vaults.delete.scope.all
+      label: "Vault Vaults Delete Scope = All"
       description: "Delete vaults regardless of ownership."
       default_enabled: false
     - key: vault.vaults.delete.scope.own
@@ -406,8 +406,8 @@ permissions:
       label: "Vault Folders Read Scope = None"
       description: "Deny all folder read access."
       default_enabled: false
-    - key: vault.folders.read.scope.any
-      label: "Vault Folders Read Scope = Any"
+    - key: vault.folders.read.scope.all
+      label: "Vault Folders Read Scope = All"
       description: "Read all folders regardless of ownership."
       default_enabled: false
     - key: vault.folders.read.scope.own
@@ -423,8 +423,8 @@ permissions:
       label: "Vault Folders Write Scope = None"
       description: "Deny all folder write access."
       default_enabled: false
-    - key: vault.folders.write.scope.any
-      label: "Vault Folders Write Scope = Any"
+    - key: vault.folders.write.scope.all
+      label: "Vault Folders Write Scope = All"
       description: "Edit folders regardless of ownership."
       default_enabled: false
     - key: vault.folders.write.scope.own
@@ -440,8 +440,8 @@ permissions:
       label: "Vault Folders Delete Scope = None"
       description: "Deny all folder delete access."
       default_enabled: false
-    - key: vault.folders.delete.scope.any
-      label: "Vault Folders Delete Scope = Any"
+    - key: vault.folders.delete.scope.all
+      label: "Vault Folders Delete Scope = All"
       description: "Delete folders regardless of ownership."
       default_enabled: false
     - key: vault.folders.delete.scope.own
@@ -463,8 +463,8 @@ permissions:
       label: "Vault Items Read Scope = None"
       description: "Deny all item read access."
       default_enabled: false
-    - key: vault.items.read.scope.any
-      label: "Vault Items Read Scope = Any"
+    - key: vault.items.read.scope.all
+      label: "Vault Items Read Scope = All"
       description: "Read all items regardless of ownership."
       default_enabled: false
     - key: vault.items.read.scope.own
@@ -480,8 +480,8 @@ permissions:
       label: "Vault Items Write Scope = None"
       description: "Deny all item write access."
       default_enabled: false
-    - key: vault.items.write.scope.any
-      label: "Vault Items Write Scope = Any"
+    - key: vault.items.write.scope.all
+      label: "Vault Items Write Scope = All"
       description: "Edit items regardless of ownership."
       default_enabled: false
     - key: vault.items.write.scope.own
@@ -497,8 +497,8 @@ permissions:
       label: "Vault Items Delete Scope = None"
       description: "Deny all item delete access."
       default_enabled: false
-    - key: vault.items.delete.scope.any
-      label: "Vault Items Delete Scope = Any"
+    - key: vault.items.delete.scope.all
+      label: "Vault Items Delete Scope = All"
       description: "Delete items regardless of ownership."
       default_enabled: false
     - key: vault.items.delete.scope.own
