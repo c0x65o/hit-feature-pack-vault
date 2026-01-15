@@ -45,12 +45,6 @@ export declare class VaultApiClient {
         expiresAt: string;
     }>;
     removeTotp(itemId: string): Promise<void>;
-    requestSms2fa(itemId: string, phoneNumber: string): Promise<{
-        success: boolean;
-        messageSid: string;
-        status: string;
-        message: string;
-    }>;
     getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]>;
     provisionSmsNumber(vaultId: string, itemId?: string): Promise<VaultSmsNumber>;
     deleteSmsNumber(id: string): Promise<void>;

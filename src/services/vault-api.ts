@@ -231,19 +231,6 @@ export class VaultApiClient {
     });
   }
 
-  // SMS 2FA
-  async requestSms2fa(itemId: string, phoneNumber: string): Promise<{
-    success: boolean;
-    messageSid: string;
-    status: string;
-    message: string;
-  }> {
-    return this.request(`/items/${itemId}/sms/request`, {
-      method: 'POST',
-      body: JSON.stringify({ phoneNumber }),
-    });
-  }
-
   // SMS
   async getSmsNumbers(vaultId?: string, itemId?: string): Promise<VaultSmsNumber[]> {
     const params = new URLSearchParams();

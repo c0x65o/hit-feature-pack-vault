@@ -179,13 +179,6 @@ export class VaultApiClient {
             method: 'DELETE',
         });
     }
-    // SMS 2FA
-    async requestSms2fa(itemId, phoneNumber) {
-        return this.request(`/items/${itemId}/sms/request`, {
-            method: 'POST',
-            body: JSON.stringify({ phoneNumber }),
-        });
-    }
     // SMS
     async getSmsNumbers(vaultId, itemId) {
         const params = new URLSearchParams();
