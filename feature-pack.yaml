@@ -2,6 +2,7 @@
 # Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
 
 name: vault
+title: Vault
 description: Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
 
 # ─────────────────────────────────────────────────────────────────────────────
