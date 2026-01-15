@@ -27,6 +27,7 @@ routes:
     page: VaultSetup
     roles: [admin]  # Admin only - configure project SMS 2FA phone number and view inbox for debugging
     default_roles_allow: [admin]
+    authz: { entity: setup, verb: read, require_action: vault.setup.access, show_pages: true }
   - path: /vault/items/[itemId]
     page: ItemDetail
     roles: []
@@ -285,6 +286,12 @@ api:
 # ─────────────────────────────────────────────────────────────────────────────
 permissions:
   actions:
+    # Vault pages with explicit access toggles.
+    - key: vault.setup.access
+      label: "Vault Setup"
+      description: "Access vault setup (admin configuration)."
+      default_enabled: false
+
     # Scope Policy Tree: Vault (global) -> entity overrides.
     #
     # Scope modes:
