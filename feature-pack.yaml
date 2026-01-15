@@ -291,7 +291,6 @@ permissions:
     # - none: deny all access for this verb/entity (hide pages + block APIs)
     # - all: ignore scope (read everything)
     # - own: only owned records (personal vaults owned by user, or items/folders in personal vaults)
-    # - ldd: same as own (vault entities don't have LDD fields, but personal vault ownership is checked)
     #
     # These are mutually exclusive per node; the Security Groups UI renders them as dropdowns.
     - key: vault.read.scope.none
@@ -306,10 +305,6 @@ permissions:
       label: "Vault Read Scope = Own"
       description: "Read only vault entities you own (personal vaults or items/folders in personal vaults)."
       default_enabled: false
-    - key: vault.read.scope.ldd
-      label: "Vault Read Scope = LDD"
-      description: "Read vault entities (same as own, since vault entities don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.write.scope.none
       label: "Vault Write Scope = None"
@@ -323,10 +318,6 @@ permissions:
       label: "Vault Write Scope = Own"
       description: "Edit only vault entities you own (personal vaults or items/folders in personal vaults)."
       default_enabled: false
-    - key: vault.write.scope.ldd
-      label: "Vault Write Scope = LDD"
-      description: "Edit vault entities (same as own, since vault entities don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.delete.scope.none
       label: "Vault Delete Scope = None"
@@ -339,10 +330,6 @@ permissions:
     - key: vault.delete.scope.own
       label: "Vault Delete Scope = Own"
       description: "Delete only vault entities you own (personal vaults or items/folders in personal vaults)."
-      default_enabled: false
-    - key: vault.delete.scope.ldd
-      label: "Vault Delete Scope = LDD"
-      description: "Delete vault entities (same as own, since vault entities don't have LDD fields)."
       default_enabled: false
 
     # Vaults entity override
@@ -358,10 +345,6 @@ permissions:
       label: "Vault Vaults Read Scope = Own"
       description: "Read only personal vaults you own."
       default_enabled: false
-    - key: vault.vaults.read.scope.ldd
-      label: "Vault Vaults Read Scope = LDD"
-      description: "Read vaults (same as own, since vaults don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.vaults.write.scope.none
       label: "Vault Vaults Write Scope = None"
@@ -375,10 +358,6 @@ permissions:
       label: "Vault Vaults Write Scope = Own"
       description: "Edit only personal vaults you own."
       default_enabled: false
-    - key: vault.vaults.write.scope.ldd
-      label: "Vault Vaults Write Scope = LDD"
-      description: "Edit vaults (same as own, since vaults don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.vaults.delete.scope.none
       label: "Vault Vaults Delete Scope = None"
@@ -391,10 +370,6 @@ permissions:
     - key: vault.vaults.delete.scope.own
       label: "Vault Vaults Delete Scope = Own"
       description: "Delete only personal vaults you own."
-      default_enabled: false
-    - key: vault.vaults.delete.scope.ldd
-      label: "Vault Vaults Delete Scope = LDD"
-      description: "Delete vaults (same as own, since vaults don't have LDD fields)."
       default_enabled: false
 
     - key: vault.vaults.create
@@ -415,10 +390,6 @@ permissions:
       label: "Vault Folders Read Scope = Own"
       description: "Read only folders in personal vaults you own."
       default_enabled: false
-    - key: vault.folders.read.scope.ldd
-      label: "Vault Folders Read Scope = LDD"
-      description: "Read folders (same as own, since folders don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.folders.write.scope.none
       label: "Vault Folders Write Scope = None"
@@ -432,10 +403,6 @@ permissions:
       label: "Vault Folders Write Scope = Own"
       description: "Edit only folders in personal vaults you own."
       default_enabled: false
-    - key: vault.folders.write.scope.ldd
-      label: "Vault Folders Write Scope = LDD"
-      description: "Edit folders (same as own, since folders don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.folders.delete.scope.none
       label: "Vault Folders Delete Scope = None"
@@ -448,10 +415,6 @@ permissions:
     - key: vault.folders.delete.scope.own
       label: "Vault Folders Delete Scope = Own"
       description: "Delete only folders in personal vaults you own."
-      default_enabled: false
-    - key: vault.folders.delete.scope.ldd
-      label: "Vault Folders Delete Scope = LDD"
-      description: "Delete folders (same as own, since folders don't have LDD fields)."
       default_enabled: false
 
     - key: vault.folders.create
@@ -472,10 +435,6 @@ permissions:
       label: "Vault Items Read Scope = Own"
       description: "Read only items in personal vaults you own."
       default_enabled: false
-    - key: vault.items.read.scope.ldd
-      label: "Vault Items Read Scope = LDD"
-      description: "Read items (same as own, since items don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.items.write.scope.none
       label: "Vault Items Write Scope = None"
@@ -489,10 +448,6 @@ permissions:
       label: "Vault Items Write Scope = Own"
       description: "Edit only items in personal vaults you own."
       default_enabled: false
-    - key: vault.items.write.scope.ldd
-      label: "Vault Items Write Scope = LDD"
-      description: "Edit items (same as own, since items don't have LDD fields)."
-      default_enabled: false
 
     - key: vault.items.delete.scope.none
       label: "Vault Items Delete Scope = None"
@@ -505,10 +460,6 @@ permissions:
     - key: vault.items.delete.scope.own
       label: "Vault Items Delete Scope = Own"
       description: "Delete only items in personal vaults you own."
-      default_enabled: false
-    - key: vault.items.delete.scope.ldd
-      label: "Vault Items Delete Scope = LDD"
-      description: "Delete items (same as own, since items don't have LDD fields)."
       default_enabled: false
 
     - key: vault.items.create
