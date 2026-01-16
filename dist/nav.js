@@ -28,14 +28,6 @@ export const navContributions = [
                 weight: 110,
                 showWhen: 'authenticated',
             },
-            {
-                id: 'vault-import',
-                label: 'Import',
-                path: '/vault/import',
-                icon: 'Upload',
-                weight: 120,
-                showWhen: 'authenticated',
-            },
         ],
     },
 ];

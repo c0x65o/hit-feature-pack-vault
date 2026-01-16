@@ -1,19 +1,15 @@
 # Feature Pack: vault
-# Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
+# Password management and 2FA vault with team sharing, folders, TOTP, and SMS inbox
 
 name: vault
 title: Vault
-description: Password management and 2FA vault with team sharing, folders, CSV import, TOTP, and SMS inbox
+description: Password management and 2FA vault with team sharing, folders, TOTP, and SMS inbox
 
 routes:
   - path: /vault
     page: VaultLanding
     roles: []
     authz: { entity: vaults, verb: read }
-  - path: /vault/import
-    page: ImportCSV
-    roles: []
-    authz: { entity: items, verb: write, require_create: true }
   - path: /vault/setup
     page: VaultSetup
     roles: [admin]
@@ -48,12 +44,6 @@ nav:
         path: /vault
         icon: Lock
         weight: 100
-        showWhen: authenticated
-      - id: vault-import
-        label: Import
-        path: /vault/import
-        icon: Upload
-        weight: 110
         showWhen: authenticated
       - id: vault-setup
         label: Setup

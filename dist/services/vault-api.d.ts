@@ -94,24 +94,6 @@ export declare class VaultApiClient {
         hasTotp?: boolean;
         hasSms?: boolean;
     }): Promise<VaultItem[]>;
-    previewCsvImport(file: File, vaultId: string, folderId?: string): Promise<{
-        preview: Array<Record<string, any>>;
-        mappings: Record<string, string>;
-        conflicts: Array<{
-            row: number;
-            reason: string;
-        }>;
-    }>;
-    commitCsvImport(data: {
-        vaultId: string;
-        folderId?: string;
-        mappings: Record<string, string>;
-        conflictStrategy: 'create' | 'update' | 'skip';
-    }): Promise<{
-        imported: number;
-        updated: number;
-        skipped: number;
-    }>;
     getAuditEvents(filters?: {
         resourceType?: string;
         resourceId?: string;

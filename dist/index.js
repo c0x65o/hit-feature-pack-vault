@@ -1,7 +1,7 @@
 /**
  * @hit/feature-pack-vault
  *
- * Password management and 2FA vault feature pack with team sharing, folders, CSV import, TOTP, and SMS inbox.
+ * Password management and 2FA vault feature pack with team sharing, folders, TOTP, and SMS inbox.
  *
  * Components are exported individually for optimal tree-shaking.
  * When used with the route loader system, only the requested component is bundled.
@@ -14,7 +14,6 @@ export { SharedVaultDetail, default as SharedVaultDetailPage } from './pages/Sha
 export { FolderView, default as FolderViewPage } from './pages/FolderView';
 export { ItemDetail, default as ItemDetailPage } from './pages/ItemDetail';
 export { ItemEdit, default as ItemEditPage } from './pages/ItemEdit';
-export { ImportCSV, default as ImportCSVPage } from './pages/ImportCSV';
 export { GroupManagement, default as GroupManagementPage } from './pages/GroupManagement';
 export { PhoneNumberSetup, default as PhoneNumberSetupPage } from './pages/PhoneNumberSetup';
 export { VaultSetup, default as VaultSetupPage } from './pages/VaultSetup';

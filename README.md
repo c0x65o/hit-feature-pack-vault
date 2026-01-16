@@ -1,6 +1,6 @@
 # @hit/feature-pack-vault
 
-Password management and 2FA vault feature pack with team sharing, folders, CSV import, TOTP, and SMS inbox.
+Password management and 2FA vault feature pack with team sharing, folders, TOTP, and SMS inbox.
 
 ## Features
 
@@ -10,7 +10,6 @@ Password management and 2FA vault feature pack with team sharing, folders, CSV i
 - **Credential Items**: Store passwords, usernames, URLs, notes, and tags
 - **2FA TOTP**: Import and generate TOTP codes from authenticator apps
 - **SMS Inbox**: Provision phone numbers for receiving OTP codes via SMS
-- **CSV Import**: Bulk import passwords from CSV files with preview and mapping
 - **Access Control**: Fine-grained permissions (view, reveal, edit, share, etc.)
 - **Audit Logging**: Comprehensive audit trail for all sensitive actions
 - **Dynamic/Static Groups**: Supports dynamic groups from auth module or falls back to static groups/roles
@@ -113,8 +112,6 @@ The feature pack expects the following API routes to be implemented:
 - `/api/vault/acl` - ACL management
 - `/api/vault/sms/numbers` - SMS number provisioning
 - `/api/vault/sms/webhook/inbound` - Inbound SMS webhook
-- `/api/vault/import/csv/preview` - CSV import preview
-- `/api/vault/import/csv/commit` - Commit CSV import
 - `/api/vault/search` - Search items
 - `/api/vault/audit` - Audit log access
 
@@ -134,8 +131,6 @@ The feature pack uses a fine-grained permission system:
 - `REVEAL_TOTP_SECRET` - Reveal TOTP secret (admin only)
 - `READ_SMS` - Read SMS inbox
 - `MANAGE_SMS` - Provision/manage SMS numbers
-- `IMPORT` - Import items into folder
-
 ## Group Management
 
 The feature pack supports two group modes:

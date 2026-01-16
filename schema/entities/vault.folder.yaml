@@ -25,6 +25,24 @@ entities:
         deleteConfirmTitle: Delete Folder
         deleteConfirmBody: Are you sure you want to delete "{name}"? This action cannot be undone.
 
+    # Schema-driven page security (source of truth for EntityList/Detail/Edit pages).
+    security:
+      list:
+        roles: []
+        authz: { entity: folders, verb: read }
+      detail:
+        roles: []
+        authz: { entity: folders, verb: read }
+      new:
+        roles: []
+        authz: { entity: folders, verb: write, require_create: true }
+      edit:
+        roles: []
+        authz: { entity: folders, verb: write }
+
+    api:
+      resource: folders
+
     storage:
       drizzleTable: vaultFolders
 

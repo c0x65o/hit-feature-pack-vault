@@ -1,0 +1,29 @@
+version: 1
+
+# Special API routes (non-CRUD).
+#
+# CRUD routes for schema-driven entities are derived from `entities.*.api.resource`.
+# This file exists to declare the *additional* routes Vault needs (move/reveal/copy, etc.)
+# so `hit schema validate` can enforce consistency between schema and `feature-pack.yaml`.
+api:
+  routes:
+    # Folders
+    - path: /api/vault/folders/[id]/move
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/folders-move"
+      description: "Move folder to new parent"
+
+    # Items
+    - path: /api/vault/items/[id]/reveal
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-reveal"
+      description: "Reveal decrypted password/secret (audited)"
+    - path: /api/vault/items/[id]/copy
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-copy"
+      description: "Copy password to clipboard (audited)"
+    - path: /api/vault/items/[id]/move
+      methods: [POST]
+      handler: "@hit/feature-pack-vault/server/api/items-move"
+      description: "Move item to new folder"
+

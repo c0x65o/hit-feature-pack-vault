@@ -348,41 +348,6 @@ export class VaultApiClient {
     return response.items || [];
   }
 
-  // Import
-  async previewCsvImport(file: File, vaultId: string, folderId?: string): Promise<{
-    preview: Array<Record<string, any>>;
-    mappings: Record<string, string>;
-    conflicts: Array<{ row: number; reason: string }>;
-  }> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('vaultId', vaultId);
-    if (folderId) formData.append('folderId', folderId);
-
-    const response = await fetch(`${this.baseUrl}${API_BASE}/import/csv/preview`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return response.json();
-  }
-
-  async commitCsvImport(data: {
-    vaultId: string;
-    folderId?: string;
-    mappings: Record<string, string>;
-    conflictStrategy: 'create' | 'update' | 'skip';
-  }): Promise<{ imported: number; updated: number; skipped: number }> {
-    return this.request('/import/csv/commit', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
   // Audit
   async getAuditEvents(filters?: {
     resourceType?: string;

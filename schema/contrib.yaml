@@ -1,0 +1,15 @@
+version: 1
+
+# Pack contribution registry (schema-visible).
+#
+# Used by `hit schema validate` to ensure schema-declared “special” UI
+# (like meta.headerActions with actionKey) is actually provided by the feature pack.
+contrib:
+  actionHandlers:
+    - key: vault.copyUsername
+      description: "Copy the item's username to clipboard."
+    - key: vault.copyPassword
+      description: "Reveal (audited) then copy the item's secret/password to clipboard."
+    - key: vault.generateTotp
+      description: "Generate a TOTP code (from revealed secret) and copy it to clipboard."
+

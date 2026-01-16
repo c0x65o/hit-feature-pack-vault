@@ -39,6 +39,24 @@ entities:
           actionKey: vault.generateTotp
           label: OTP
 
+    # Schema-driven page security (source of truth for EntityList/Detail/Edit pages).
+    security:
+      list:
+        roles: []
+        authz: { entity: items, verb: read }
+      detail:
+        roles: []
+        authz: { entity: items, verb: read }
+      new:
+        roles: []
+        authz: { entity: items, verb: write, require_create: true }
+      edit:
+        roles: []
+        authz: { entity: items, verb: write }
+
+    api:
+      resource: items
+
     storage:
       drizzleTable: vaultItems
 

@@ -265,28 +265,6 @@ export class VaultApiClient {
         const response = await this.request(`/search?${params.toString()}`);
         return response.items || [];
     }
-    // Import
-    async previewCsvImport(file, vaultId, folderId) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('vaultId', vaultId);
-        if (folderId)
-            formData.append('folderId', folderId);
-        const response = await fetch(`${this.baseUrl}${API_BASE}/import/csv/preview`, {
-            method: 'POST',
-            body: formData,
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json();
-    }
-    async commitCsvImport(data) {
-        return this.request('/import/csv/commit', {
-            method: 'POST',
-            body: JSON.stringify(data),
-        });
-    }
     // Audit
     async getAuditEvents(filters) {
         const params = new URLSearchParams();
