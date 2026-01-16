@@ -67,9 +67,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }) {
         }
         // Fallback: ask auth module
         try {
-            const authUrl = typeof window !== 'undefined'
-                ? window.NEXT_PUBLIC_HIT_AUTH_URL || '/api/proxy/auth'
-                : '/api/proxy/auth';
+            const authUrl = '/api/auth';
             const res = await fetch(`${authUrl}/me`, { credentials: 'include' });
             if (!res.ok)
                 return false;
