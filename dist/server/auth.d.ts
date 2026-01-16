@@ -6,7 +6,6 @@ export interface User {
 }
 /**
  * Extract user from JWT token in cookies or Authorization header
- * Also checks x-user-id header (set by proxy/middleware in production)
  */
 export declare function extractUserFromRequest(request: NextRequest): User | null;
 /**
