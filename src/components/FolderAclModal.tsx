@@ -210,6 +210,9 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
       users: true,
       groups: true,
       roles: isAdminUser,
+      locations: isAdminUser,
+      divisions: isAdminUser,
+      departments: isAdminUser,
     },
     mode: 'hierarchical',
     hierarchicalPermissions: [
