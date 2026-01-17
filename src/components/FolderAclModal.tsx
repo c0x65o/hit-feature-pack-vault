@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUi } from '@hit/ui-kit';
-import type { AclEntry, AclPickerConfig, Principal } from '@hit/ui-kit';
+import type { AclEntry, AclPickerConfig, Principal, PrincipalType } from '@hit/ui-kit';
 import { AclPicker } from '@hit/ui-kit/components/AclPicker';
 import { createFetchPrincipals } from '@hit/feature-pack-auth-core';
 import { vaultApi } from '../services/vault-api';
@@ -150,7 +150,7 @@ export function FolderAclModal({ folderId, isOpen, onClose, onUpdate }: FolderAc
 
   const fetchPrincipals = useMemo(() => createFetchPrincipals({
     isAdmin: isAdminUser,
-    extraPrincipals: async (type: 'user' | 'group' | 'role', search?: string) => {
+    extraPrincipals: async (type: PrincipalType, search?: string) => {
       if (type !== 'group' || !isAdminUser) return [];
       
       const searchLower = search?.toLowerCase();
