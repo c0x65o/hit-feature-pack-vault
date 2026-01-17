@@ -64,6 +64,9 @@ entities:
         - name
         - path
         - createdAt
+        - vaultId
+        - parentId
+        - createdBy
         - key: actions
           label: ""
           sortable: false
@@ -75,7 +78,7 @@ entities:
       vaultId: { type: text, label: Vault ID, required: true }
       parentId: { type: text, label: Parent Folder ID }
       name: { type: text, label: Name, required: true }
-      path: { type: text, label: Path, virtual: true }
+      path: { type: text, label: Path }
       createdBy: { type: text, label: Created By }
       createdAt: { type: datetime, label: Created }
 

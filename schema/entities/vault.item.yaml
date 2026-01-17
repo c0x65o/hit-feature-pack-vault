@@ -72,8 +72,6 @@ entities:
         username: true
         url: true
         type: false
-        vaultId: false
-        folderId: false
         createdAt: false
         updatedAt: false
       columns:
